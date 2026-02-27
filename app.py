@@ -26,6 +26,9 @@ from reportlab.lib.units import mm
 app = Flask(__name__)
 UPLOAD_FOLDER = tempfile.mkdtemp()
 
+# Persistent master SKU file — stored next to app.py so it survives between requests
+MASTER_SKU_PATH = os.path.join(os.path.dirname(__file__), 'master_sku.xlsx')
+
 # ─────────────────────────────────────────────
 # HTML FRONTEND
 # ─────────────────────────────────────────────
@@ -438,17 +441,41 @@ def index():
     with open(os.path.join(os.path.dirname(__file__), 'templates', 'index.html'), 'r') as f:
         return Response(f.read(), mimetype='text/html')
 
+@app.route('/api/master-status')
+def master_status():
+    """Check if a master SKU file is stored on the server."""
+    exists = os.path.exists(MASTER_SKU_PATH)
+    mtime = None
+    if exists:
+        import datetime
+        mtime = datetime.datetime.fromtimestamp(os.path.getmtime(MASTER_SKU_PATH)).strftime('%d %b %Y, %H:%M')
+    return jsonify({'exists': exists, 'updated': mtime})
+
+@app.route('/api/upload-master', methods=['POST'])
+def upload_master():
+    """Save a new master SKU file, overwriting any existing one."""
+    sku_file = request.files.get('sku_csv')
+    if not sku_file:
+        return jsonify({'error': 'No file provided'}), 400
+    sku_file.save(MASTER_SKU_PATH)
+    import datetime
+    mtime = datetime.datetime.fromtimestamp(os.path.getmtime(MASTER_SKU_PATH)).strftime('%d %b %Y, %H:%M')
+    return jsonify({'ok': True, 'updated': mtime})
+
 @app.route('/api/sort', methods=['POST'])
 def sort_labels():
     try:
         # Save uploaded files
-        sku_file = request.files.get('sku_csv')
         pdf_files = request.files.getlist('pdfs')
 
-        if not sku_file or not pdf_files:
-            return jsonify({'error': 'Missing SKU CSV or PDF files'}), 400
+        if not pdf_files:
+            return jsonify({'error': 'No PDF files provided'}), 400
 
-        master = load_sku_master(sku_file.read())
+        if not os.path.exists(MASTER_SKU_PATH):
+            return jsonify({'error': 'No Master SKU file found on server. Please upload one first.'}), 400
+
+        with open(MASTER_SKU_PATH, 'rb') as f:
+            master = load_sku_master(f.read())
 
         # Save PDFs to temp
         pdf_paths = []
