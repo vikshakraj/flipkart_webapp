@@ -14,7 +14,7 @@ import os, re, io, json, tempfile, traceback
 from collections import defaultdict
 from pathlib import Path
 
-from flask import Flask, request, jsonify, send_file, render_template_string
+from flask import Flask, request, jsonify, send_file, render_template_string, Response
 import pdfplumber
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import A4
@@ -436,7 +436,7 @@ def build_summary_pdf(account_name, normal_pages, dual_pages, mixed_pages, unkno
 
 @app.route('/')
 def index():
-    return render_template_string(HTML)
+    return Response(HTML, mimetype='text/html')
 
 @app.route('/api/sort', methods=['POST'])
 def sort_labels():
