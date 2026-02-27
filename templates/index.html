@@ -1028,19 +1028,39 @@
 
   <div id="panel-labels" class="tab-panel active">
     <div class="ls-wrap">
-      <div class="ls-card">
-        <h2><span class="step">1</span> Upload Master SKU File</h2>
-        <p class="hint">xlsx file with multiple sheets (one sheet per account)</p>
-        <div class="drop-zone" id="skuDrop">
-          <input type="file" id="skuFile" accept=".xlsx">
+
+      <!-- No master file: first-time setup banner -->
+      <div class="ls-card" id="firstTimeCard" style="display:none; border-color: var(--warning); background: rgba(255,165,0,0.06);">
+        <h2 style="color:var(--warning);">⚠️ No Master SKU File Found</h2>
+        <p class="hint">Upload your Master SKU xlsx once — it'll be saved on the server and reused every time.</p>
+        <div class="drop-zone" id="firstSkuDrop">
+          <input type="file" id="firstSkuFile" accept=".xlsx">
           <div class="icon">📋</div>
           <p>Click or drag your Master SKU xlsx here</p>
-          <div class="file-names" id="skuFileName"></div>
+          <div class="file-names" id="firstSkuFileName"></div>
+        </div>
+        <div style="margin-top:14px;">
+          <button class="ls-btn ls-btn-primary" id="firstUploadBtn" onclick="uploadMaster('first')" disabled>💾 Save Master SKU File</button>
         </div>
       </div>
-      <div class="ls-card">
-        <h2><span class="step">2</span> Upload Label PDFs</h2>
-        <p class="hint">Upload one or more label PDFs. Account is auto-detected.</p>
+
+      <!-- Master file status (shown when file exists) -->
+      <div class="ls-card" id="masterStatusCard" style="display:none;">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);flex-shrink:0;"></div>
+            <div>
+              <div style="font-weight:600; color:var(--text); font-size:0.9rem;">Master SKU File Active</div>
+              <div style="font-size:0.78rem; color:var(--muted);" id="masterUpdatedAt"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 1: Upload Label PDFs -->
+      <div class="ls-card" id="mainSortCard" style="display:none;">
+        <h2><span class="step">1</span> Upload Label PDFs</h2>
+        <p class="hint">Upload one or more label PDFs from any/all accounts. Account is auto-detected.</p>
         <div class="drop-zone" id="pdfDrop">
           <input type="file" id="pdfFiles" accept=".pdf" multiple>
           <div class="icon">📄</div>
@@ -1048,7 +1068,9 @@
           <div class="file-names" id="pdfFileNames"></div>
         </div>
       </div>
-      <div class="ls-card">
+
+      <!-- Sort button -->
+      <div class="ls-card" id="sortBtnCard" style="display:none;">
         <button class="ls-btn ls-btn-primary ls-btn-full" id="processBtn" onclick="process()" disabled>⚡ Sort Labels</button>
         <div class="progress-wrap" id="progressWrap">
           <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
@@ -1056,6 +1078,8 @@
         </div>
         <div class="error-box" id="errorBox"></div>
       </div>
+
+      <!-- Results -->
       <div class="ls-results" id="results">
         <div class="ls-card">
           <h2>✅ Done! Download your outputs</h2>
@@ -1063,6 +1087,30 @@
           <div id="accountBlocks"></div>
         </div>
       </div>
+
+      <!-- Update Master SKU (always at bottom) -->
+      <div class="ls-card" id="updateMasterCard" style="display:none; border-color: var(--border); margin-top: 8px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+          <span style="font-size:0.88rem; color:var(--muted);">Need to update Master SKU file?</span>
+          <button class="ls-btn" onclick="toggleUpdatePanel()" id="updateToggleBtn"
+            style="padding:8px 18px; font-size:0.82rem; background:transparent; border:1px solid var(--border); color:var(--muted);">
+            🔄 Update File
+          </button>
+        </div>
+        <div id="updatePanel" style="display:none; margin-top:16px;">
+          <div class="drop-zone" id="updateSkuDrop">
+            <input type="file" id="updateSkuFile" accept=".xlsx">
+            <div class="icon">📋</div>
+            <p>Click or drag your new Master SKU xlsx here</p>
+            <div class="file-names" id="updateSkuFileName"></div>
+          </div>
+          <div style="margin-top:14px; display:flex; gap:10px; align-items:center;">
+            <button class="ls-btn ls-btn-primary" id="updateUploadBtn" onclick="uploadMaster('update')" disabled>💾 Save &amp; Overwrite</button>
+            <span id="updateSuccessMsg" style="font-size:0.82rem; color:var(--green); display:none;">✓ Master SKU updated!</span>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -1083,44 +1131,119 @@ function switchTab(name,btn){
     ReactDOM.render(React.createElement(AdsApp),document.getElementById('ads-root'));
   }
 }
-let skuReady=false,pdfsReady=false;
-document.getElementById('skuFile').addEventListener('change',function(){
-  const name=this.files[0]?.name||'';
-  document.getElementById('skuFileName').textContent=name;
-  skuReady=!!name;checkReady();
+
+// ── On load: check if master file exists on server ──
+async function checkMasterStatus(){
+  const res = await fetch('/api/master-status');
+  const data = await res.json();
+  if(data.exists){
+    document.getElementById('firstTimeCard').style.display='none';
+    document.getElementById('masterStatusCard').style.display='block';
+    document.getElementById('mainSortCard').style.display='block';
+    document.getElementById('sortBtnCard').style.display='block';
+    document.getElementById('updateMasterCard').style.display='block';
+    document.getElementById('masterUpdatedAt').textContent='Last updated: ' + data.updated;
+  } else {
+    document.getElementById('firstTimeCard').style.display='block';
+    document.getElementById('masterStatusCard').style.display='none';
+    document.getElementById('mainSortCard').style.display='none';
+    document.getElementById('sortBtnCard').style.display='none';
+    document.getElementById('updateMasterCard').style.display='none';
+  }
+}
+checkMasterStatus();
+
+// ── First-time SKU upload ──
+document.getElementById('firstSkuFile').addEventListener('change', function(){
+  const name = this.files[0]?.name||'';
+  document.getElementById('firstSkuFileName').textContent = name;
+  document.getElementById('firstUploadBtn').disabled = !name;
 });
-document.getElementById('pdfFiles').addEventListener('change',function(){
-  const names=Array.from(this.files).map(f=>f.name).join(', ');
-  document.getElementById('pdfFileNames').textContent=names||'';
-  pdfsReady=this.files.length>0;checkReady();
+setupDragOver('firstSkuDrop');
+
+// ── Update SKU upload ──
+document.getElementById('updateSkuFile').addEventListener('change', function(){
+  const name = this.files[0]?.name||'';
+  document.getElementById('updateSkuFileName').textContent = name;
+  document.getElementById('updateUploadBtn').disabled = !name;
 });
-['skuDrop','pdfDrop'].forEach(id=>{
-  const el=document.getElementById(id);
-  el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('dragover');});
-  el.addEventListener('dragleave',()=>el.classList.remove('dragover'));
-  el.addEventListener('drop',()=>el.classList.remove('dragover'));
+setupDragOver('updateSkuDrop');
+
+function setupDragOver(id){
+  const el = document.getElementById(id);
+  el.addEventListener('dragover', e=>{e.preventDefault(); el.classList.add('dragover');});
+  el.addEventListener('dragleave', ()=>el.classList.remove('dragover'));
+  el.addEventListener('drop', ()=>el.classList.remove('dragover'));
+}
+
+async function uploadMaster(mode){
+  const fileInput = document.getElementById(mode==='first' ? 'firstSkuFile' : 'updateSkuFile');
+  const btn = document.getElementById(mode==='first' ? 'firstUploadBtn' : 'updateUploadBtn');
+  const file = fileInput.files[0];
+  if(!file) return;
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  const fd = new FormData();
+  fd.append('sku_csv', file);
+  try{
+    const res = await fetch('/api/upload-master', {method:'POST', body:fd});
+    const data = await res.json();
+    if(!res.ok || data.error) throw new Error(data.error||'Upload failed');
+    if(mode==='update'){
+      document.getElementById('updateSuccessMsg').style.display='inline';
+      document.getElementById('masterUpdatedAt').textContent='Last updated: '+data.updated;
+      setTimeout(()=>{
+        document.getElementById('updateSuccessMsg').style.display='none';
+        document.getElementById('updatePanel').style.display='none';
+        fileInput.value='';
+        document.getElementById('updateSkuFileName').textContent='';
+        btn.disabled=true;
+      }, 2500);
+    } else {
+      // first time — reveal the main UI
+      await checkMasterStatus();
+    }
+  } catch(e){
+    alert('Error: '+e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = mode==='first' ? '💾 Save Master SKU File' : '💾 Save & Overwrite';
+}
+
+function toggleUpdatePanel(){
+  const panel = document.getElementById('updatePanel');
+  panel.style.display = panel.style.display==='none' ? 'block' : 'none';
+}
+
+// ── PDF upload & sort ──
+let pdfsReady = false;
+document.getElementById('pdfFiles').addEventListener('change', function(){
+  const names = Array.from(this.files).map(f=>f.name).join(', ');
+  document.getElementById('pdfFileNames').textContent = names||'';
+  pdfsReady = this.files.length>0;
+  document.getElementById('processBtn').disabled = !pdfsReady;
 });
-function checkReady(){document.getElementById('processBtn').disabled=!(skuReady&&pdfsReady);}
+setupDragOver('pdfDrop');
+
 function setProgress(pct,label){
   document.getElementById('progressFill').style.width=pct+'%';
   document.getElementById('progressLabel').textContent=label;
 }
+
 async function process(){
-  const skuFile=document.getElementById('skuFile').files[0];
-  const pdfFiles=document.getElementById('pdfFiles').files;
+  const pdfFiles = document.getElementById('pdfFiles').files;
   document.getElementById('errorBox').style.display='none';
   document.getElementById('results').style.display='none';
   document.getElementById('progressWrap').style.display='block';
   document.getElementById('processBtn').disabled=true;
   setProgress(10,'Uploading files...');
-  const fd=new FormData();
-  fd.append('sku_csv',skuFile);
-  for(const f of pdfFiles)fd.append('pdfs',f);
+  const fd = new FormData();
+  for(const f of pdfFiles) fd.append('pdfs',f);
   try{
     setProgress(30,'Processing labels...');
-    const resp=await fetch('/api/sort',{method:'POST',body:fd});
-    const data=await resp.json();
-    if(!resp.ok||data.error)throw new Error(data.error||'Server error');
+    const resp = await fetch('/api/sort',{method:'POST',body:fd});
+    const data = await resp.json();
+    if(!resp.ok||data.error) throw new Error(data.error||'Server error');
     setProgress(100,'Done!');
     renderResults(data.accounts);
   }catch(e){
@@ -1130,6 +1253,7 @@ async function process(){
   }
   document.getElementById('processBtn').disabled=false;
 }
+
 function renderResults(accounts){
   const container=document.getElementById('accountBlocks');
   container.innerHTML='';
@@ -1152,8 +1276,6 @@ function renderResults(accounts){
 </script>
 
 <script type="text/babel">
-const { useState, useMemo, useCallback } = React;
-
 
         const { useState, useEffect, useMemo } = React;
 
