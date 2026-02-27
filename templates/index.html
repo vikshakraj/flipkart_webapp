@@ -1,0 +1,2893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flipkart Operations Hub</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/recharts@2.5.0/dist/Recharts.js"></script>
+<style>
+  :root {
+    --bg:#0a0e1a;--surface:#141b2d;--surface2:#1a2333;--border:#2a3650;
+    --text:#e4e7eb;--muted:#8b92a8;--accent:#00d4ff;--accent2:#0088aa;
+    --green:#00ff88;--warning:#ffa500;--danger:#ff3366;--purple:#a855f7;--yellow:#fbbf24;
+    --color-bg:#0a0e1a;--color-surface:#141b2d;--color-surface-hover:#1a2333;
+    --color-border:#2a3650;--color-text:#e4e7eb;--color-text-muted:#8b92a8;
+    --color-accent:#00d4ff;--color-accent-dim:#0088aa;--color-success:#00ff88;
+    --color-warning:#ffa500;--color-danger:#ff3366;--color-purple:#a855f7;--color-yellow:#fbbf24;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'IBM Plex Sans',-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;}
+  .bg-grid{position:fixed;top:0;left:0;width:100%;height:100%;background-image:linear-gradient(90deg,rgba(42,54,80,.3) 1px,transparent 1px),linear-gradient(rgba(42,54,80,.3) 1px,transparent 1px);background-size:50px 50px;opacity:.4;z-index:0;animation:gridShift 20s linear infinite;pointer-events:none;}
+  @keyframes gridShift{0%{transform:translate(0,0)}100%{transform:translate(50px,50px)}}
+  .page-wrap{position:relative;z-index:1;min-height:100vh;}
+  .main-header{background:linear-gradient(135deg,var(--surface) 0%,#0f1623 100%);border-bottom:2px solid var(--border);padding:0 2.5rem;position:sticky;top:0;z-index:200;backdrop-filter:blur(20px);}
+  .header-inner{max-width:1600px;margin:0 auto;display:flex;align-items:stretch;gap:2rem;}
+  .logo-area{display:flex;align-items:center;gap:1rem;padding:1.2rem 0;flex-shrink:0;}
+  .logo-icon{width:44px;height:44px;background:linear-gradient(135deg,var(--accent),var(--purple));border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:.85rem;color:#0a0e1a;}
+  .logo-text h1{font-size:1.15rem;font-weight:700;color:var(--text);}
+  .logo-text p{font-size:.75rem;color:var(--muted);}
+  .main-tabs{display:flex;align-items:stretch;gap:0;margin-left:1rem;}
+  .main-tab{display:flex;align-items:center;gap:.5rem;padding:0 1.5rem;border:none;background:transparent;color:var(--muted);font-size:.9rem;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;transition:all .2s;font-family:'IBM Plex Sans',sans-serif;margin-bottom:-2px;}
+  .main-tab:hover{color:var(--text);background:rgba(255,255,255,.04);}
+  .main-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+  .ls-wrap{max-width:860px;margin:2rem auto;padding:0 1rem;}
+  .ls-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px;margin-bottom:20px;}
+  .ls-card h2{font-size:1rem;font-weight:600;color:var(--accent);margin-bottom:6px;display:flex;align-items:center;gap:8px;}
+  .ls-card h2 .step{background:var(--accent);color:var(--bg);border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:.75rem;flex-shrink:0;font-weight:700;}
+  .ls-card p.hint{font-size:.82rem;color:var(--muted);margin-bottom:16px;}
+  .drop-zone{border:2px dashed var(--border);border-radius:8px;padding:28px;text-align:center;cursor:pointer;transition:all .2s;background:var(--surface2);position:relative;}
+  .drop-zone:hover,.drop-zone.dragover{border-color:var(--accent);background:rgba(0,212,255,.06);}
+  .drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+  .drop-zone .icon{font-size:2rem;margin-bottom:8px;}
+  .drop-zone p{font-size:.85rem;color:var(--muted);}
+  .drop-zone .file-names{margin-top:10px;font-size:.8rem;color:var(--accent);font-weight:500;}
+  .ls-btn{display:inline-flex;align-items:center;gap:8px;padding:12px 28px;border-radius:8px;border:none;font-size:.95rem;font-weight:600;cursor:pointer;transition:all .2s;font-family:'IBM Plex Sans',sans-serif;}
+  .ls-btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);}
+  .ls-btn-primary:hover{opacity:.9;transform:translateY(-1px);}
+  .ls-btn-primary:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+  .ls-btn-full{width:100%;justify-content:center;}
+  .progress-wrap{display:none;margin-top:20px;}
+  .progress-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
+  .progress-fill{height:100%;background:var(--accent);border-radius:3px;transition:width .3s;width:0%;}
+  .progress-label{font-size:.82rem;color:var(--muted);margin-top:6px;}
+  .ls-results{display:none;}
+  .account-block{border:1px solid var(--border);border-radius:10px;margin-bottom:16px;overflow:hidden;}
+  .account-header{background:var(--surface2);padding:14px 20px;display:flex;justify-content:space-between;align-items:center;}
+  .account-name{font-weight:600;font-size:.95rem;color:var(--text);}
+  .account-stats{font-size:.82rem;color:var(--muted);}
+  .account-downloads{padding:14px 20px;display:flex;gap:12px;flex-wrap:wrap;background:var(--surface);}
+  .dl-btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:6px;font-size:.85rem;font-weight:600;text-decoration:none;cursor:pointer;border:none;transition:all .2s;font-family:'IBM Plex Sans',sans-serif;}
+  .dl-labels{background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);}
+  .dl-labels:hover{opacity:.88;}
+  .dl-summary{background:transparent;color:var(--accent);border:1.5px solid var(--accent);}
+  .dl-summary:hover{background:rgba(0,212,255,.1);}
+  .error-box{background:rgba(255,51,102,.12);border:1px solid var(--danger);border-radius:8px;padding:14px 18px;color:var(--danger);font-size:.88rem;margin-top:16px;display:none;}
+</style>
+<style>
+.app {
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* Animated background grid */
+        .background-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(90deg, rgba(42, 54, 80, 0.3) 1px, transparent 1px),
+                linear-gradient(rgba(42, 54, 80, 0.3) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.4;
+            z-index: 0;
+            animation: gridShift 20s linear infinite;
+        }
+
+        @keyframes gridShift {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        .content {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        .header {
+            padding: 2rem 3rem;
+            border-bottom: 2px solid var(--color-border);
+            background: linear-gradient(135deg, var(--color-surface) 0%, #0f1623 100%);
+            backdrop-filter: blur(20px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            animation: slideDown 0.6s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translateY(-100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .header-content {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-purple) 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 24px;
+            color: var(--color-bg);
+            box-shadow: 0 4px 20px rgba(0, 212, 255, 0.3);
+        }
+
+        .logo-text h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-purple) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .logo-text p {
+            font-size: 0.75rem;
+            color: var(--color-text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        /* Upload Section */
+        .upload-section {
+            max-width: 1600px;
+            margin: 3rem auto;
+            padding: 0 3rem;
+            animation: fadeIn 0.8s ease-out 0.2s both;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .upload-container {
+            background: var(--color-surface);
+            border: 2px dashed var(--color-border);
+            border-radius: 16px;
+            padding: 3rem;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .upload-container:hover {
+            border-color: var(--color-accent);
+            background: var(--color-surface-hover);
+            transform: translateY(-2px);
+        }
+
+        .upload-container.drag-over {
+            border-color: var(--color-accent);
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.05) 0%, rgba(168, 85, 247, 0.05) 100%);
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.6;
+        }
+
+        .upload-container h2 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            color: var(--color-text);
+        }
+
+        .upload-container p {
+            color: var(--color-text-muted);
+            margin-bottom: 2rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+        }
+
+        .file-input-wrapper {
+            display: inline-block;
+            position: relative;
+            margin: 0 0.5rem;
+        }
+
+        .file-input {
+            opacity: 0;
+            position: absolute;
+            width: 0;
+            height: 0;
+        }
+
+        .btn {
+            padding: 0.875rem 2rem;
+            background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-dim) 100%);
+            color: var(--color-bg);
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.2);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(0, 212, 255, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: var(--color-surface-hover);
+            color: var(--color-text);
+            border: 1px solid var(--color-border);
+            box-shadow: none;
+        }
+
+        .btn-secondary:hover {
+            background: var(--color-border);
+            box-shadow: none;
+        }
+
+        .uploaded-files {
+            margin-top: 2rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+
+        .file-badge {
+            background: var(--color-surface-hover);
+            padding: 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--color-border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.3s ease;
+            animation: slideIn 0.4s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .file-badge:hover {
+            border-color: var(--color-accent);
+            background: var(--color-surface);
+        }
+
+        .file-info {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .file-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-purple) 100%);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+        }
+
+        .file-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            color: var(--color-text);
+        }
+
+        .remove-file {
+            background: none;
+            border: none;
+            color: var(--color-danger);
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .remove-file:hover {
+            background: rgba(255, 51, 102, 0.1);
+        }
+
+        /* Dashboard */
+        .dashboard {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 3rem;
+        }
+
+        .dashboard-header {
+            margin-bottom: 2rem;
+            animation: fadeIn 0.6s ease-out;
+        }
+
+        .dashboard-header h2 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--color-text) 0%, var(--color-text-muted) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .date-range {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            color: var(--color-text-muted);
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+
+        .stat-card {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            animation: fadeIn 0.6s ease-out backwards;
+        }
+
+        .stat-card:nth-child(1) { animation-delay: 0.1s; }
+        .stat-card:nth-child(2) { animation-delay: 0.2s; }
+        .stat-card:nth-child(3) { animation-delay: 0.3s; }
+        .stat-card:nth-child(4) { animation-delay: 0.4s; }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent-color), transparent);
+        }
+
+        .stat-card:hover {
+            border-color: var(--accent-color);
+            transform: translateY(-4px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .stat-card.accent-cyan { --accent-color: var(--color-accent); }
+        .stat-card.accent-green { --accent-color: var(--color-success); }
+        .stat-card.accent-yellow { --accent-color: var(--color-yellow); }
+        .stat-card.accent-purple { --accent-color: var(--color-purple); }
+
+        .stat-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--color-text-muted);
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .stat-value {
+            font-size: 2.25rem;
+            font-weight: 700;
+            color: var(--color-text);
+            margin-bottom: 0.25rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .stat-change {
+            font-size: 0.875rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .stat-change.positive { color: var(--color-success); }
+        .stat-change.negative { color: var(--color-danger); }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid var(--color-border);
+            overflow-x: auto;
+        }
+
+        .tab {
+            padding: 1rem 1.5rem;
+            background: none;
+            border: none;
+            color: var(--color-text-muted);
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-bottom: 3px solid transparent;
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            white-space: nowrap;
+        }
+
+        .tab:hover {
+            color: var(--color-text);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .tab.active {
+            color: var(--color-accent);
+            border-bottom-color: var(--color-accent);
+        }
+
+        /* Content Sections */
+        .tab-content {
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        .section {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--color-text);
+        }
+
+        /* Table */
+        .table-container {
+            overflow-x: auto;
+            border-radius: 8px;
+            border: 1px solid var(--color-border);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+        }
+
+        thead {
+            background: var(--color-surface-hover);
+        }
+
+        th {
+            padding: 1rem;
+            text-align: left;
+            font-weight: 700;
+            color: var(--color-text);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 0.75rem;
+            border-bottom: 2px solid var(--color-border);
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--color-border);
+            color: var(--color-text);
+        }
+
+        tbody tr {
+            transition: all 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background: var(--color-surface-hover);
+        }
+
+        .metric-positive {
+            color: var(--color-success);
+            font-weight: 600;
+        }
+
+        .metric-negative {
+            color: var(--color-danger);
+            font-weight: 600;
+        }
+
+        .metric-neutral {
+            color: var(--color-text-muted);
+        }
+
+        /* Chart Container */
+        .chart-container {
+            background: var(--color-surface-hover);
+            border-radius: 8px;
+            padding: 2rem;
+            margin-top: 1rem;
+        }
+
+        /* Loading Spinner */
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+            gap: 1rem;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid var(--color-border);
+            border-top-color: var(--color-accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--color-text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            opacity: 0.3;
+        }
+
+        /* Filters */
+        .filters {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .filter-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--color-text-muted);
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        select, input[type="text"], input[type="number"] {
+            padding: 0.75rem 1rem;
+            background: var(--color-surface-hover);
+            border: 1px solid var(--color-border);
+            border-radius: 6px;
+            color: var(--color-text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            transition: all 0.3s ease;
+        }
+
+        select:focus, input:focus {
+            outline: none;
+            border-color: var(--color-accent);
+            background: var(--color-surface);
+        }
+
+        select:hover, input:hover {
+            border-color: var(--color-accent);
+        }
+
+        /* Badge */
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-success {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--color-success);
+            border: 1px solid var(--color-success);
+        }
+
+        .badge-warning {
+            background: rgba(255, 165, 0, 0.15);
+            color: var(--color-warning);
+            border: 1px solid var(--color-warning);
+        }
+
+        .badge-danger {
+            background: rgba(255, 51, 102, 0.15);
+            color: var(--color-danger);
+            border: 1px solid var(--color-danger);
+        }
+
+        .badge-info {
+            background: rgba(0, 212, 255, 0.15);
+            color: var(--color-accent);
+            border: 1px solid var(--color-accent);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header, .upload-section, .dashboard {
+                padding-left: 1.5rem;
+                padding-right: 1.5rem;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .filters {
+                flex-direction: column;
+            }
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        .modal {
+            background: var(--color-surface);
+            border: 2px solid var(--color-border);
+            border-radius: 16px;
+            padding: 2rem;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease-out;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid var(--color-border);
+        }
+
+        .modal-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--color-text);
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--color-text-muted);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            background: var(--color-surface-hover);
+            color: var(--color-text);
+        }
+
+        .modal-content {
+            color: var(--color-text);
+        }
+
+        .campaign-list-item {
+            padding: 1rem;
+            background: var(--color-surface-hover);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+            transition: all 0.2s ease;
+        }
+
+        .campaign-list-item:hover {
+            border-color: var(--color-accent);
+            background: var(--color-surface);
+        }
+
+        .campaign-item-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            color: var(--color-text);
+            margin-bottom: 0.5rem;
+        }
+
+        .campaign-item-roas {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--color-text-muted);
+        }
+
+        .view-btn {
+            background: none;
+            border: 1px solid var(--color-accent);
+            color: var(--color-accent);
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .view-btn:hover {
+            background: var(--color-accent);
+            color: var(--color-bg);
+        }
+
+        /* Insights */
+        .insights-container {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .insight-category {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            padding: 2rem;
+            animation: fadeIn 0.5s ease-out backwards;
+        }
+
+        .insight-category:nth-child(1) { animation-delay: 0.1s; }
+        .insight-category:nth-child(2) { animation-delay: 0.2s; }
+        .insight-category:nth-child(3) { animation-delay: 0.3s; }
+        .insight-category:nth-child(4) { animation-delay: 0.4s; }
+        .insight-category:nth-child(5) { animation-delay: 0.5s; }
+
+        .insight-category-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid var(--color-border);
+        }
+
+        .insight-category-icon {
+            font-size: 2rem;
+        }
+
+        .insight-category-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--color-text);
+        }
+
+        .insight-category-count {
+            margin-left: auto;
+            background: var(--color-surface-hover);
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            color: var(--color-accent);
+            border: 1px solid var(--color-accent);
+        }
+
+        .insight-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .insight-item {
+            background: var(--color-surface-hover);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            padding: 1.25rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .insight-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: var(--insight-color);
+        }
+
+        .insight-item:hover {
+            border-color: var(--insight-color);
+            transform: translateX(4px);
+        }
+
+        .insight-item.priority-critical { --insight-color: var(--color-danger); }
+        .insight-item.priority-high { --insight-color: var(--color-warning); }
+        .insight-item.priority-medium { --insight-color: var(--color-accent); }
+        .insight-item.priority-low { --insight-color: var(--color-success); }
+
+        .insight-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .insight-priority {
+            background: var(--insight-color);
+            color: var(--color-bg);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-family: 'JetBrains Mono', monospace;
+            flex-shrink: 0;
+        }
+
+        .insight-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--color-text);
+            line-height: 1.4;
+            flex: 1;
+        }
+
+        .insight-description {
+            color: var(--color-text-muted);
+            font-size: 0.875rem;
+            line-height: 1.6;
+            margin-bottom: 0.75rem;
+        }
+
+        .insight-metrics {
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--color-border);
+        }
+
+        .insight-metric {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .insight-metric-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--color-text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .insight-metric-value {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--color-text);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .insight-action {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+            padding: 0.5rem 1rem;
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid var(--color-accent);
+            border-radius: 6px;
+            color: var(--color-accent);
+            font-size: 0.875rem;
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+    
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="page-wrap">
+
+  <header class="main-header">
+    <div class="header-inner">
+      <div class="logo-area">
+        <div class="logo-icon">FK</div>
+        <div class="logo-text">
+          <h1>Flipkart Ops Hub</h1>
+          <p>Label Sorter &amp; Ads Analytics</p>
+        </div>
+      </div>
+      <nav class="main-tabs">
+        <button class="main-tab active" onclick="switchTab('labels',this)">🏷️ Label Sorter</button>
+        <button class="main-tab" onclick="switchTab('ads',this)">📊 Ads Dashboard</button>
+      </nav>
+    </div>
+  </header>
+
+  <div id="panel-labels" class="tab-panel active">
+    <div class="ls-wrap">
+      <div class="ls-card">
+        <h2><span class="step">1</span> Upload Master SKU File</h2>
+        <p class="hint">xlsx file with multiple sheets (one sheet per account)</p>
+        <div class="drop-zone" id="skuDrop">
+          <input type="file" id="skuFile" accept=".xlsx">
+          <div class="icon">📋</div>
+          <p>Click or drag your Master SKU xlsx here</p>
+          <div class="file-names" id="skuFileName"></div>
+        </div>
+      </div>
+      <div class="ls-card">
+        <h2><span class="step">2</span> Upload Label PDFs</h2>
+        <p class="hint">Upload one or more label PDFs. Account is auto-detected.</p>
+        <div class="drop-zone" id="pdfDrop">
+          <input type="file" id="pdfFiles" accept=".pdf" multiple>
+          <div class="icon">📄</div>
+          <p>Click or drag label PDFs here (multiple files OK)</p>
+          <div class="file-names" id="pdfFileNames"></div>
+        </div>
+      </div>
+      <div class="ls-card">
+        <button class="ls-btn ls-btn-primary ls-btn-full" id="processBtn" onclick="process()" disabled>⚡ Sort Labels</button>
+        <div class="progress-wrap" id="progressWrap">
+          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+          <div class="progress-label" id="progressLabel">Processing...</div>
+        </div>
+        <div class="error-box" id="errorBox"></div>
+      </div>
+      <div class="ls-results" id="results">
+        <div class="ls-card">
+          <h2>✅ Done! Download your outputs</h2>
+          <p class="hint" style="margin-bottom:16px">One sorted labels PDF and one summary PDF per account.</p>
+          <div id="accountBlocks"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="panel-ads" class="tab-panel">
+    <div id="ads-root"></div>
+  </div>
+
+</div>
+
+<script>
+function switchTab(name,btn){
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.main-tab').forEach(b=>b.classList.remove('active'));
+  document.getElementById('panel-'+name).classList.add('active');
+  btn.classList.add('active');
+  if(name==='ads'&&!window._adsMounted){
+    window._adsMounted=true;
+    ReactDOM.render(React.createElement(AdsApp),document.getElementById('ads-root'));
+  }
+}
+let skuReady=false,pdfsReady=false;
+document.getElementById('skuFile').addEventListener('change',function(){
+  const name=this.files[0]?.name||'';
+  document.getElementById('skuFileName').textContent=name;
+  skuReady=!!name;checkReady();
+});
+document.getElementById('pdfFiles').addEventListener('change',function(){
+  const names=Array.from(this.files).map(f=>f.name).join(', ');
+  document.getElementById('pdfFileNames').textContent=names||'';
+  pdfsReady=this.files.length>0;checkReady();
+});
+['skuDrop','pdfDrop'].forEach(id=>{
+  const el=document.getElementById(id);
+  el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('dragover');});
+  el.addEventListener('dragleave',()=>el.classList.remove('dragover'));
+  el.addEventListener('drop',()=>el.classList.remove('dragover'));
+});
+function checkReady(){document.getElementById('processBtn').disabled=!(skuReady&&pdfsReady);}
+function setProgress(pct,label){
+  document.getElementById('progressFill').style.width=pct+'%';
+  document.getElementById('progressLabel').textContent=label;
+}
+async function process(){
+  const skuFile=document.getElementById('skuFile').files[0];
+  const pdfFiles=document.getElementById('pdfFiles').files;
+  document.getElementById('errorBox').style.display='none';
+  document.getElementById('results').style.display='none';
+  document.getElementById('progressWrap').style.display='block';
+  document.getElementById('processBtn').disabled=true;
+  setProgress(10,'Uploading files...');
+  const fd=new FormData();
+  fd.append('sku_csv',skuFile);
+  for(const f of pdfFiles)fd.append('pdfs',f);
+  try{
+    setProgress(30,'Processing labels...');
+    const resp=await fetch('/api/sort',{method:'POST',body:fd});
+    const data=await resp.json();
+    if(!resp.ok||data.error)throw new Error(data.error||'Server error');
+    setProgress(100,'Done!');
+    renderResults(data.accounts);
+  }catch(e){
+    document.getElementById('errorBox').textContent='Error: '+e.message;
+    document.getElementById('errorBox').style.display='block';
+    setProgress(0,'');
+  }
+  document.getElementById('processBtn').disabled=false;
+}
+function renderResults(accounts){
+  const container=document.getElementById('accountBlocks');
+  container.innerHTML='';
+  for(const acc of accounts){
+    const block=document.createElement('div');
+    block.className='account-block';
+    block.innerHTML=`
+      <div class="account-header">
+        <div class="account-name">🏪 ${acc.name}</div>
+        <div class="account-stats">${acc.total} labels &nbsp;|&nbsp; ${acc.sku_count} SKUs identified</div>
+      </div>
+      <div class="account-downloads">
+        <a class="dl-btn dl-labels" href="/api/download/${acc.labels_file}" download>⬇ Sorted Labels PDF</a>
+        <a class="dl-btn dl-summary" href="/api/download/${acc.summary_file}" download>⬇ Summary PDF</a>
+      </div>`;
+    container.appendChild(block);
+  }
+  document.getElementById('results').style.display='block';
+}
+</script>
+
+<script type="text/babel">
+const { useState, useMemo, useCallback } = React;
+
+
+        const { useState, useEffect, useMemo } = React;
+
+        // Utility Functions
+        const formatCurrency = (value) => {
+            if (!value && value !== 0) return '₹0';
+            return `₹${parseFloat(value).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+        };
+
+        const formatNumber = (value) => {
+            if (!value && value !== 0) return '0';
+            return parseFloat(value).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+        };
+
+        const formatPercent = (value) => {
+            if (!value && value !== 0) return '0%';
+            return `${parseFloat(value).toFixed(2)}%`;
+        };
+
+        const parseCSV = (file, reportType) => {
+            return new Promise((resolve, reject) => {
+                Papa.parse(file, {
+                    skipEmptyLines: true,
+                    complete: (results) => {
+                        const rows = results.data;
+                        
+                        if (rows.length < 4) {
+                            resolve({ data: [], startTime: null, endTime: null });
+                            return;
+                        }
+                        
+                        // Extract date range from first two rows
+                        let startTime = null;
+                        let endTime = null;
+                        
+                        if (rows[0] && rows[0][0] && rows[0][0].includes('Start Time')) {
+                            startTime = rows[0][1] ? rows[0][1].trim() : null;
+                        }
+                        if (rows[1] && rows[1][0] && rows[1][0].includes('End Time')) {
+                            endTime = rows[1][1] ? rows[1][1].trim() : null;
+                        }
+                        
+                        // Determine header row based on report type
+                        let headerRowIndex = 2;
+                        let dataStartIndex = 3;
+                        
+                        if (reportType === 'pla') {
+                            headerRowIndex = 4;
+                            dataStartIndex = 5;
+                        }
+                        // consolidatedFSN has same structure as other reports (2 metadata rows)
+                        
+                        if (rows.length <= dataStartIndex) {
+                            resolve({ data: [], startTime, endTime });
+                            return;
+                        }
+                        
+                        // Get headers
+                        const headers = rows[headerRowIndex].map(h => h ? h.trim() : '');
+                        
+                        // Parse data rows
+                        const data = [];
+                        for (let i = dataStartIndex; i < rows.length; i++) {
+                            const row = rows[i];
+                            if (row.length < headers.length) continue;
+                            
+                            const obj = {};
+                            headers.forEach((header, idx) => {
+                                if (header) {
+                                    let value = row[idx];
+                                    if (value !== null && value !== undefined && value !== '') {
+                                        const num = parseFloat(value);
+                                        obj[header] = isNaN(num) ? value : num;
+                                    } else {
+                                        obj[header] = value;
+                                    }
+                                }
+                            });
+                            data.push(obj);
+                        }
+                        
+                        resolve({ data, startTime, endTime });
+                    },
+                    error: (error) => reject(error)
+                });
+            });
+        };
+
+        // Main App Component
+        function App() {
+            const [files, setFiles] = useState({});
+            const [dragOver, setDragOver] = useState(false);
+            const [loading, setLoading] = useState(false);
+            const [activeTab, setActiveTab] = useState('overview');
+            const [data, setData] = useState({});
+            const [dateRanges, setDateRanges] = useState({});
+            const [dateRange, setDateRange] = useState({ start: null, end: null });
+
+            const fileTypes = [
+                { key: 'campaignOrder', label: 'Campaign Order Report', icon: '📦' },
+                { key: 'consolidated', label: 'Consolidated Daily Report', icon: '📊' },
+                { key: 'consolidatedFSN', label: 'Consolidated FSN Report', icon: '🎯' },
+                { key: 'keyword', label: 'Keyword Report', icon: '🔑' },
+                { key: 'pla', label: 'PLA Report', icon: '📋' },
+                { key: 'placement', label: 'Placement Performance', icon: '📍' },
+                { key: 'searchTerm', label: 'Search Term Report', icon: '🔍' }
+            ];
+
+            const handleFileUpload = async (event, fileType) => {
+                const file = event.target.files[0];
+                if (file) {
+                    setLoading(true);
+                    try {
+                        const result = await parseCSV(file, fileType);
+                        setFiles(prev => ({ ...prev, [fileType]: file }));
+                        setData(prev => ({ ...prev, [fileType]: result.data }));
+                        setDateRanges(prev => ({ 
+                            ...prev, 
+                            [fileType]: { 
+                                start: result.startTime, 
+                                end: result.endTime 
+                            } 
+                        }));
+                    } catch (error) {
+                        console.error('Error parsing file:', error);
+                        alert('Error parsing file. Please check the format.');
+                    } finally {
+                        setLoading(false);
+                    }
+                }
+            };
+
+            const validateDateRanges = () => {
+                const ranges = Object.values(dateRanges);
+                if (ranges.length === 0) return { valid: true, message: '' };
+                
+                const firstRange = ranges[0];
+                const firstStart = firstRange.start;
+                const firstEnd = firstRange.end;
+                
+                for (let i = 1; i < ranges.length; i++) {
+                    if (ranges[i].start !== firstStart || ranges[i].end !== firstEnd) {
+                        return { 
+                            valid: false, 
+                            message: `Date range mismatch detected!\n\nAll reports must have the same date range.\n\nExpected: ${firstStart} to ${firstEnd}\n\nPlease re-download all reports with matching date ranges.`
+                        };
+                    }
+                }
+                
+                return { valid: true, message: '', start: firstStart, end: firstEnd };
+            };
+
+            const handleAnalyze = () => {
+                const validation = validateDateRanges();
+                if (!validation.valid) {
+                    alert(validation.message);
+                    return;
+                }
+                setDateRange({ start: validation.start, end: validation.end });
+                setShowDashboard(true);
+            };
+
+            const removeFile = (fileType) => {
+                setFiles(prev => {
+                    const newFiles = { ...prev };
+                    delete newFiles[fileType];
+                    return newFiles;
+                });
+                setData(prev => {
+                    const newData = { ...prev };
+                    delete newData[fileType];
+                    return newData;
+                });
+                setDateRanges(prev => {
+                    const newRanges = { ...prev };
+                    delete newRanges[fileType];
+                    return newRanges;
+                });
+            };
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                setDragOver(true);
+            };
+
+            const handleDragLeave = () => {
+                setDragOver(false);
+            };
+
+            const hasMinimumData = data.consolidated || data.pla || data.consolidatedFSN;
+            const [showDashboard, setShowDashboard] = useState(false);
+
+            return (
+                <div className="app">
+                    <div className="background-grid"></div>
+                    <div className="content">
+                        {!showDashboard ? (
+                            <UploadSection 
+                                fileTypes={fileTypes}
+                                files={files}
+                                dragOver={dragOver}
+                                loading={loading}
+                                onFileUpload={handleFileUpload}
+                                onRemoveFile={removeFile}
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onAnalyze={handleAnalyze}
+                                canAnalyze={hasMinimumData}
+                            />
+                        ) : (
+                            <Dashboard 
+                                data={data}
+                                activeTab={activeTab}
+                                setActiveTab={setActiveTab}
+                                dateRange={dateRange}
+                                onReset={() => {
+                                    setFiles({});
+                                    setData({});
+                                    setDateRanges({});
+                                    setDateRange({ start: null, end: null });
+                                    setShowDashboard(false);
+                                }}
+                            />
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Header Component
+        function Header() {
+            return (
+                <header className="header">
+                    <div className="header-content">
+                        <div className="logo">
+                            <div className="logo-icon">FA</div>
+                            <div className="logo-text">
+                                <h1>Flipkart Ads Analytics</h1>
+                                <p>Performance Dashboard</p>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+            );
+        }
+
+        // Upload Section Component
+        function UploadSection({ fileTypes, files, dragOver, loading, onFileUpload, onRemoveFile, onDragOver, onDragLeave, onAnalyze, canAnalyze }) {
+            const uploadedCount = Object.keys(files).length;
+            
+            return (
+                <div className="upload-section">
+                    <div 
+                        className={`upload-container ${dragOver ? 'drag-over' : ''}`}
+                        onDragOver={onDragOver}
+                        onDragLeave={onDragLeave}
+                    >
+                        <div className="upload-icon">📤</div>
+                        <h2>Upload Your Flipkart Reports</h2>
+                        <p>Upload CSV files to analyze your ad performance</p>
+                        <p style={{ fontSize: '0.875rem', color: 'var(--color-accent)', marginBottom: '1rem' }}>
+                            {uploadedCount > 0 ? `${uploadedCount} file(s) uploaded` : 'Start by uploading at least Consolidated Daily, Consolidated FSN, or PLA Report'}
+                        </p>
+                        
+                        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                            {fileTypes.map(({ key, label, icon }) => (
+                                <div key={key} className="file-input-wrapper">
+                                    <input
+                                        type="file"
+                                        accept=".csv"
+                                        onChange={(e) => onFileUpload(e, key)}
+                                        className="file-input"
+                                        id={`file-${key}`}
+                                        disabled={loading}
+                                    />
+                                    <label htmlFor={`file-${key}`} className="btn btn-secondary">
+                                        {icon} {label}
+                                    </label>
+                                </div>
+                            ))}
+                        </div>
+
+                        {Object.keys(files).length > 0 && (
+                            <>
+                                <div className="uploaded-files">
+                                    {Object.entries(files).map(([key, file]) => {
+                                        const fileInfo = fileTypes.find(ft => ft.key === key);
+                                        return (
+                                            <div key={key} className="file-badge">
+                                                <div className="file-info">
+                                                    <div className="file-icon">{fileInfo.icon}</div>
+                                                    <span className="file-name">{file.name}</span>
+                                                </div>
+                                                <button 
+                                                    className="remove-file" 
+                                                    onClick={() => onRemoveFile(key)}
+                                                    title="Remove file"
+                                                >
+                                                    ✕
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                
+                                <div style={{ marginTop: '2rem', textAlign: 'center' }}>
+                                    <button 
+                                        className="btn" 
+                                        onClick={onAnalyze}
+                                        disabled={!canAnalyze}
+                                        style={{ fontSize: '1rem', padding: '1rem 3rem' }}
+                                    >
+                                        🚀 Analyze Data
+                                    </button>
+                                    {!canAnalyze && (
+                                        <p style={{ marginTop: '1rem', fontSize: '0.875rem', color: 'var(--color-warning)' }}>
+                                            Please upload at least the Consolidated Daily, Consolidated FSN, or PLA Report
+                                        </p>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Dashboard Component
+        function Dashboard({ data, activeTab, setActiveTab, dateRange, onReset }) {
+            const tabs = [
+                { id: 'overview', label: 'Overview', icon: '📊' },
+                { id: 'campaigns', label: 'Campaigns', icon: '🎯' },
+                { id: 'skus', label: 'SKU Analysis', icon: '📦' },
+                { id: 'keywords', label: 'Keywords', icon: '🔑' },
+                { id: 'placements', label: 'Placements', icon: '📍' },
+                { id: 'search-terms', label: 'Search Terms', icon: '🔍' },
+                { id: 'insights', label: 'AI Insights', icon: '🧠' }
+            ];
+
+            const formatDateRange = () => {
+                if (!dateRange.start || !dateRange.end) return 'Data loaded successfully';
+                
+                const start = new Date(dateRange.start);
+                const end = new Date(dateRange.end);
+                
+                const formatDate = (date) => {
+                    return date.toLocaleDateString('en-IN', { 
+                        day: '2-digit', 
+                        month: 'short', 
+                        year: 'numeric' 
+                    });
+                };
+                
+                return `${formatDate(start)} - ${formatDate(end)}`;
+            };
+
+            return (
+                <div className="dashboard">
+                    <div className="dashboard-header">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                                <h2>Analytics Dashboard</h2>
+                                <p className="date-range">
+                                    {formatDateRange()}
+                                </p>
+                            </div>
+                            <button className="btn btn-secondary" onClick={onReset}>
+                                🔄 Reset Data
+                            </button>
+                        </div>
+                    </div>
+
+                    <OverviewStats data={data} />
+
+                    <div className="tabs">
+                        {tabs.map(tab => (
+                            <button
+                                key={tab.id}
+                                className={`tab ${activeTab === tab.id ? 'active' : ''}`}
+                                onClick={() => setActiveTab(tab.id)}
+                            >
+                                {tab.icon} {tab.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="tab-content">
+                        {activeTab === 'overview' && <OverviewTab data={data} />}
+                        {activeTab === 'campaigns' && <CampaignsTab data={data} />}
+                        {activeTab === 'skus' && <SKUTab data={data} />}
+                        {activeTab === 'keywords' && <KeywordsTab data={data} />}
+                        {activeTab === 'placements' && <PlacementsTab data={data} />}
+                        {activeTab === 'search-terms' && <SearchTermsTab data={data} />}
+                        {activeTab === 'insights' && <InsightsTab data={data} />}
+                    </div>
+                </div>
+            );
+        }
+
+        // Overview Stats Component
+        function OverviewStats({ data }) {
+            const stats = useMemo(() => {
+                if (!data.consolidated) return null;
+
+                const totalSpend = data.consolidated.reduce((sum, row) => sum + (parseFloat(row['Ad Spend']) || 0), 0);
+                const totalRevenue = data.consolidated.reduce((sum, row) => sum + (parseFloat(row['Total Revenue (Rs.)']) || 0), 0);
+                const totalClicks = data.consolidated.reduce((sum, row) => sum + (parseInt(row.Clicks) || 0), 0);
+                const totalConversions = data.consolidated.reduce((sum, row) => sum + (parseInt(row['Total converted units']) || 0), 0);
+                const avgROI = totalSpend > 0 ? ((totalRevenue - totalSpend) / totalSpend) * 100 : 0;
+
+                return {
+                    spend: totalSpend,
+                    revenue: totalRevenue,
+                    clicks: totalClicks,
+                    conversions: totalConversions,
+                    roi: avgROI,
+                    roas: totalSpend > 0 ? totalRevenue / totalSpend : 0
+                };
+            }, [data.consolidated]);
+
+            if (!stats) return null;
+
+            return (
+                <div className="stats-grid">
+                    <div className="stat-card accent-cyan">
+                        <div className="stat-label">Total Ad Spend</div>
+                        <div className="stat-value">{formatCurrency(stats.spend)}</div>
+                        <div className="stat-change neutral">Across all campaigns</div>
+                    </div>
+                    <div className="stat-card accent-green">
+                        <div className="stat-label">Total Revenue</div>
+                        <div className="stat-value">{formatCurrency(stats.revenue)}</div>
+                        <div className="stat-change positive">
+                            ROAS: {stats.roas.toFixed(2)}x
+                        </div>
+                    </div>
+                    <div className="stat-card accent-yellow">
+                        <div className="stat-label">Total Clicks</div>
+                        <div className="stat-value">{formatNumber(stats.clicks)}</div>
+                        <div className="stat-change neutral">{stats.conversions} conversions</div>
+                    </div>
+                    <div className="stat-card accent-purple">
+                        <div className="stat-label">ROI</div>
+                        <div className="stat-value">{stats.roi.toFixed(1)}%</div>
+                        <div className={`stat-change ${stats.roi >= 0 ? 'positive' : 'negative'}`}>
+                            {stats.roi >= 0 ? '↑' : '↓'} {Math.abs(stats.roi).toFixed(1)}%
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Overview Tab
+        function OverviewTab({ data }) {
+            const topCampaigns = useMemo(() => {
+                if (!data.consolidated) return [];
+                
+                const campaignMap = {};
+                data.consolidated.forEach(row => {
+                    const id = row['Campaign ID'];
+                    if (!campaignMap[id]) {
+                        campaignMap[id] = {
+                            id,
+                            name: row['Campaign Name'],
+                            spend: 0,
+                            revenue: 0,
+                            clicks: 0,
+                            conversions: 0
+                        };
+                    }
+                    campaignMap[id].spend += parseFloat(row['Ad Spend']) || 0;
+                    campaignMap[id].revenue += parseFloat(row['Total Revenue (Rs.)']) || 0;
+                    campaignMap[id].clicks += parseInt(row.Clicks) || 0;
+                    campaignMap[id].conversions += parseInt(row['Total converted units']) || 0;
+                });
+
+                return Object.values(campaignMap)
+                    .map(c => ({ 
+                        ...c, 
+                        roas: c.spend > 0 ? c.revenue / c.spend : 0,
+                        conversionRate: c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0
+                    }))
+                    .sort((a, b) => b.revenue - a.revenue)
+                    .slice(0, 10);
+            }, [data.consolidated]);
+
+            return (
+                <div>
+                    <div className="section">
+                        <div className="section-header">
+                            <h3 className="section-title">Top 10 Campaigns by Revenue</h3>
+                        </div>
+                        <div className="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Campaign Name</th>
+                                        <th>Spend</th>
+                                        <th>Revenue</th>
+                                        <th>Clicks</th>
+                                        <th>Conversions</th>
+                                        <th>Conv. Rate</th>
+                                        <th>ROAS</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {topCampaigns.map((campaign, idx) => (
+                                        <tr key={idx}>
+                                            <td>{campaign.name}</td>
+                                            <td>{formatCurrency(campaign.spend)}</td>
+                                            <td>{formatCurrency(campaign.revenue)}</td>
+                                            <td>{formatNumber(campaign.clicks)}</td>
+                                            <td>{formatNumber(campaign.conversions)}</td>
+                                            <td className={campaign.conversionRate > 0 ? 'metric-positive' : 'metric-neutral'}>
+                                                {formatPercent(campaign.conversionRate)}
+                                            </td>
+                                            <td className={campaign.roas >= 1 ? 'metric-positive' : 'metric-negative'}>
+                                                {campaign.roas.toFixed(2)}x
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Campaigns Tab
+        function CampaignsTab({ data }) {
+            const [sortBy, setSortBy] = useState('revenue');
+            const [filterStatus, setFilterStatus] = useState('all');
+
+            const campaigns = useMemo(() => {
+                if (!data.pla || !data.consolidated) return [];
+
+                const campaignDetails = {};
+                
+                // Get campaign info from PLA
+                data.pla.forEach(row => {
+                    const id = row['Campaign ID'];
+                    if (id) {
+                        campaignDetails[id] = {
+                            id,
+                            name: row['Campaign Name'],
+                            status: row['Campaign Status'],
+                            type: row['Campaign Type'],
+                            budget: parseFloat(row['Campaign Budget']) || 0,
+                            spend: 0,
+                            revenue: 0,
+                            roi: 0,
+                            clicks: 0,
+                            views: 0,
+                            conversions: 0
+                        };
+                    }
+                });
+
+                // Aggregate performance from consolidated
+                data.consolidated.forEach(row => {
+                    const id = row['Campaign ID'];
+                    if (campaignDetails[id]) {
+                        campaignDetails[id].spend += parseFloat(row['Ad Spend']) || 0;
+                        campaignDetails[id].revenue += parseFloat(row['Total Revenue (Rs.)']) || 0;
+                        campaignDetails[id].clicks += parseInt(row.Clicks) || 0;
+                        campaignDetails[id].views += parseInt(row.Views) || 0;
+                        campaignDetails[id].conversions += parseInt(row['Total converted units']) || 0;
+                    }
+                });
+
+                // Calculate ROI
+                Object.values(campaignDetails).forEach(c => {
+                    c.roi = c.spend > 0 ? ((c.revenue - c.spend) / c.spend) * 100 : 0;
+                    c.roas = c.spend > 0 ? c.revenue / c.spend : 0;
+                });
+
+                let filtered = Object.values(campaignDetails);
+                if (filterStatus !== 'all') {
+                    filtered = filtered.filter(c => c.status === filterStatus);
+                }
+
+                return filtered.sort((a, b) => {
+                    switch(sortBy) {
+                        case 'spend': return b.spend - a.spend;
+                        case 'revenue': return b.revenue - a.revenue;
+                        case 'roi': return b.roi - a.roi;
+                        case 'roas': return b.roas - a.roas;
+                        default: return 0;
+                    }
+                });
+            }, [data.pla, data.consolidated, sortBy, filterStatus]);
+
+            return (
+                <div className="section">
+                    <div className="section-header">
+                        <h3 className="section-title">Campaign Performance</h3>
+                    </div>
+
+                    <div className="filters">
+                        <div className="filter-group">
+                            <label className="filter-label">Sort By</label>
+                            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                                <option value="revenue">Revenue</option>
+                                <option value="spend">Spend</option>
+                                <option value="roi">ROI</option>
+                                <option value="roas">ROAS</option>
+                            </select>
+                        </div>
+                        <div className="filter-group">
+                            <label className="filter-label">Status</label>
+                            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                                <option value="all">All</option>
+                                <option value="LIVE">Live</option>
+                                <option value="ABORTED">Aborted</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Campaign</th>
+                                    <th>Status</th>
+                                    <th>Type</th>
+                                    <th>Budget</th>
+                                    <th>Spend</th>
+                                    <th>Revenue</th>
+                                    <th>ROAS</th>
+                                    <th>ROI</th>
+                                    <th>Clicks</th>
+                                    <th>Conv.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {campaigns.map((campaign, idx) => (
+                                    <tr key={idx}>
+                                        <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {campaign.name}
+                                        </td>
+                                        <td>
+                                            <span className={`badge ${campaign.status === 'LIVE' ? 'badge-success' : 'badge-warning'}`}>
+                                                {campaign.status}
+                                            </span>
+                                        </td>
+                                        <td>{campaign.type}</td>
+                                        <td>{formatCurrency(campaign.budget)}</td>
+                                        <td>{formatCurrency(campaign.spend)}</td>
+                                        <td>{formatCurrency(campaign.revenue)}</td>
+                                        <td className={campaign.roas >= 1 ? 'metric-positive' : 'metric-negative'}>
+                                            {campaign.roas.toFixed(2)}x
+                                        </td>
+                                        <td className={campaign.roi >= 0 ? 'metric-positive' : 'metric-negative'}>
+                                            {campaign.roi.toFixed(1)}%
+                                        </td>
+                                        <td>{formatNumber(campaign.clicks)}</td>
+                                        <td>{formatNumber(campaign.conversions)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        // SKU Tab
+        function SKUTab({ data }) {
+            const [sortBy, setSortBy] = useState('revenue');
+            const [selectedSKU, setSelectedSKU] = useState(null);
+
+            const skus = useMemo(() => {
+                if (!data.campaignOrder) return [];
+
+                // Build campaign name lookup
+                const campaignNames = {};
+                if (data.consolidated) {
+                    data.consolidated.forEach(row => {
+                        if (row['Campaign ID'] && row['Campaign Name']) {
+                            campaignNames[row['Campaign ID']] = row['Campaign Name'];
+                        }
+                    });
+                }
+                if (data.pla) {
+                    data.pla.forEach(row => {
+                        if (row['Campaign ID'] && row['Campaign Name']) {
+                            campaignNames[row['Campaign ID']] = row['Campaign Name'];
+                        }
+                    });
+                }
+
+                // Build SKU-level spend data from Consolidated FSN Report
+                const skuCampaignSpend = {}; // Key: "FSN|CampaignID", Value: spend
+                const skuCampaignRevenue = {}; // Key: "FSN|CampaignID", Value: revenue
+                
+                if (data.consolidatedFSN) {
+                    data.consolidatedFSN.forEach(row => {
+                        const skuId = row['Sku Id'];
+                        const campaignId = row['Campaign ID'];
+                        const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
+                        const roi = parseFloat(row['ROI']) || 0; // This is actually ROAS
+                        
+                        if (skuId && campaignId && revenue > 0 && roi > 0) {
+                            const spend = revenue / roi; // Calculate actual spend
+                            const key = `${skuId}|${campaignId}`;
+                            skuCampaignSpend[key] = (skuCampaignSpend[key] || 0) + spend;
+                            skuCampaignRevenue[key] = (skuCampaignRevenue[key] || 0) + revenue;
+                        }
+                    });
+                }
+
+                const skuMap = {};
+                
+                data.campaignOrder.forEach(row => {
+                    const fsn = row['Advertised FSN ID'];
+                    if (!fsn) return;
+
+                    if (!skuMap[fsn]) {
+                        skuMap[fsn] = {
+                            fsn,
+                            productName: row['Product Name'],
+                            campaignDetails: [],
+                            campaignSet: new Set(),
+                            revenue: 0,
+                            units: 0,
+                            orders: 0
+                        };
+                    }
+
+                    const campaignId = row['Campaign ID'];
+                    const campaignName = campaignNames[campaignId] || row['Campaign Name'] || 'Unknown Campaign';
+                    
+                    skuMap[fsn].campaignSet.add(campaignId);
+                    
+                    const existingCampaign = skuMap[fsn].campaignDetails.find(c => c.id === campaignId);
+                    const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
+                    
+                    if (!existingCampaign) {
+                        skuMap[fsn].campaignDetails.push({
+                            id: campaignId,
+                            name: campaignName,
+                            revenue: revenue
+                        });
+                    } else {
+                        existingCampaign.revenue += revenue;
+                    }
+
+                    skuMap[fsn].revenue += revenue;
+                    skuMap[fsn].units += (parseInt(row['Direct Units Sold']) || 0) + (parseInt(row['Indirect Units Sold']) || 0);
+                    skuMap[fsn].orders += 1;
+                });
+
+                // Now calculate spend per SKU using Consolidated FSN data
+                Object.values(skuMap).forEach(sku => {
+                    let totalSpend = 0;
+                    
+                    sku.campaignDetails = sku.campaignDetails.map(campaign => {
+                        // Try to get SKU-level spend from Consolidated FSN Report
+                        let spend = 0;
+                        
+                        // Look for this SKU-Campaign combination in consolidatedFSN data
+                        // We need to match by product/SKU - try multiple approaches
+                        if (data.consolidatedFSN) {
+                            // Find matching records by campaign ID and product name/SKU
+                            const matchingRecords = data.consolidatedFSN.filter(row => {
+                                const rowCampaignId = row['Campaign ID'];
+                                const rowProductName = row['Product Name'];
+                                const rowSkuId = row['Sku Id'];
+                                
+                                // Convert to strings for comparison
+                                const rowSkuIdStr = rowSkuId ? String(rowSkuId) : '';
+                                const rowProductNameStr = rowProductName ? String(rowProductName) : '';
+                                const skuFsnStr = sku.fsn ? String(sku.fsn) : '';
+                                const skuProductNameStr = sku.productName ? String(sku.productName) : '';
+                                
+                                // Match by campaign and either FSN, SKU ID, or product name
+                                return rowCampaignId === campaign.id && (
+                                    rowSkuIdStr === skuFsnStr ||
+                                    rowProductNameStr === skuProductNameStr ||
+                                    (rowSkuIdStr && skuFsnStr && rowSkuIdStr.includes(skuFsnStr)) ||
+                                    (rowProductNameStr && skuProductNameStr && skuProductNameStr.includes(rowProductNameStr))
+                                );
+                            });
+                            
+                            // Sum up spend from matching records
+                            matchingRecords.forEach(record => {
+                                const revenue = parseFloat(record['Total Revenue (Rs.)']) || 0;
+                                const roi = parseFloat(record['ROI']) || 0;
+                                if (revenue > 0 && roi > 0) {
+                                    spend += revenue / roi;
+                                }
+                            });
+                        }
+                        
+                        // Fallback: if no consolidatedFSN data, use campaign-level spend from consolidated report
+                        if (spend === 0 && data.consolidated) {
+                            const campaignSpendRecords = data.consolidated.filter(r => r['Campaign ID'] === campaign.id);
+                            spend = campaignSpendRecords.reduce((sum, r) => sum + (parseFloat(r['Ad Spend']) || 0), 0);
+                        }
+                        
+                        totalSpend += spend;
+                        
+                        return {
+                            ...campaign,
+                            spend: spend,
+                            roas: spend > 0 ? campaign.revenue / spend : 0
+                        };
+                    });
+                    
+                    sku.totalSpend = totalSpend;
+                    sku.roas = totalSpend > 0 ? sku.revenue / totalSpend : 0;
+                });
+
+                return Object.values(skuMap)
+                    .map(sku => ({
+                        ...sku,
+                        campaigns: sku.campaignDetails.length,
+                        adGroups: new Set(sku.campaignDetails.map(c => c.name)).size,
+                        avgOrderValue: sku.orders > 0 ? sku.revenue / sku.orders : 0
+                    }))
+                    .sort((a, b) => {
+                        switch(sortBy) {
+                            case 'revenue': return b.revenue - a.revenue;
+                            case 'units': return b.units - a.units;
+                            case 'campaigns': return b.campaigns - a.campaigns;
+                            case 'roas': return b.roas - a.roas;
+                            default: return 0;
+                        }
+                    });
+            }, [data.campaignOrder, data.consolidated, data.consolidatedFSN, data.pla, sortBy]);
+
+            return (
+                <div className="section">
+                    <div className="section-header">
+                        <h3 className="section-title">SKU Performance Analysis</h3>
+                    </div>
+
+                    <div className="filters">
+                        <div className="filter-group">
+                            <label className="filter-label">Sort By</label>
+                            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                                <option value="revenue">Revenue</option>
+                                <option value="units">Units Sold</option>
+                                <option value="campaigns">Active Campaigns</option>
+                                <option value="roas">ROAS</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>FSN</th>
+                                    <th>Product Name</th>
+                                    <th>Campaigns</th>
+                                    <th>Revenue</th>
+                                    <th>Units</th>
+                                    <th>Orders</th>
+                                    <th>Avg Order Value</th>
+                                    <th>ROAS</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {skus.slice(0, 50).map((sku, idx) => (
+                                    <tr key={idx}>
+                                        <td>{sku.fsn}</td>
+                                        <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {sku.productName}
+                                        </td>
+                                        <td>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <span className="badge badge-info">{sku.campaigns}</span>
+                                                <button 
+                                                    className="view-btn"
+                                                    onClick={() => setSelectedSKU(sku)}
+                                                >
+                                                    👁 View
+                                                </button>
+                                            </div>
+                                        </td>
+                                        <td className="metric-positive">{formatCurrency(sku.revenue)}</td>
+                                        <td>{formatNumber(sku.units)}</td>
+                                        <td>{formatNumber(sku.orders)}</td>
+                                        <td>{formatCurrency(sku.avgOrderValue)}</td>
+                                        <td className={sku.roas >= 1 ? 'metric-positive' : 'metric-negative'}>
+                                            {sku.roas.toFixed(2)}x
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {selectedSKU && (
+                        <CampaignModal 
+                            sku={selectedSKU}
+                            onClose={() => setSelectedSKU(null)}
+                        />
+                    )}
+                </div>
+            );
+        }
+
+        // Campaign Modal Component
+        function CampaignModal({ sku, onClose }) {
+            return (
+                <div className="modal-overlay" onClick={onClose}>
+                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">Campaigns for {sku.productName}</h3>
+                            <button className="modal-close" onClick={onClose}>×</button>
+                        </div>
+                        <div className="modal-content">
+                            <div style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--color-surface-hover)', borderRadius: '8px' }}>
+                                <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginBottom: '0.5rem' }}>
+                                    FSN: {sku.fsn}
+                                </div>
+                                <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                                    Total Campaigns: {sku.campaigns} | Overall ROAS: {sku.roas.toFixed(2)}x
+                                </div>
+                            </div>
+                            
+                            {sku.campaignDetails.map((campaign, idx) => (
+                                <div key={idx} className="campaign-list-item">
+                                    <div className="campaign-item-name">
+                                        {campaign.name}
+                                    </div>
+                                    <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginBottom: '0.5rem', fontFamily: 'JetBrains Mono, monospace' }}>
+                                        Campaign ID: {campaign.id}
+                                    </div>
+                                    <div className="campaign-item-roas">
+                                        <span style={{ marginRight: '1rem' }}>
+                                            Revenue: {formatCurrency(campaign.revenue)}
+                                        </span>
+                                        <span style={{ marginRight: '1rem' }}>
+                                            Spend: {formatCurrency(campaign.spend)}
+                                        </span>
+                                        <span className={campaign.roas >= 1 ? 'metric-positive' : 'metric-negative'}>
+                                            ROAS: {campaign.roas.toFixed(2)}x
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Keywords Tab
+        function KeywordsTab({ data }) {
+            const [filter, setFilter] = useState('all');
+
+            const keywords = useMemo(() => {
+                if (!data.keyword) return [];
+
+                return data.keyword
+                    .filter(row => {
+                        const roi = parseFloat(row.ROI) || 0;
+                        const cost = parseFloat(row['SUM(cost)']) || 0;
+                        
+                        if (filter === 'high-performing') return roi > 10 && cost > 0;
+                        if (filter === 'low-performing') return roi < 5 && cost > 50;
+                        if (filter === 'wasted-spend') return roi === 0 && cost > 20;
+                        return cost > 0;
+                    })
+                    .map(row => ({
+                        keyword: row.attributed_keyword,
+                        matchType: row.keyword_match_type,
+                        campaign: row['Campaign Name'],
+                        views: parseInt(row.Views) || 0,
+                        clicks: parseInt(row.Clicks) || 0,
+                        ctr: parseFloat(row['Click Through Rate in %']) || 0,
+                        cost: parseFloat(row['SUM(cost)']) || 0,
+                        revenue: parseFloat(row['Direct Revenue']) || 0,
+                        conversions: (parseInt(row['Direct Units Sold']) || 0) + (parseInt(row['Indirect Units Sold']) || 0),
+                        roi: parseFloat(row.ROI) || 0,
+                        avgCPC: parseFloat(row['Average CPC']) || 0
+                    }))
+                    .sort((a, b) => b.revenue - a.revenue)
+                    .slice(0, 100);
+            }, [data.keyword, filter]);
+
+            return (
+                <div className="section">
+                    <div className="section-header">
+                        <h3 className="section-title">Keyword Performance</h3>
+                    </div>
+
+                    <div className="filters">
+                        <div className="filter-group">
+                            <label className="filter-label">Filter</label>
+                            <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+                                <option value="all">All Keywords</option>
+                                <option value="high-performing">High Performing (ROI &gt; 10%)</option>
+                                <option value="low-performing">Low Performing (ROI &lt; 5%)</option>
+                                <option value="wasted-spend">Wasted Spend (ROI = 0)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Keyword</th>
+                                    <th>Match Type</th>
+                                    <th>Views</th>
+                                    <th>Clicks</th>
+                                    <th>CTR</th>
+                                    <th>Cost</th>
+                                    <th>Revenue</th>
+                                    <th>Conv.</th>
+                                    <th>ROI</th>
+                                    <th>Avg CPC</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {keywords.map((kw, idx) => (
+                                    <tr key={idx}>
+                                        <td>{kw.keyword}</td>
+                                        <td>
+                                            <span className={`badge ${kw.matchType === 'EXACT' ? 'badge-success' : 'badge-info'}`}>
+                                                {kw.matchType}
+                                            </span>
+                                        </td>
+                                        <td>{formatNumber(kw.views)}</td>
+                                        <td>{formatNumber(kw.clicks)}</td>
+                                        <td>{formatPercent(kw.ctr)}</td>
+                                        <td>{formatCurrency(kw.cost)}</td>
+                                        <td className={kw.revenue > 0 ? 'metric-positive' : 'metric-neutral'}>
+                                            {formatCurrency(kw.revenue)}
+                                        </td>
+                                        <td>{kw.conversions}</td>
+                                        <td className={kw.roi > 0 ? 'metric-positive' : kw.roi < 0 ? 'metric-negative' : 'metric-neutral'}>
+                                            {formatPercent(kw.roi)}
+                                        </td>
+                                        <td>{formatCurrency(kw.avgCPC)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        // Placements Tab
+        function PlacementsTab({ data }) {
+            const placements = useMemo(() => {
+                if (!data.placement) return [];
+
+                const placementMap = {};
+
+                data.placement.forEach(row => {
+                    const type = row['Placement Type'];
+                    if (!placementMap[type]) {
+                        placementMap[type] = {
+                            type,
+                            views: 0,
+                            clicks: 0,
+                            spend: 0,
+                            revenue: 0,
+                            conversions: 0
+                        };
+                    }
+
+                    placementMap[type].views += parseInt(row.Views) || 0;
+                    placementMap[type].clicks += parseInt(row.Clicks) || 0;
+                    placementMap[type].spend += parseFloat(row['Ad Spend']) || 0;
+                    placementMap[type].revenue += parseFloat(row['Direct Revenue']) || 0;
+                    placementMap[type].conversions += (parseInt(row['Direct Units Sold']) || 0) + (parseInt(row['Indirect Units Sold']) || 0);
+                });
+
+                return Object.values(placementMap)
+                    .map(p => ({
+                        ...p,
+                        ctr: p.views > 0 ? (p.clicks / p.views) * 100 : 0,
+                        roi: p.spend > 0 ? ((p.revenue - p.spend) / p.spend) * 100 : 0,
+                        roas: p.spend > 0 ? p.revenue / p.spend : 0,
+                        conversionRate: p.clicks > 0 ? (p.conversions / p.clicks) * 100 : 0
+                    }))
+                    .sort((a, b) => b.revenue - a.revenue);
+            }, [data.placement]);
+
+            return (
+                <div className="section">
+                    <div className="section-header">
+                        <h3 className="section-title">Placement Performance</h3>
+                    </div>
+
+                    <div className="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Placement Type</th>
+                                    <th>Views</th>
+                                    <th>Clicks</th>
+                                    <th>CTR</th>
+                                    <th>Spend</th>
+                                    <th>Revenue</th>
+                                    <th>ROAS</th>
+                                    <th>ROI</th>
+                                    <th>Conv. Rate</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {placements.map((p, idx) => (
+                                    <tr key={idx}>
+                                        <td>{p.type}</td>
+                                        <td>{formatNumber(p.views)}</td>
+                                        <td>{formatNumber(p.clicks)}</td>
+                                        <td>{formatPercent(p.ctr)}</td>
+                                        <td>{formatCurrency(p.spend)}</td>
+                                        <td className="metric-positive">{formatCurrency(p.revenue)}</td>
+                                        <td className={p.roas >= 1 ? 'metric-positive' : 'metric-negative'}>
+                                            {p.roas.toFixed(2)}x
+                                        </td>
+                                        <td className={p.roi >= 0 ? 'metric-positive' : 'metric-negative'}>
+                                            {formatPercent(p.roi)}
+                                        </td>
+                                        <td>{formatPercent(p.conversionRate)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        // Insights Tab - AI-Powered Recommendations
+        function InsightsTab({ data }) {
+            const insights = useMemo(() => {
+                const recommendations = {
+                    critical: [],
+                    highImpact: [],
+                    underperformers: [],
+                    quickWins: [],
+                    strategic: []
+                };
+
+                // Analyze Campaigns
+                if (data.consolidated && data.pla) {
+                    const campaignMap = {};
+                    
+                    // Build campaign performance map
+                    data.consolidated.forEach(row => {
+                        const id = row['Campaign ID'];
+                        if (!campaignMap[id]) {
+                            campaignMap[id] = {
+                                id,
+                                name: row['Campaign Name'],
+                                spend: 0,
+                                revenue: 0,
+                                clicks: 0,
+                                conversions: 0,
+                                views: 0
+                            };
+                        }
+                        campaignMap[id].spend += parseFloat(row['Ad Spend']) || 0;
+                        campaignMap[id].revenue += parseFloat(row['Total Revenue (Rs.)']) || 0;
+                        campaignMap[id].clicks += parseInt(row.Clicks) || 0;
+                        campaignMap[id].conversions += parseInt(row['Total converted units']) || 0;
+                        campaignMap[id].views += parseInt(row.Views) || 0;
+                    });
+
+                    // Get campaign status from PLA
+                    const campaignStatus = {};
+                    data.pla.forEach(row => {
+                        campaignStatus[row['Campaign ID']] = row['Campaign Status'];
+                    });
+
+                    const campaigns = Object.values(campaignMap).map(c => ({
+                        ...c,
+                        roas: c.spend > 0 ? c.revenue / c.spend : 0,
+                        ctr: c.views > 0 ? (c.clicks / c.views) * 100 : 0,
+                        conversionRate: c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0,
+                        status: campaignStatus[c.id] || 'UNKNOWN'
+                    }));
+
+                    // CRITICAL: Zero-ROAS campaigns with significant spend
+                    const wastedSpend = campaigns.filter(c => c.roas === 0 && c.spend > 50);
+                    wastedSpend.forEach(c => {
+                        recommendations.critical.push({
+                            title: `Pause campaign "${c.name}" - Zero returns on ₹${c.spend.toFixed(0)} spend`,
+                            description: `This campaign has spent ₹${c.spend.toFixed(0)} with ${c.clicks} clicks but generated zero revenue. This is actively burning budget with no returns.`,
+                            metrics: [
+                                { label: 'Wasted Spend', value: formatCurrency(c.spend) },
+                                { label: 'ROAS', value: '0.00x' },
+                                { label: 'Clicks', value: formatNumber(c.clicks) }
+                            ],
+                            action: '⏸ PAUSE IMMEDIATELY',
+                            priority: 'critical'
+                        });
+                    });
+
+                    // CRITICAL: Low ROAS campaigns (< 0.5x) with high spend
+                    const lowROAS = campaigns.filter(c => c.roas > 0 && c.roas < 0.5 && c.spend > 100);
+                    lowROAS.slice(0, 3).forEach(c => {
+                        recommendations.critical.push({
+                            title: `Campaign "${c.name}" has critical ROAS of ${c.roas.toFixed(2)}x`,
+                            description: `For every ₹1 spent, you're only getting ₹${c.roas.toFixed(2)} back. You're losing ₹${(c.spend - c.revenue).toFixed(0)} on this campaign.`,
+                            metrics: [
+                                { label: 'Spend', value: formatCurrency(c.spend) },
+                                { label: 'Revenue', value: formatCurrency(c.revenue) },
+                                { label: 'ROAS', value: `${c.roas.toFixed(2)}x` },
+                                { label: 'Net Loss', value: formatCurrency(c.spend - c.revenue) }
+                            ],
+                            action: '🔧 OPTIMIZE OR PAUSE',
+                            priority: 'critical'
+                        });
+                    });
+
+                    // HIGH IMPACT: High ROAS campaigns (>3x) that are under-budgeted
+                    const winners = campaigns.filter(c => c.roas > 3 && c.spend < 1000 && c.status === 'LIVE');
+                    winners.slice(0, 3).forEach(c => {
+                        const potentialGain = c.revenue * 2;
+                        recommendations.highImpact.push({
+                            title: `Scale up "${c.name}" - Excellent ${c.roas.toFixed(2)}x ROAS`,
+                            description: `This campaign is delivering exceptional returns but only has ₹${c.spend.toFixed(0)} in spend. Increasing budget could unlock significant revenue growth.`,
+                            metrics: [
+                                { label: 'Current ROAS', value: `${c.roas.toFixed(2)}x` },
+                                { label: 'Current Revenue', value: formatCurrency(c.revenue) },
+                                { label: 'Potential Revenue (2x budget)', value: formatCurrency(potentialGain) }
+                            ],
+                            action: '📈 INCREASE BUDGET',
+                            priority: 'high'
+                        });
+                    });
+                }
+
+                // Analyze Keywords
+                if (data.keyword) {
+                    const keywords = data.keyword.filter(k => parseFloat(k['SUM(cost)']) > 0);
+
+                    // CRITICAL: High-spend zero-conversion keywords
+                    const wastedKeywords = keywords.filter(k => 
+                        parseFloat(k['SUM(cost)']) > 20 && 
+                        (parseInt(k['Direct Units Sold']) || 0) === 0 &&
+                        (parseInt(k['Indirect Units Sold']) || 0) === 0
+                    );
+                    
+                    if (wastedKeywords.length > 0) {
+                        const totalWaste = wastedKeywords.reduce((sum, k) => sum + parseFloat(k['SUM(cost)']), 0);
+                        recommendations.critical.push({
+                            title: `${wastedKeywords.length} keywords are wasting ₹${totalWaste.toFixed(0)} with zero conversions`,
+                            description: `You have keywords that are driving clicks but zero sales. Top wasters: ${wastedKeywords.slice(0, 3).map(k => `"${k.attributed_keyword}"`).join(', ')}`,
+                            metrics: [
+                                { label: 'Keywords', value: wastedKeywords.length },
+                                { label: 'Total Waste', value: formatCurrency(totalWaste) },
+                                { label: 'Avg Cost/Keyword', value: formatCurrency(totalWaste / wastedKeywords.length) }
+                            ],
+                            action: '🗑 ADD AS NEGATIVE KEYWORDS',
+                            priority: 'critical'
+                        });
+                    }
+
+                    // HIGH IMPACT: High-performing keywords that need exact match
+                    const phraseWinners = keywords.filter(k => 
+                        k.keyword_match_type === 'PHRASE' && 
+                        parseFloat(k.ROI || 0) > 15 &&
+                        parseFloat(k['SUM(cost)']) > 50
+                    );
+                    
+                    if (phraseWinners.length > 0) {
+                        recommendations.highImpact.push({
+                            title: `${phraseWinners.length} high-performing PHRASE keywords should get EXACT match campaigns`,
+                            description: `Keywords like "${phraseWinners[0].attributed_keyword}" are performing well on PHRASE match. Create EXACT match campaigns for better control and lower CPC.`,
+                            metrics: [
+                                { label: 'Keywords', value: phraseWinners.length },
+                                { label: 'Avg ROI', value: formatPercent(phraseWinners.reduce((sum, k) => sum + parseFloat(k.ROI || 0), 0) / phraseWinners.length) }
+                            ],
+                            action: '🎯 CREATE EXACT MATCH CAMPAIGNS',
+                            priority: 'high'
+                        });
+                    }
+
+                    // QUICK WIN: Low CTR keywords
+                    const lowCTR = keywords.filter(k => 
+                        parseFloat(k['Click Through Rate in %'] || 0) < 1 &&
+                        parseInt(k.Views || 0) > 100
+                    );
+                    
+                    if (lowCTR.length > 5) {
+                        recommendations.quickWins.push({
+                            title: `${lowCTR.length} keywords have CTR below 1% - Review ad copy`,
+                            description: `Low CTR means your ads aren't compelling enough. Review and improve ad copy for keywords like: ${lowCTR.slice(0, 3).map(k => `"${k.attributed_keyword}"`).join(', ')}`,
+                            metrics: [
+                                { label: 'Keywords Affected', value: lowCTR.length },
+                                { label: 'Avg CTR', value: formatPercent(lowCTR.reduce((sum, k) => sum + parseFloat(k['Click Through Rate in %'] || 0), 0) / lowCTR.length) }
+                            ],
+                            action: '✍️ IMPROVE AD COPY',
+                            priority: 'medium'
+                        });
+                    }
+                }
+
+                // Analyze SKUs
+                if (data.campaignOrder) {
+                    const skuMap = {};
+                    
+                    data.campaignOrder.forEach(row => {
+                        const fsn = row['Advertised FSN ID'];
+                        if (!fsn) return;
+
+                        if (!skuMap[fsn]) {
+                            skuMap[fsn] = {
+                                fsn,
+                                productName: row['Product Name'],
+                                campaigns: new Set(),
+                                revenue: 0,
+                                spend: 0
+                            };
+                        }
+
+                        skuMap[fsn].campaigns.add(row['Campaign ID']);
+                        skuMap[fsn].revenue += parseFloat(row['Total Revenue (Rs.)']) || 0;
+                        skuMap[fsn].spend += parseFloat(row['AdGroup CPC']) || 0;
+                    });
+
+                    const skus = Object.values(skuMap).map(s => ({
+                        ...s,
+                        campaigns: s.campaigns.size,
+                        roas: s.spend > 0 ? s.revenue / s.spend : 0
+                    }));
+
+                    // HIGH IMPACT: High-performing SKUs with only 1 campaign
+                    const singleCampaignWinners = skus.filter(s => s.campaigns === 1 && s.roas > 5 && s.revenue > 500);
+                    singleCampaignWinners.slice(0, 3).forEach(s => {
+                        recommendations.highImpact.push({
+                            title: `"${s.productName}" has amazing ${s.roas.toFixed(1)}x ROAS but only 1 campaign`,
+                            description: `This product is a proven winner with only one campaign. Create additional campaigns with different keyword strategies to maximize reach.`,
+                            metrics: [
+                                { label: 'ROAS', value: `${s.roas.toFixed(2)}x` },
+                                { label: 'Revenue', value: formatCurrency(s.revenue) },
+                                { label: 'Campaigns', value: '1' }
+                            ],
+                            action: '🚀 CREATE MORE CAMPAIGNS',
+                            priority: 'high'
+                        });
+                    });
+
+                    // UNDERPERFORMERS: SKUs with multiple campaigns but poor ROAS
+                    const multiCampaignLosers = skus.filter(s => s.campaigns >= 2 && s.roas < 1 && s.spend > 100);
+                    multiCampaignLosers.slice(0, 2).forEach(s => {
+                        recommendations.underperformers.push({
+                            title: `"${s.productName}" has ${s.campaigns} campaigns but ${s.roas.toFixed(2)}x ROAS`,
+                            description: `Despite multiple campaigns, this product isn't profitable. Consider pausing underperforming campaigns or reviewing pricing/margins.`,
+                            metrics: [
+                                { label: 'Campaigns', value: s.campaigns },
+                                { label: 'ROAS', value: `${s.roas.toFixed(2)}x` },
+                                { label: 'Net Loss', value: formatCurrency(s.spend - s.revenue) }
+                            ],
+                            action: '⚠️ REVIEW STRATEGY',
+                            priority: 'medium'
+                        });
+                    });
+                }
+
+                // Analyze Placements
+                if (data.placement) {
+                    const placementMap = {};
+
+                    data.placement.forEach(row => {
+                        const type = row['Placement Type'];
+                        if (!placementMap[type]) {
+                            placementMap[type] = {
+                                type,
+                                spend: 0,
+                                revenue: 0,
+                                clicks: 0,
+                                views: 0
+                            };
+                        }
+
+                        placementMap[type].spend += parseFloat(row['Ad Spend']) || 0;
+                        placementMap[type].revenue += parseFloat(row['Direct Revenue']) || 0;
+                        placementMap[type].clicks += parseInt(row.Clicks) || 0;
+                        placementMap[type].views += parseInt(row.Views) || 0;
+                    });
+
+                    const placements = Object.values(placementMap).map(p => ({
+                        ...p,
+                        roas: p.spend > 0 ? p.revenue / p.spend : 0,
+                        ctr: p.views > 0 ? (p.clicks / p.views) * 100 : 0
+                    }));
+
+                    // Find best and worst placements
+                    const sortedByROAS = [...placements].filter(p => p.spend > 50).sort((a, b) => b.roas - a.roas);
+                    
+                    if (sortedByROAS.length >= 2) {
+                        const best = sortedByROAS[0];
+                        const worst = sortedByROAS[sortedByROAS.length - 1];
+
+                        if (best.roas > 2 && worst.roas < 1) {
+                            recommendations.quickWins.push({
+                                title: `"${best.type}" outperforms "${worst.type}" by ${(best.roas / worst.roas).toFixed(1)}x`,
+                                description: `Shift more budget to ${best.type} (${best.roas.toFixed(2)}x ROAS) and reduce or pause ${worst.type} (${worst.roas.toFixed(2)}x ROAS).`,
+                                metrics: [
+                                    { label: 'Best Placement ROAS', value: `${best.roas.toFixed(2)}x` },
+                                    { label: 'Worst Placement ROAS', value: `${worst.roas.toFixed(2)}x` }
+                                ],
+                                action: '🎯 ADJUST PLACEMENT BIDS',
+                                priority: 'medium'
+                            });
+                        }
+                    }
+                }
+
+                // Analyze Search Terms
+                if (data.searchTerm) {
+                    const searchTerms = data.searchTerm.filter(t => parseInt(t.Views || 0) > 50);
+
+                    // HIGH IMPACT: High-volume search terms not covered by keywords
+                    const highVolumeTerms = searchTerms
+                        .filter(t => {
+                            const views = parseInt(t.Views || 0);
+                            const cost = parseFloat(t['SUM(cost)'] || 0);
+                            const revenue = (parseFloat(t['Direct Revenue'] || 0) + parseFloat(t['Indirect Revenue'] || 0));
+                            const roas = cost > 0 ? revenue / cost : 0;
+                            return views > 500 && roas > 2;
+                        })
+                        .slice(0, 5);
+
+                    if (highVolumeTerms.length > 0) {
+                        recommendations.strategic.push({
+                            title: `${highVolumeTerms.length} high-volume, high-ROAS search terms discovered`,
+                            description: `Customer search terms like "${highVolumeTerms[0].Query}" are performing exceptionally well. Add these as targeted keywords for better control.`,
+                            metrics: [
+                                { label: 'Top Terms', value: highVolumeTerms.length },
+                                { label: 'Example', value: `"${highVolumeTerms[0].Query}"` }
+                            ],
+                            action: '➕ ADD AS KEYWORDS',
+                            priority: 'high'
+                        });
+                    }
+
+                    // QUICK WIN: Low conversion rate searches with high clicks
+                    const lowConversionHighClicks = searchTerms.filter(t => {
+                        const clicks = parseInt(t.Clicks || 0);
+                        const conversions = (parseInt(t['Direct Units Sold'] || 0) + parseInt(t['Indirect Units Sold'] || 0));
+                        const convRate = clicks > 0 ? (conversions / clicks) * 100 : 0;
+                        return clicks > 20 && convRate < 2;
+                    });
+
+                    if (lowConversionHighClicks.length > 5) {
+                        recommendations.quickWins.push({
+                            title: `${lowConversionHighClicks.length} search terms have high clicks but low conversions`,
+                            description: `These terms are driving traffic but not sales. Either improve product pages/pricing or add as negative keywords if irrelevant.`,
+                            metrics: [
+                                { label: 'Terms Affected', value: lowConversionHighClicks.length }
+                            ],
+                            action: '🔍 ANALYZE INTENT',
+                            priority: 'low'
+                        });
+                    }
+                }
+
+                // STRATEGIC: Overall portfolio recommendations
+                if (data.consolidated) {
+                    const totalSpend = data.consolidated.reduce((sum, row) => sum + (parseFloat(row['Ad Spend']) || 0), 0);
+                    const totalRevenue = data.consolidated.reduce((sum, row) => sum + (parseFloat(row['Total Revenue (Rs.)']) || 0), 0);
+                    const overallROAS = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+
+                    if (overallROAS < 2) {
+                        recommendations.strategic.push({
+                            title: `Overall portfolio ROAS is ${overallROAS.toFixed(2)}x - Below healthy threshold`,
+                            description: `Your blended ROAS should ideally be above 2.5x for sustainable growth. Focus on pausing underperformers and scaling winners to improve the overall efficiency.`,
+                            metrics: [
+                                { label: 'Current ROAS', value: `${overallROAS.toFixed(2)}x` },
+                                { label: 'Target ROAS', value: '2.5x+' },
+                                { label: 'Total Spend', value: formatCurrency(totalSpend) }
+                            ],
+                            action: '📊 PORTFOLIO OPTIMIZATION',
+                            priority: 'high'
+                        });
+                    }
+
+                    // Count active campaigns
+                    const activeCampaigns = new Set(data.consolidated.map(r => r['Campaign ID'])).size;
+                    if (activeCampaigns > 30) {
+                        recommendations.strategic.push({
+                            title: `You're running ${activeCampaigns} campaigns - Consider consolidation`,
+                            description: `Managing too many campaigns spreads budget thin and makes optimization difficult. Consider consolidating similar campaigns for better budget allocation.`,
+                            metrics: [
+                                { label: 'Active Campaigns', value: activeCampaigns },
+                                { label: 'Recommended Max', value: '20-25' }
+                            ],
+                            action: '🔄 CONSOLIDATE CAMPAIGNS',
+                            priority: 'low'
+                        });
+                    }
+                }
+
+                return recommendations;
+            }, [data]);
+
+            const allInsights = [
+                ...insights.critical,
+                ...insights.highImpact,
+                ...insights.underperformers,
+                ...insights.quickWins,
+                ...insights.strategic
+            ];
+
+            const categories = [
+                {
+                    id: 'critical',
+                    title: 'Critical Issues',
+                    icon: '🚨',
+                    description: 'Immediate actions needed - these are costing you money right now',
+                    insights: insights.critical
+                },
+                {
+                    id: 'highImpact',
+                    title: 'High-Impact Opportunities',
+                    icon: '💰',
+                    description: 'Scale these winners to maximize revenue',
+                    insights: insights.highImpact
+                },
+                {
+                    id: 'underperformers',
+                    title: 'Underperformers',
+                    icon: '⚠️',
+                    description: 'Review and optimize or pause these',
+                    insights: insights.underperformers
+                },
+                {
+                    id: 'quickWins',
+                    title: 'Quick Wins',
+                    icon: '🎯',
+                    description: 'Easy optimizations with good impact',
+                    insights: insights.quickWins
+                },
+                {
+                    id: 'strategic',
+                    title: 'Strategic Recommendations',
+                    icon: '📈',
+                    description: 'Long-term improvements for sustained growth',
+                    insights: insights.strategic
+                }
+            ];
+
+            return (
+                <div>
+                    <div className="section" style={{ marginBottom: '2rem' }}>
+                        <div style={{ textAlign: 'center', padding: '2rem' }}>
+                            <h2 style={{ fontSize: '1.75rem', marginBottom: '0.5rem', color: 'var(--color-text)' }}>
+                                🧠 AI-Powered Insights & Recommendations
+                            </h2>
+                            <p style={{ color: 'var(--color-text-muted)', fontSize: '1rem', marginBottom: '1rem' }}>
+                                Deep analysis of your ad performance with {allInsights.length} actionable recommendations
+                            </p>
+                            <div style={{ display: 'inline-flex', gap: '1rem', marginTop: '1rem' }}>
+                                <div style={{ padding: '0.5rem 1rem', background: 'var(--color-surface-hover)', borderRadius: '8px', border: '1px solid var(--color-danger)' }}>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>CRITICAL</div>
+                                    <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'var(--color-danger)' }}>{insights.critical.length}</div>
+                                </div>
+                                <div style={{ padding: '0.5rem 1rem', background: 'var(--color-surface-hover)', borderRadius: '8px', border: '1px solid var(--color-warning)' }}>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>HIGH IMPACT</div>
+                                    <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'var(--color-warning)' }}>{insights.highImpact.length}</div>
+                                </div>
+                                <div style={{ padding: '0.5rem 1rem', background: 'var(--color-surface-hover)', borderRadius: '8px', border: '1px solid var(--color-accent)' }}>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>QUICK WINS</div>
+                                    <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'var(--color-accent)' }}>{insights.quickWins.length}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="insights-container">
+                        {categories.map(category => (
+                            category.insights.length > 0 && (
+                                <div key={category.id} className="insight-category">
+                                    <div className="insight-category-header">
+                                        <span className="insight-category-icon">{category.icon}</span>
+                                        <div style={{ flex: 1 }}>
+                                            <h3 className="insight-category-title">{category.title}</h3>
+                                            <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                                                {category.description}
+                                            </p>
+                                        </div>
+                                        <span className="insight-category-count">{category.insights.length}</span>
+                                    </div>
+                                    <div className="insight-list">
+                                        {category.insights.map((insight, idx) => (
+                                            <div key={idx} className={`insight-item priority-${insight.priority}`}>
+                                                <div className="insight-header">
+                                                    <span className="insight-priority">{insight.priority}</span>
+                                                    <h4 className="insight-title">{insight.title}</h4>
+                                                </div>
+                                                <p className="insight-description">{insight.description}</p>
+                                                {insight.metrics && insight.metrics.length > 0 && (
+                                                    <div className="insight-metrics">
+                                                        {insight.metrics.map((metric, midx) => (
+                                                            <div key={midx} className="insight-metric">
+                                                                <div className="insight-metric-label">{metric.label}</div>
+                                                                <div className="insight-metric-value">{metric.value}</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                <div className="insight-action">
+                                                    {insight.action}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )
+                        ))}
+                    </div>
+
+                    {allInsights.length === 0 && (
+                        <div className="empty-state">
+                            <div className="empty-state-icon">🎉</div>
+                            <h3>Looking Good!</h3>
+                            <p>No critical issues detected. Your campaigns are performing well.</p>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Search Terms Tab
+        function SearchTermsTab({ data }) {
+            const [minViews, setMinViews] = useState(100);
+            const [sortBy, setSortBy] = useState('views');
+
+            const searchTerms = useMemo(() => {
+                if (!data.searchTerm) return [];
+
+                return data.searchTerm
+                    .filter(row => (parseInt(row.Views) || 0) >= minViews)
+                    .map(row => {
+                        const cost = parseFloat(row['SUM(cost)']) || 0;
+                        const revenue = (parseFloat(row['Direct Revenue']) || 0) + (parseFloat(row['Indirect Revenue']) || 0);
+                        
+                        return {
+                            query: row.Query,
+                            campaign: row['Campaign Name'],
+                            views: parseInt(row.Views) || 0,
+                            clicks: parseInt(row.Clicks) || 0,
+                            ctr: parseFloat(row['Click Through Rate in %']) || 0,
+                            cost: cost,
+                            revenue: revenue,
+                            conversions: (parseInt(row['Direct Units Sold']) || 0) + (parseInt(row['Indirect Units Sold']) || 0),
+                            roas: cost > 0 ? revenue / cost : 0
+                        };
+                    })
+                    .sort((a, b) => {
+                        switch(sortBy) {
+                            case 'views': return b.views - a.views;
+                            case 'clicks': return b.clicks - a.clicks;
+                            case 'revenue': return b.revenue - a.revenue;
+                            case 'roas': return b.roas - a.roas;
+                            default: return 0;
+                        }
+                    })
+                    .slice(0, 100);
+            }, [data.searchTerm, minViews, sortBy]);
+
+            return (
+                <div className="section">
+                    <div className="section-header">
+                        <h3 className="section-title">Search Term Analysis</h3>
+                    </div>
+
+                    <div className="filters">
+                        <div className="filter-group">
+                            <label className="filter-label">Min Views</label>
+                            <input 
+                                type="number" 
+                                value={minViews} 
+                                onChange={(e) => setMinViews(parseInt(e.target.value) || 0)}
+                                min="0"
+                            />
+                        </div>
+                        <div className="filter-group">
+                            <label className="filter-label">Sort By</label>
+                            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                                <option value="views">Views</option>
+                                <option value="clicks">Clicks</option>
+                                <option value="revenue">Revenue</option>
+                                <option value="roas">ROAS</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Search Query</th>
+                                    <th>Views</th>
+                                    <th>Clicks</th>
+                                    <th>CTR</th>
+                                    <th>Cost</th>
+                                    <th>Revenue</th>
+                                    <th>Conv.</th>
+                                    <th>ROAS</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {searchTerms.map((term, idx) => (
+                                    <tr key={idx}>
+                                        <td>{term.query}</td>
+                                        <td>{formatNumber(term.views)}</td>
+                                        <td>{formatNumber(term.clicks)}</td>
+                                        <td>{formatPercent(term.ctr)}</td>
+                                        <td>{formatCurrency(term.cost)}</td>
+                                        <td className={term.revenue > 0 ? 'metric-positive' : 'metric-neutral'}>
+                                            {formatCurrency(term.revenue)}
+                                        </td>
+                                        <td>{term.conversions}</td>
+                                        <td className={term.roas >= 1 ? 'metric-positive' : term.roas > 0 ? 'metric-neutral' : 'metric-negative'}>
+                                            {term.roas.toFixed(2)}x
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+
+    
+
+window.AdsApp = App;
+</script>
+</body>
+</html>
