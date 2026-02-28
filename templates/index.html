@@ -69,6 +69,22 @@
   .dl-summary{background:transparent;color:var(--accent);border:1.5px solid var(--accent);}
   .dl-summary:hover{background:rgba(0,212,255,.1);}
   .error-box{background:rgba(255,51,102,.12);border:1px solid var(--danger);border-radius:8px;padding:14px 18px;color:var(--danger);font-size:.88rem;margin-top:16px;display:none;}
+  .ls-two-col{display:grid;grid-template-columns:1fr 340px;gap:24px;max-width:1200px;margin:2rem auto;padding:0 2rem;align-items:start;}
+  .ls-left{min-width:0;}
+  .ls-right{position:sticky;top:82px;}
+  .ls-right-header{background:var(--surface);border:1px solid var(--border);border-radius:12px 12px 0 0;padding:16px 20px;border-bottom:1px solid var(--border);}
+  .ls-output-card{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--border);padding:16px 20px;transition:border-color .2s;}
+  .ls-output-card:last-child{border-radius:0 0 12px 12px;}
+  .ls-output-card.has-output{border-left-color:var(--accent);}
+  .ls-output-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+  .ls-output-acct{font-weight:700;font-size:0.88rem;color:var(--text);}
+  .ls-output-time{font-size:0.7rem;color:var(--muted);font-family:'JetBrains Mono',monospace;}
+  .ls-output-stats{display:flex;gap:16px;margin-bottom:10px;}
+  .ls-output-stat-val{font-size:1.1rem;font-weight:700;color:var(--accent);font-family:'JetBrains Mono',monospace;display:block;}
+  .ls-output-stat-lbl{font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+  .ls-output-btns{display:flex;gap:8px;}
+  .ls-output-empty{font-size:0.8rem;color:var(--muted);padding:4px 0;}
+  @media(max-width:900px){.ls-two-col{grid-template-columns:1fr;}.ls-right{position:static;}}
 </style>
 <style>
 .app {
@@ -1027,88 +1043,98 @@
   </header>
 
   <div id="panel-labels" class="tab-panel active">
-    <div class="ls-wrap">
+    <div class="ls-two-col">
 
-      <!-- No master file: first-time setup banner -->
-      <div class="ls-card" id="firstTimeCard" style="display:none; border-color: var(--warning); background: rgba(255,165,0,0.06);">
-        <h2 style="color:var(--warning);">⚠️ No Master SKU File Found</h2>
-        <p class="hint">Upload your Master SKU xlsx once — it'll be saved on the server and reused every time.</p>
-        <div class="drop-zone" id="firstSkuDrop">
-          <input type="file" id="firstSkuFile" accept=".xlsx">
-          <div class="icon">📋</div>
-          <p>Click or drag your Master SKU xlsx here</p>
-          <div class="file-names" id="firstSkuFileName"></div>
-        </div>
-        <div style="margin-top:14px;">
-          <button class="ls-btn ls-btn-primary" id="firstUploadBtn" onclick="uploadMaster('first')" disabled>💾 Save Master SKU File</button>
-        </div>
-      </div>
+      <!-- ── LEFT: Workflow ── -->
+      <div class="ls-left">
 
-      <!-- Master file status (shown when file exists) -->
-      <div class="ls-card" id="masterStatusCard" style="display:none;">
-        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
-          <div style="display:flex; align-items:center; gap:10px;">
-            <div style="width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);flex-shrink:0;"></div>
-            <div>
-              <div style="font-weight:600; color:var(--text); font-size:0.9rem;">Master SKU File Active</div>
-              <div style="font-size:0.78rem; color:var(--muted);" id="masterUpdatedAt"></div>
+        <!-- No master file: first-time setup banner -->
+        <div class="ls-card" id="firstTimeCard" style="display:none; border-color:var(--warning); background:rgba(255,165,0,0.06);">
+          <h2 style="color:var(--warning);">⚠️ No Master SKU File Found</h2>
+          <p class="hint">Upload your Master SKU xlsx once — it'll be saved on the server and reused every time.</p>
+          <div class="drop-zone" id="firstSkuDrop">
+            <input type="file" id="firstSkuFile" accept=".xlsx">
+            <div class="icon">📋</div>
+            <p>Click or drag your Master SKU xlsx here</p>
+            <div class="file-names" id="firstSkuFileName"></div>
+          </div>
+          <div style="margin-top:14px;">
+            <button class="ls-btn ls-btn-primary" id="firstUploadBtn" onclick="uploadMaster('first')" disabled>💾 Save Master SKU File</button>
+          </div>
+        </div>
+
+        <!-- Master file status + update -->
+        <div class="ls-card" id="masterStatusCard" style="display:none;">
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <div style="width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);flex-shrink:0;"></div>
+              <div>
+                <div style="font-weight:600; color:var(--text); font-size:0.9rem;">Master SKU File Active</div>
+                <div style="font-size:0.78rem; color:var(--muted);" id="masterUpdatedAt"></div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <span style="font-size:0.82rem; color:var(--muted);">Need to update?</span>
+              <button class="ls-btn" onclick="toggleUpdatePanel()"
+                style="padding:7px 14px; font-size:0.82rem; background:transparent; border:1px solid var(--border); color:var(--muted);">
+                🔄 Update File
+              </button>
+            </div>
+          </div>
+          <div id="updatePanel" style="display:none; margin-top:16px;">
+            <div class="drop-zone" id="updateSkuDrop">
+              <input type="file" id="updateSkuFile" accept=".xlsx">
+              <div class="icon">📋</div>
+              <p>Click or drag your new Master SKU xlsx here</p>
+              <div class="file-names" id="updateSkuFileName"></div>
+            </div>
+            <div style="margin-top:14px; display:flex; gap:10px; align-items:center;">
+              <button class="ls-btn ls-btn-primary" id="updateUploadBtn" onclick="uploadMaster('update')" disabled>💾 Save &amp; Overwrite</button>
+              <span id="updateSuccessMsg" style="font-size:0.82rem; color:var(--green); display:none;">✓ Master SKU updated!</span>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Step 1: Upload Label PDFs -->
-      <div class="ls-card" id="mainSortCard" style="display:none;">
-        <h2><span class="step">1</span> Upload Label PDFs</h2>
-        <p class="hint">Upload one or more label PDFs from any/all accounts. Account is auto-detected.</p>
-        <div class="drop-zone" id="pdfDrop">
-          <input type="file" id="pdfFiles" accept=".pdf" multiple>
-          <div class="icon">📄</div>
-          <p>Click or drag label PDFs here (multiple files OK)</p>
-          <div class="file-names" id="pdfFileNames"></div>
-        </div>
-      </div>
-
-      <!-- Sort button -->
-      <div class="ls-card" id="sortBtnCard" style="display:none;">
-        <button class="ls-btn ls-btn-primary ls-btn-full" id="processBtn" onclick="process()" disabled>⚡ Sort Labels</button>
-        <div class="progress-wrap" id="progressWrap">
-          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-          <div class="progress-label" id="progressLabel">Processing...</div>
-        </div>
-        <div class="error-box" id="errorBox"></div>
-      </div>
-
-      <!-- Results -->
-      <div class="ls-results" id="results">
-        <div class="ls-card">
-          <h2>✅ Done! Download your outputs</h2>
-          <p class="hint" style="margin-bottom:16px">One sorted labels PDF and one summary PDF per account.</p>
-          <div id="accountBlocks"></div>
-        </div>
-      </div>
-
-      <!-- Update Master SKU (always at bottom) -->
-      <div class="ls-card" id="updateMasterCard" style="display:none; border-color: var(--border); margin-top: 8px;">
-        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
-          <span style="font-size:0.88rem; color:var(--muted);">Need to update Master SKU file?</span>
-          <button class="ls-btn" onclick="toggleUpdatePanel()" id="updateToggleBtn"
-            style="padding:8px 18px; font-size:0.82rem; background:transparent; border:1px solid var(--border); color:var(--muted);">
-            🔄 Update File
-          </button>
-        </div>
-        <div id="updatePanel" style="display:none; margin-top:16px;">
-          <div class="drop-zone" id="updateSkuDrop">
-            <input type="file" id="updateSkuFile" accept=".xlsx">
-            <div class="icon">📋</div>
-            <p>Click or drag your new Master SKU xlsx here</p>
-            <div class="file-names" id="updateSkuFileName"></div>
-          </div>
-          <div style="margin-top:14px; display:flex; gap:10px; align-items:center;">
-            <button class="ls-btn ls-btn-primary" id="updateUploadBtn" onclick="uploadMaster('update')" disabled>💾 Save &amp; Overwrite</button>
-            <span id="updateSuccessMsg" style="font-size:0.82rem; color:var(--green); display:none;">✓ Master SKU updated!</span>
+        <!-- Upload Label PDFs -->
+        <div class="ls-card" id="mainSortCard" style="display:none;">
+          <h2><span class="step">1</span> Upload Label PDFs</h2>
+          <p class="hint">Upload one or more label PDFs from any/all accounts. Account is auto-detected.</p>
+          <div class="drop-zone" id="pdfDrop">
+            <input type="file" id="pdfFiles" accept=".pdf" multiple>
+            <div class="icon">📄</div>
+            <p>Click or drag label PDFs here (multiple files OK)</p>
+            <div class="file-names" id="pdfFileNames"></div>
           </div>
         </div>
+
+        <!-- Sort button -->
+        <div class="ls-card" id="sortBtnCard" style="display:none;">
+          <button class="ls-btn ls-btn-primary ls-btn-full" id="processBtn" onclick="process()" disabled>⚡ Sort Labels</button>
+          <div class="progress-wrap" id="progressWrap">
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-label" id="progressLabel">Processing...</div>
+          </div>
+          <div class="error-box" id="errorBox"></div>
+        </div>
+
+        <!-- Results -->
+        <div class="ls-results" id="results">
+          <div class="ls-card">
+            <h2>✅ Done!</h2>
+            <p class="hint" style="margin-bottom:16px;">Outputs are also updated on the right panel.</p>
+            <div id="accountBlocks"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ── RIGHT: Latest Outputs Panel ── -->
+      <div class="ls-right">
+        <div class="ls-right-header">
+          <div style="font-weight:700; font-size:1rem; color:var(--text);">📦 Latest Sorted Outputs</div>
+          <div style="font-size:0.75rem; color:var(--muted); margin-top:3px;">Ground team: download directly from here</div>
+        </div>
+        <div id="latestOutputsList"></div>
       </div>
 
     </div>
@@ -1141,15 +1167,14 @@ async function checkMasterStatus(){
     document.getElementById('masterStatusCard').style.display='block';
     document.getElementById('mainSortCard').style.display='block';
     document.getElementById('sortBtnCard').style.display='block';
-    document.getElementById('updateMasterCard').style.display='block';
     document.getElementById('masterUpdatedAt').textContent='Last updated: ' + data.updated;
   } else {
     document.getElementById('firstTimeCard').style.display='block';
     document.getElementById('masterStatusCard').style.display='none';
     document.getElementById('mainSortCard').style.display='none';
     document.getElementById('sortBtnCard').style.display='none';
-    document.getElementById('updateMasterCard').style.display='none';
   }
+  loadLatestOutputs();
 }
 checkMasterStatus();
 
@@ -1254,6 +1279,54 @@ async function process(){
   document.getElementById('processBtn').disabled=false;
 }
 
+const ACCOUNT_ORDER = ['REFRESHWAVE','EONSPARK','CUTEST CLUB','HELLOHI'];
+
+async function loadLatestOutputs(){
+  const list = document.getElementById('latestOutputsList');
+  if(!list) return;
+  try{
+    const res = await fetch('/api/latest-outputs');
+    const data = await res.json();
+    // Build lookup
+    const byAccount = {};
+    for(const o of data.outputs) byAccount[o.account] = o;
+    list.innerHTML = '';
+    for(const acct of ACCOUNT_ORDER){
+      const acc = byAccount[acct] || {account: acct, has_output: false};
+      const card = document.createElement('div');
+      card.className = 'ls-output-card' + (acc.has_output ? ' has-output' : '');
+      if(acc.has_output){
+        card.innerHTML = `
+          <div class="ls-output-card-top">
+            <div class="ls-output-acct">🏪 ${acc.account}</div>
+            <div class="ls-output-time">🕐 ${acc.timestamp}</div>
+          </div>
+          <div class="ls-output-stats">
+            <div>
+              <span class="ls-output-stat-val">${acc.total}</span>
+              <span class="ls-output-stat-lbl">Labels</span>
+            </div>
+            <div>
+              <span class="ls-output-stat-val">${acc.sku_count}</span>
+              <span class="ls-output-stat-lbl">SKUs ID'd</span>
+            </div>
+          </div>
+          <div class="ls-output-btns">
+            <a class="dl-btn dl-labels" style="font-size:0.78rem;padding:7px 12px;" href="/api/download/${acc.labels_file}" download>⬇ Labels</a>
+            <a class="dl-btn dl-summary" style="font-size:0.78rem;padding:7px 12px;" href="/api/download/${acc.summary_file}" download>⬇ Summary</a>
+          </div>`;
+      } else {
+        card.innerHTML = `
+          <div class="ls-output-card-top">
+            <div class="ls-output-acct" style="color:var(--muted);">🏪 ${acc.account}</div>
+          </div>
+          <div class="ls-output-empty">No output yet</div>`;
+      }
+      list.appendChild(card);
+    }
+  } catch(e){ console.error('Failed to load latest outputs', e); }
+}
+
 function renderResults(accounts){
   const container=document.getElementById('accountBlocks');
   container.innerHTML='';
@@ -1272,6 +1345,7 @@ function renderResults(accounts){
     container.appendChild(block);
   }
   document.getElementById('results').style.display='block';
+  loadLatestOutputs();
 }
 </script>
 
