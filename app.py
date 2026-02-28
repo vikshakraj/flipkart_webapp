@@ -31,6 +31,13 @@ UPLOAD_FOLDER = tempfile.mkdtemp()
 _data_dir = '/data' if os.path.isdir('/data') else os.path.dirname(__file__)
 MASTER_SKU_PATH = os.path.join(_data_dir, 'master_sku.xlsx')
 
+# Persistent output directory — stores latest sorted PDFs per account
+OUTPUT_DIR = os.path.join(_data_dir, 'outputs')
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+OUTPUTS_META = os.path.join(_data_dir, 'outputs_meta.json')  # timestamp + stats per account
+
+KNOWN_ACCOUNTS = ['REFRESHWAVE', 'EONSPARK', 'CUTEST CLUB', 'HELLOHI']
+
 # ─────────────────────────────────────────────
 # HTML FRONTEND
 # ─────────────────────────────────────────────
