@@ -626,10 +626,13 @@ def latest_outputs():
 
 @app.route('/api/download/<filename>')
 def download(filename):
-    path = os.path.join(UPLOAD_FOLDER, filename)
-    if not os.path.exists(path):
-        return "File not found", 404
-    return send_file(path, as_attachment=True)
+    persist_path = os.path.join(OUTPUT_DIR, filename)
+    temp_path = os.path.join(UPLOAD_FOLDER, filename)
+    if os.path.exists(persist_path):
+        return send_file(persist_path, as_attachment=True)
+    elif os.path.exists(temp_path):
+        return send_file(temp_path, as_attachment=True)
+    return "File not found", 404
 
 if __name__ == '__main__':
     import os
