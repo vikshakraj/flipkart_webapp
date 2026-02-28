@@ -23,6 +23,8 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 
+IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
 app = Flask(__name__)
 UPLOAD_FOLDER = tempfile.mkdtemp()
 
@@ -457,7 +459,7 @@ def master_status():
     mtime = None
     if exists:
         import datetime
-        mtime = datetime.datetime.fromtimestamp(os.path.getmtime(MASTER_SKU_PATH)).strftime('%d %b %Y, %H:%M')
+        mtime = datetime.datetime.fromtimestamp(os.path.getmtime(MASTER_SKU_PATH), tz=IST).strftime('%d %b %Y, %H:%M IST')
     return jsonify({'exists': exists, 'updated': mtime})
 
 @app.route('/api/upload-master', methods=['POST'])
@@ -468,7 +470,7 @@ def upload_master():
         return jsonify({'error': 'No file provided'}), 400
     sku_file.save(MASTER_SKU_PATH)
     import datetime
-    mtime = datetime.datetime.fromtimestamp(os.path.getmtime(MASTER_SKU_PATH)).strftime('%d %b %Y, %H:%M')
+    mtime = datetime.datetime.fromtimestamp(os.path.getmtime(MASTER_SKU_PATH), tz=IST).strftime('%d %b %Y, %H:%M IST')
     return jsonify({'ok': True, 'updated': mtime})
 
 @app.route('/api/sort', methods=['POST'])
@@ -561,7 +563,7 @@ def sort_labels():
                 with open(OUTPUTS_META, 'r') as mf:
                     meta = json.load(mf)
             meta[account] = {
-                'timestamp': datetime.datetime.now().strftime('%d %b %Y, %H:%M'),
+                'timestamp': datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST'),
                 'total': len(pages),
                 'sku_count': len(normal),
                 'labels_file': f'{safe_name}_labels.pdf',
