@@ -26,8 +26,10 @@ from reportlab.lib.units import mm
 app = Flask(__name__)
 UPLOAD_FOLDER = tempfile.mkdtemp()
 
-# Persistent master SKU file — stored next to app.py so it survives between requests
-MASTER_SKU_PATH = os.path.join(os.path.dirname(__file__), 'master_sku.xlsx')
+# Persistent master SKU file — stored in /data (Railway Volume) so it survives restarts
+# Falls back to app directory for local development
+_data_dir = '/data' if os.path.isdir('/data') else os.path.dirname(__file__)
+MASTER_SKU_PATH = os.path.join(_data_dir, 'master_sku.xlsx')
 
 # ─────────────────────────────────────────────
 # HTML FRONTEND
@@ -465,31 +467,28 @@ def upload_master():
 @app.route('/api/sort', methods=['POST'])
 def sort_labels():
     try:
-        # Save uploaded files
-        pdf_files = request.files.getlist('pdfs')
+        import gc
 
+        pdf_files = request.files.getlist('pdfs')
         if not pdf_files:
             return jsonify({'error': 'No PDF files provided'}), 400
-
         if not os.path.exists(MASTER_SKU_PATH):
             return jsonify({'error': 'No Master SKU file found on server. Please upload one first.'}), 400
 
         with open(MASTER_SKU_PATH, 'rb') as f:
             master = load_sku_master(f.read())
 
-        # Save PDFs to temp
+        # Save uploaded PDFs to temp dir
         pdf_paths = []
         for f in pdf_files:
             path = os.path.join(UPLOAD_FOLDER, f.filename)
             f.save(path)
             pdf_paths.append(path)
 
-        # ── Step 1: Read all pages, detect account ──
-        # account_name -> list of (source_pdf_path, page_idx_in_source, page_data)
-        account_pages = defaultdict(list)  # account -> [{orig_path, orig_idx, skus, text}]
-
+        # Step 1: Extract text page-by-page with pdfplumber (lightweight metadata only)
+        # Close each PDF after scanning so pages are freed from RAM
+        account_pages = defaultdict(list)
         for pdf_path in pdf_paths:
-            reader = PdfReader(pdf_path)
             with pdfplumber.open(pdf_path) as plumber_pdf:
                 for i, page in enumerate(plumber_pdf.pages):
                     text = page.extract_text() or ''
@@ -501,37 +500,43 @@ def sort_labels():
                         'skus': skus,
                         'text': text,
                     })
+                    del text
+            gc.collect()
 
-        # ── Step 2: Per-account: classify, sort, build PDFs ──
+        # Step 2: Per-account classify, sort, build PDFs
         output_files = []
 
         for account, pages in account_pages.items():
-            # Get this account's SKU lookup from the correct sheet
             account_sku_map = get_account_master(master, account)
             normal, dual, mixed, unknown = classify_pages(pages, account_sku_map)
             sorted_normal = sort_normal(normal)
-            sorted_dual   = sort_normal(dual)  # sort dual bundles by primary product count
-
-            # Final page order mirrors summary: normal → dual bundles → unknown → mixed
+            sorted_dual   = sort_normal(dual)
             ordered = sorted_normal + sorted_dual + unknown + mixed
 
-            # Build one merged reader per source PDF (cache)
-            readers = {}
-            def get_reader(path):
-                if path not in readers:
-                    readers[path] = PdfReader(path)
-                return readers[path]
-
-            # Build sorted+cropped labels PDF
             safe_name = re.sub(r'[^A-Za-z0-9_]', '_', account)
             labels_path = os.path.join(UPLOAD_FOLDER, f'{safe_name}_sorted_labels.pdf')
+
+            # Build sorted labels PDF — group by source PDF to minimise reader opens
+            pages_by_pdf = defaultdict(list)
+            for pos, pd_item in enumerate(ordered):
+                pages_by_pdf[pd_item['orig_path']].append((pos, pd_item['orig_idx']))
+
+            page_slots = [None] * len(ordered)
+            readers = {}
+            for pdf_src, idx_pairs in pages_by_pdf.items():
+                readers[pdf_src] = PdfReader(pdf_src)
+                for pos, page_idx in idx_pairs:
+                    page_slots[pos] = readers[pdf_src].pages[page_idx]
+
             writer = PdfWriter()
-            for pd_item in ordered:
-                src_reader = get_reader(pd_item['orig_path'])
-                page = src_reader.pages[pd_item['orig_idx']]
+            for page in page_slots:
                 writer.add_page(page)
             with open(labels_path, 'wb') as f:
                 writer.write(f)
+
+            # Free readers and writer before building summary
+            del writer, page_slots, readers
+            gc.collect()
 
             # Build summary PDF
             summary_path = os.path.join(UPLOAD_FOLDER, f'{safe_name}_summary.pdf')
@@ -550,6 +555,7 @@ def sort_labels():
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/download/<filename>')
 def download(filename):
