@@ -564,6 +564,24 @@ def sort_labels():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/latest-outputs')
+def latest_outputs():
+    meta = {}
+    if os.path.exists(OUTPUTS_META):
+        with open(OUTPUTS_META, 'r') as f:
+            meta = json.load(f)
+    result = []
+    for account in KNOWN_ACCOUNTS:
+        if account in meta:
+            entry = meta[account].copy()
+            entry['account'] = account
+            entry['has_output'] = True
+        else:
+            entry = {'account': account, 'has_output': False}
+        result.append(entry)
+    return jsonify({'outputs': result})
+
+
 @app.route('/api/download/<filename>')
 def download(filename):
     path = os.path.join(UPLOAD_FOLDER, filename)
