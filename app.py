@@ -10,7 +10,7 @@ Run:  python3 app.py
 Open: http://localhost:5050
 """
 
-import os, re, io, json, tempfile, traceback
+import os, re, io, json, tempfile, traceback, shutil, datetime
 from collections import defaultdict
 from pathlib import Path
 
@@ -548,6 +548,27 @@ def sort_labels():
             # Build summary PDF
             summary_path = os.path.join(UPLOAD_FOLDER, f'{safe_name}_summary.pdf')
             build_summary_pdf(account, normal, dual, mixed, unknown, account_sku_map, summary_path)
+
+            # Save persistent copies to Railway Volume
+            persist_labels = os.path.join(OUTPUT_DIR, f'{safe_name}_labels.pdf')
+            persist_summary = os.path.join(OUTPUT_DIR, f'{safe_name}_summary.pdf')
+            shutil.copy2(labels_path, persist_labels)
+            shutil.copy2(summary_path, persist_summary)
+
+            # Update metadata JSON
+            meta = {}
+            if os.path.exists(OUTPUTS_META):
+                with open(OUTPUTS_META, 'r') as mf:
+                    meta = json.load(mf)
+            meta[account] = {
+                'timestamp': datetime.datetime.now().strftime('%d %b %Y, %H:%M'),
+                'total': len(pages),
+                'sku_count': len(normal),
+                'labels_file': f'{safe_name}_labels.pdf',
+                'summary_file': f'{safe_name}_summary.pdf',
+            }
+            with open(OUTPUTS_META, 'w') as mf:
+                json.dump(meta, mf)
 
             output_files.append({
                 'name': account,
