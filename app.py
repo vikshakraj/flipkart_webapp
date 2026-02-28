@@ -564,6 +564,25 @@ def sort_labels():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/debug')
+def debug():
+    import datetime
+    info = {
+        'data_dir': _data_dir,
+        'data_dir_exists': os.path.isdir(_data_dir),
+        'output_dir': OUTPUT_DIR,
+        'output_dir_exists': os.path.isdir(OUTPUT_DIR),
+        'outputs_meta_exists': os.path.exists(OUTPUTS_META),
+        'master_exists': os.path.exists(MASTER_SKU_PATH),
+        'output_dir_files': os.listdir(OUTPUT_DIR) if os.path.isdir(OUTPUT_DIR) else [],
+        'data_dir_files': os.listdir(_data_dir) if os.path.isdir(_data_dir) else [],
+    }
+    if os.path.exists(OUTPUTS_META):
+        with open(OUTPUTS_META, 'r') as f:
+            info['meta_contents'] = json.load(f)
+    return jsonify(info)
+
+
 @app.route('/api/latest-outputs')
 def latest_outputs():
     meta = {}
