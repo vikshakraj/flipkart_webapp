@@ -624,6 +624,13 @@ def latest_outputs():
     return jsonify({'outputs': result})
 
 
+@app.route('/api/download-master')
+def download_master():
+    if not os.path.exists(MASTER_SKU_PATH):
+        return "Master SKU file not found", 404
+    return send_file(MASTER_SKU_PATH, as_attachment=True, download_name='master_sku.xlsx')
+
+
 @app.route('/api/download/<filename>')
 def download(filename):
     persist_path = os.path.join(OUTPUT_DIR, filename)
