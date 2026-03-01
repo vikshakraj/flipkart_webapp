@@ -633,13 +633,6 @@ def download_master():
     return send_file(MASTER_SKU_PATH, as_attachment=True, download_name='master_sku.xlsx')
 
 
-@app.route('/api/download-master')
-def download_master():
-    if not os.path.exists(MASTER_SKU_PATH):
-        return "Master SKU file not found", 404
-    return send_file(MASTER_SKU_PATH, as_attachment=True, download_name='master_sku.xlsx')
-
-
 @app.route('/api/sku-data')
 def sku_data():
     """Return all SKU data from master xlsx as JSON, keyed by sheet/account."""
