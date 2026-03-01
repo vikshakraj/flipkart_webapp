@@ -84,6 +84,28 @@
   .ls-output-stat-lbl{font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
   .ls-output-btns{display:flex;gap:8px;}
   .ls-output-empty{font-size:0.8rem;color:var(--muted);padding:4px 0;}
+  /* SKU Editor */
+  .sku-wrap{max-width:1100px;margin:2rem auto;padding:0 2rem;}
+  .sku-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px;}
+  .sku-account-tabs{display:flex;gap:6px;flex-wrap:wrap;}
+  .sku-tab{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:0.85rem;font-weight:600;cursor:pointer;transition:all .2s;font-family:'IBM Plex Sans',sans-serif;}
+  .sku-tab:hover{border-color:var(--accent);color:var(--text);}
+  .sku-tab.active{background:var(--accent);color:var(--bg);border-color:var(--accent);}
+  .sku-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;overflow-x:auto;}
+  .sku-table{width:100%;border-collapse:collapse;font-size:0.875rem;}
+  .sku-table th{padding:10px 12px;text-align:left;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.5px;font-size:0.72rem;border-bottom:2px solid var(--border);white-space:nowrap;}
+  .sku-table td{padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:middle;}
+  .sku-table tbody tr:hover{background:var(--surface2);}
+  .sku-table tbody tr.editing{background:rgba(0,212,255,0.04);}
+  .sku-cell-text{padding:4px 6px;font-size:0.875rem;color:var(--text);}
+  .sku-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:6px 8px;color:var(--text);font-size:0.85rem;font-family:'IBM Plex Sans',sans-serif;}
+  .sku-input:focus{outline:none;border-color:var(--accent);}
+  .sku-select-wrap{position:relative;}
+  .sku-select{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:6px 8px;color:var(--text);font-size:0.85rem;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;}
+  .sku-select:focus{outline:none;border-color:var(--accent);}
+  .sku-action-btn{background:none;border:none;cursor:pointer;padding:5px 7px;border-radius:5px;font-size:1rem;transition:background .15s;line-height:1;}
+  .sku-action-btn:hover{background:var(--surface2);}
+  .sku-new-row td{background:rgba(0,212,255,0.04)!important;}
   @media(max-width:900px){.ls-two-col{grid-template-columns:1fr;}.ls-right{position:static;}}
 </style>
 <style>
@@ -1037,6 +1059,7 @@
       </div>
       <nav class="main-tabs">
         <button class="main-tab active" onclick="switchTab('labels',this)">🏷️ Label Sorter</button>
+        <button class="main-tab" onclick="switchTab('sku',this)">📋 Master SKU</button>
         <button class="main-tab" onclick="switchTab('ads',this)">📊 Ads Dashboard</button>
       </nav>
     </div>
@@ -1144,7 +1167,78 @@
     </div>
   </div>
 
-  <div id="panel-ads" class="tab-panel">
+  <div id="panel-sku" class="tab-panel">
+    <div class="sku-wrap">
+
+      <!-- PIN Gate -->
+      <div id="skuPinGate" class="ls-card" style="max-width:400px; margin:3rem auto;">
+        <h2 style="margin-bottom:6px;">🔒 Manager Access</h2>
+        <p class="hint" style="margin-bottom:18px;">Enter your 6-digit PIN to edit the Master SKU file.</p>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <input type="password" id="skuPinInput" maxlength="6" placeholder="• • • • • •"
+            style="flex:1; font-size:1.2rem; letter-spacing:6px; text-align:center;"
+            onkeydown="if(event.key==='Enter') verifyPin()">
+          <button class="ls-btn ls-btn-primary" onclick="verifyPin()" style="padding:12px 20px;">Unlock</button>
+        </div>
+        <div id="skuPinError" style="color:var(--danger); font-size:0.82rem; margin-top:10px; display:none;">Incorrect PIN. Try again.</div>
+      </div>
+
+      <!-- SKU Editor (hidden until PIN verified) -->
+      <div id="skuEditor" style="display:none;">
+
+        <!-- Account tabs -->
+        <div class="sku-header">
+          <div class="sku-account-tabs" id="skuAccountTabs"></div>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <span id="skuSaveStatus" style="font-size:0.82rem; color:var(--green); display:none;">✓ Saved!</span>
+            <button class="ls-btn ls-btn-primary" onclick="saveSkuData()" style="padding:10px 22px;">💾 Save Changes</button>
+          </div>
+        </div>
+
+        <!-- Table area -->
+        <div class="sku-table-wrap">
+          <table class="sku-table" id="skuTable">
+            <thead>
+              <tr>
+                <th style="width:280px;">SKU ID</th>
+                <th style="width:200px;">Product Name 1 <span style="color:var(--danger)">*</span></th>
+                <th style="width:80px;">Pack Size 1</th>
+                <th style="width:200px;">Product Name 2</th>
+                <th style="width:80px;">Pack Size 2</th>
+                <th style="width:80px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="skuTableBody"></tbody>
+          </table>
+          <div style="margin-top:14px;">
+            <button class="ls-btn" onclick="addSkuRow()"
+              style="background:transparent; border:1px dashed var(--border); color:var(--muted); padding:9px 20px; font-size:0.85rem;">
+              + Add New SKU
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Product Name Modal -->
+      <div id="productModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:var(--surface); border:2px solid var(--border); border-radius:14px; padding:28px; width:380px; max-width:90vw;">
+          <div style="font-weight:700; font-size:1rem; margin-bottom:16px; color:var(--text);">➕ Add New Product Name</div>
+          <input type="text" id="newProductInput" placeholder="Enter product name..."
+            style="width:100%; margin-bottom:16px;"
+            onkeydown="if(event.key==='Enter') confirmNewProduct()">
+          <div style="display:flex; gap:10px; justify-content:flex-end;">
+            <button class="ls-btn" onclick="closeProductModal()"
+              style="background:transparent; border:1px solid var(--border); color:var(--muted); padding:9px 18px;">Cancel</button>
+            <button class="ls-btn ls-btn-primary" onclick="confirmNewProduct()" style="padding:9px 18px;">Add</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
     <div id="ads-root"></div>
   </div>
 
@@ -1159,6 +1253,9 @@ function switchTab(name,btn){
   if(name==='ads'&&!window._adsMounted){
     window._adsMounted=true;
     ReactDOM.render(React.createElement(AdsApp),document.getElementById('ads-root'));
+  }
+  if(name==='sku'&&!window._skuLoaded){
+    // Don't auto-load, wait for PIN
   }
 }
 
@@ -1351,6 +1448,199 @@ function renderResults(accounts){
   document.getElementById('results').style.display='block';
   loadLatestOutputs();
 }
+
+// ══════════════════════════════
+// MASTER SKU EDITOR
+// ══════════════════════════════
+
+function verifyPin(){
+  const pin = document.getElementById('skuPinInput').value.trim();
+  if(pin === '848424'){
+    document.getElementById('skuPinGate').style.display='none';
+    document.getElementById('skuEditor').style.display='block';
+    loadSkuData();
+  } else {
+    document.getElementById('skuPinError').style.display='block';
+    document.getElementById('skuPinInput').value='';
+  }
+}
+
+let skuData = {};
+let allProducts = [];
+let currentSheet = '';
+let pendingProductCallback = null;
+
+async function loadSkuData(){
+  const res = await fetch('/api/sku-data');
+  const data = await res.json();
+  if(data.error){ alert('Error: '+data.error); return; }
+  skuData = data.sheets;
+  allProducts = data.products;
+  const tabsEl = document.getElementById('skuAccountTabs');
+  tabsEl.innerHTML = '';
+  Object.keys(skuData).forEach((sheet, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'sku-tab' + (i===0?' active':'');
+    btn.textContent = sheet;
+    btn.onclick = () => switchSkuSheet(sheet, btn);
+    tabsEl.appendChild(btn);
+  });
+  currentSheet = Object.keys(skuData)[0];
+  renderSkuTable(currentSheet);
+}
+
+function switchSkuSheet(sheet, btn){
+  document.querySelectorAll('.sku-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  currentSheet = sheet;
+  renderSkuTable(sheet);
+}
+
+function renderSkuTable(sheet){
+  const tbody = document.getElementById('skuTableBody');
+  tbody.innerHTML = '';
+  (skuData[sheet]||[]).forEach((row, idx) => tbody.appendChild(makeViewRow(row, idx)));
+}
+
+function makeViewRow(row, idx){
+  const tr = document.createElement('tr');
+  tr.dataset.idx = idx;
+  tr.innerHTML = `
+    <td><span class="sku-cell-text">${row.sku||''}</span></td>
+    <td><span class="sku-cell-text">${row.p1||''}</span></td>
+    <td><span class="sku-cell-text">${row.s1||1}</span></td>
+    <td><span class="sku-cell-text">${row.p2||'—'}</span></td>
+    <td><span class="sku-cell-text">${row.s2||'—'}</span></td>
+    <td>
+      <button class="sku-action-btn" title="Edit" onclick="editRow(${idx})">✏️</button>
+      <button class="sku-action-btn" title="Delete" onclick="deleteRow(${idx})">🗑️</button>
+    </td>`;
+  return tr;
+}
+
+function editRow(idx){
+  const row = skuData[currentSheet][idx];
+  const tr = document.getElementById('skuTableBody').querySelector(`tr[data-idx="${idx}"]`);
+  tr.classList.add('editing');
+  tr.innerHTML = `
+    <td><input class="sku-input" id="e_sku_${idx}" value="${escHtml(row.sku||'')}"></td>
+    <td>${makeProductSelect('e_p1_'+idx, row.p1||'', false)}</td>
+    <td><input class="sku-input" id="e_s1_${idx}" type="number" min="1" value="${row.s1||1}" style="width:60px;"></td>
+    <td>${makeProductSelect('e_p2_'+idx, row.p2||'', true)}</td>
+    <td><input class="sku-input" id="e_s2_${idx}" type="number" min="1" value="${row.s2||''}" style="width:60px;"></td>
+    <td>
+      <button class="sku-action-btn" onclick="saveEditRow(${idx})">✅</button>
+      <button class="sku-action-btn" onclick="renderSkuTable(currentSheet)">❌</button>
+    </td>`;
+}
+
+function saveEditRow(idx){
+  const sku=document.getElementById('e_sku_'+idx).value.trim();
+  const p1 =document.getElementById('e_p1_'+idx).value.trim();
+  const s1 =parseInt(document.getElementById('e_s1_'+idx).value)||1;
+  const p2 =document.getElementById('e_p2_'+idx).value.trim();
+  const s2 =parseInt(document.getElementById('e_s2_'+idx).value)||'';
+  if(!sku){alert('SKU ID cannot be empty');return;}
+  if(!p1){alert('Product Name 1 is required');return;}
+  skuData[currentSheet][idx]={sku,p1,s1,p2,s2};
+  renderSkuTable(currentSheet);
+}
+
+function deleteRow(idx){
+  if(!confirm('Delete this SKU?')) return;
+  skuData[currentSheet].splice(idx,1);
+  renderSkuTable(currentSheet);
+}
+
+function addSkuRow(){
+  const tbody=document.getElementById('skuTableBody');
+  const tr=document.createElement('tr');
+  tr.className='sku-new-row';
+  tr.innerHTML=`
+    <td><input class="sku-input" id="new_sku" placeholder="Enter SKU ID"></td>
+    <td>${makeProductSelect('new_p1','',false)}</td>
+    <td><input class="sku-input" id="new_s1" type="number" min="1" value="1" style="width:60px;"></td>
+    <td>${makeProductSelect('new_p2','',true)}</td>
+    <td><input class="sku-input" id="new_s2" type="number" min="1" placeholder="—" style="width:60px;"></td>
+    <td>
+      <button class="sku-action-btn" onclick="confirmNewRow()">✅</button>
+      <button class="sku-action-btn" onclick="renderSkuTable(currentSheet)">❌</button>
+    </td>`;
+  tbody.appendChild(tr);
+  document.getElementById('new_sku').focus();
+  tr.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function confirmNewRow(){
+  const sku=document.getElementById('new_sku').value.trim();
+  const p1 =document.getElementById('new_p1').value.trim();
+  const s1 =parseInt(document.getElementById('new_s1').value)||1;
+  const p2 =document.getElementById('new_p2').value.trim();
+  const s2 =parseInt(document.getElementById('new_s2').value)||'';
+  if(!sku){alert('SKU ID cannot be empty');return;}
+  if(!p1){alert('Product Name 1 is required');return;}
+  skuData[currentSheet].push({sku,p1,s1,p2,s2});
+  renderSkuTable(currentSheet);
+}
+
+function makeProductSelect(id, selected, optional){
+  const noneOpt = optional ? '<option value="">— None —</option>' : '';
+  const opts = allProducts.map(p=>`<option value="${escHtml(p)}"${p===selected?' selected':''}>${escHtml(p)}</option>`).join('');
+  return `<select class="sku-select" id="${id}" onchange="handleProductSelect(this)" data-prev="${escHtml(selected)}">${noneOpt}${opts}<option value="__add_new__">➕ Add New...</option></select>`;
+}
+
+function handleProductSelect(sel){
+  if(sel.value==='__add_new__'){
+    sel.value=sel.dataset.prev||'';
+    pendingProductCallback=(name)=>{
+      // rebuild the select with new name included
+      const parent=sel.parentNode;
+      const isOpt=sel.id.startsWith('new_p2')||sel.id.startsWith('e_p2')||sel.id==='new_p2';
+      const optional=sel.id.includes('p2');
+      parent.innerHTML=makeProductSelect(sel.id,name,optional);
+    };
+    openProductModal();
+  } else {
+    sel.dataset.prev=sel.value;
+  }
+}
+
+function openProductModal(){
+  document.getElementById('newProductInput').value='';
+  document.getElementById('productModal').style.display='flex';
+  setTimeout(()=>document.getElementById('newProductInput').focus(),50);
+}
+function closeProductModal(){
+  document.getElementById('productModal').style.display='none';
+  pendingProductCallback=null;
+}
+function confirmNewProduct(){
+  const name=document.getElementById('newProductInput').value.trim();
+  if(!name){alert('Please enter a product name');return;}
+  if(!allProducts.includes(name)){allProducts.push(name);allProducts.sort();}
+  if(pendingProductCallback){pendingProductCallback(name);pendingProductCallback=null;}
+  closeProductModal();
+}
+
+async function saveSkuData(){
+  const btn=document.querySelector('button[onclick="saveSkuData()"]');
+  btn.disabled=true; btn.textContent='Saving...';
+  try{
+    const res=await fetch('/api/sku-save',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pin:'848424',sheets:skuData})
+    });
+    const data=await res.json();
+    if(!res.ok||data.error) throw new Error(data.error||'Save failed');
+    const msg=document.getElementById('skuSaveStatus');
+    msg.style.display='inline';
+    setTimeout(()=>msg.style.display='none',2500);
+  }catch(e){alert('Error: '+e.message);}
+  btn.disabled=false; btn.textContent='💾 Save Changes';
+}
+
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 </script>
 
 <script type="text/babel">
