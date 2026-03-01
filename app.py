@@ -14,6 +14,8 @@ import os, re, io, json, tempfile, traceback, shutil, datetime
 from collections import defaultdict
 from pathlib import Path
 
+import openpyxl
+
 from flask import Flask, request, jsonify, send_file, Response
 import pdfplumber
 from pypdf import PdfReader, PdfWriter
@@ -629,6 +631,75 @@ def download_master():
     if not os.path.exists(MASTER_SKU_PATH):
         return "Master SKU file not found", 404
     return send_file(MASTER_SKU_PATH, as_attachment=True, download_name='master_sku.xlsx')
+
+
+@app.route('/api/download-master')
+def download_master():
+    if not os.path.exists(MASTER_SKU_PATH):
+        return "Master SKU file not found", 404
+    return send_file(MASTER_SKU_PATH, as_attachment=True, download_name='master_sku.xlsx')
+
+
+@app.route('/api/sku-data')
+def sku_data():
+    """Return all SKU data from master xlsx as JSON, keyed by sheet/account."""
+    if not os.path.exists(MASTER_SKU_PATH):
+        return jsonify({'error': 'No master SKU file found'}), 404
+    wb = openpyxl.load_workbook(MASTER_SKU_PATH)
+    result = {}
+    for sheet in wb.sheetnames:
+        ws = wb[sheet]
+        rows = []
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if i == 0:
+                continue  # skip header
+            sku, p1, s1, p2, s2 = (row[0], row[1], row[2], row[3], row[4]) if len(row) >= 5 else (row[0], row[1], row[2], None, None)
+            if not sku and not p1:
+                continue
+            rows.append({
+                'sku': str(sku).strip() if sku else '',
+                'p1': str(p1).strip() if p1 else '',
+                's1': int(s1) if s1 else 1,
+                'p2': str(p2).strip() if p2 else '',
+                's2': int(s2) if s2 else '',
+            })
+        result[sheet] = rows
+    # Collect all unique product names across all sheets
+    all_products = set()
+    for rows in result.values():
+        for r in rows:
+            if r['p1']: all_products.add(r['p1'])
+            if r['p2']: all_products.add(r['p2'])
+    return jsonify({'sheets': result, 'products': sorted(all_products)})
+
+
+@app.route('/api/sku-save', methods=['POST'])
+def sku_save():
+    """Save edited SKU data back to master xlsx. Requires PIN."""
+    data = request.get_json()
+    if not data or data.get('pin') != '848424':
+        return jsonify({'error': 'Invalid PIN'}), 403
+    sheets_data = data.get('sheets', {})
+    if not os.path.exists(MASTER_SKU_PATH):
+        return jsonify({'error': 'No master SKU file found'}), 404
+    wb = openpyxl.load_workbook(MASTER_SKU_PATH)
+    for sheet_name, rows in sheets_data.items():
+        if sheet_name not in wb.sheetnames:
+            continue
+        ws = wb[sheet_name]
+        # Clear existing data rows (keep header row 1)
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            for cell in row:
+                cell.value = None
+        # Write new rows
+        for i, row in enumerate(rows, start=2):
+            ws.cell(row=i, column=1, value=row.get('sku', ''))
+            ws.cell(row=i, column=2, value=row.get('p1', ''))
+            ws.cell(row=i, column=3, value=int(row['s1']) if row.get('s1') else 1)
+            ws.cell(row=i, column=4, value=row.get('p2', '') or None)
+            ws.cell(row=i, column=5, value=int(row['s2']) if row.get('s2') else None)
+    wb.save(MASTER_SKU_PATH)
+    return jsonify({'ok': True})
 
 
 @app.route('/api/download/<filename>')
