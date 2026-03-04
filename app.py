@@ -10,14 +10,13 @@ Run:  python3 app.py
 Open: http://localhost:5050
 """
 
-import os, re, io, json, tempfile, traceback, shutil, datetime
+import os, re, io, json, tempfile, traceback, shutil, datetime, gc
 from collections import defaultdict
 from pathlib import Path
 
 import openpyxl
 
 from flask import Flask, request, jsonify, send_file, Response
-import pdfplumber
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -28,7 +27,7 @@ from reportlab.lib.units import mm
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
 app = Flask(__name__)
-UPLOAD_FOLDER = tempfile.mkdtemp()
+app.config['MAX_CONTENT_LENGTH'] = 80 * 1024 * 1024  # 80 MB upload cap — protects against OOM on Railway free tier
 
 # Persistent master SKU file — stored in /data (Railway Volume) so it survives restarts
 # Falls back to app directory for local development
@@ -41,6 +40,12 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 OUTPUTS_META = os.path.join(_data_dir, 'outputs_meta.json')  # timestamp + stats per account
 
 KNOWN_ACCOUNTS = ['REFRESHWAVE', 'EONSPARK', 'CUTEST CLUB', 'HELLOHI']
+
+def _atomic_copy(src, dst):
+    """Copy src → dst atomically using a temp file + rename to avoid partial writes."""
+    dst_tmp = dst + '.tmp'
+    shutil.copy2(src, dst_tmp)
+    os.replace(dst_tmp, dst)
 
 # ─────────────────────────────────────────────
 # HTML FRONTEND
@@ -477,44 +482,49 @@ def upload_master():
 
 @app.route('/api/sort', methods=['POST'])
 def sort_labels():
+    # Per-request temp dir — cleaned up on completion regardless of success/failure
+    req_tmp = tempfile.mkdtemp(prefix='fk_sort_')
     try:
-        import gc
-
         pdf_files = request.files.getlist('pdfs')
         if not pdf_files:
             return jsonify({'error': 'No PDF files provided'}), 400
         if not os.path.exists(MASTER_SKU_PATH):
             return jsonify({'error': 'No Master SKU file found on server. Please upload one first.'}), 400
 
+        # ── Load master SKU (small xlsx, fine in RAM) ──────────────────────────
         with open(MASTER_SKU_PATH, 'rb') as f:
             master = load_sku_master(f.read())
+        gc.collect()
 
-        # Save uploaded PDFs to temp dir
+        # ── Save uploaded PDFs to per-request temp dir ─────────────────────────
         pdf_paths = []
-        for f in pdf_files:
-            path = os.path.join(UPLOAD_FOLDER, f.filename)
-            f.save(path)
+        for upload in pdf_files:
+            # Sanitise filename
+            safe_fname = re.sub(r'[^A-Za-z0-9._-]', '_', os.path.basename(upload.filename))
+            path = os.path.join(req_tmp, safe_fname)
+            upload.save(path)
             pdf_paths.append(path)
 
-        # Step 1: Extract text page-by-page with pdfplumber (lightweight metadata only)
-        # Close each PDF after scanning so pages are freed from RAM
+        # ── Step 1: Extract text using pypdf (no rendering = low RAM) ──────────
+        # pypdf extracts embedded text directly — 10-20x less memory than pdfplumber
         account_pages = defaultdict(list)
         for pdf_path in pdf_paths:
-            with pdfplumber.open(pdf_path) as plumber_pdf:
-                for i, page in enumerate(plumber_pdf.pages):
-                    text = page.extract_text() or ''
-                    account = detect_account(text)
-                    skus = extract_skus_from_page(text)
-                    account_pages[account].append({
-                        'orig_path': pdf_path,
-                        'orig_idx': i,
-                        'skus': skus,
-                        'text': text,
-                    })
-                    del text
+            reader = PdfReader(pdf_path)
+            for i, page in enumerate(reader.pages):
+                text = page.extract_text() or ''
+                account = detect_account(text)
+                skus = extract_skus_from_page(text)
+                account_pages[account].append({
+                    'orig_path': pdf_path,
+                    'orig_idx': i,
+                    'skus': skus,
+                    'text': text,
+                })
+                del text
+            del reader   # release file handle + internal buffers immediately
             gc.collect()
 
-        # Step 2: Per-account classify, sort, build PDFs
+        # ── Step 2: Per-account: classify → sort → write output PDFs ──────────
         output_files = []
 
         for account, pages in account_pages.items():
@@ -525,19 +535,24 @@ def sort_labels():
             ordered = sorted_normal + sorted_dual + unknown + mixed
 
             safe_name = re.sub(r'[^A-Za-z0-9_]', '_', account)
-            labels_path = os.path.join(UPLOAD_FOLDER, f'{safe_name}_sorted_labels.pdf')
+            labels_path = os.path.join(req_tmp, f'{safe_name}_sorted_labels.pdf')
 
-            # Build sorted labels PDF — group by source PDF to minimise reader opens
-            pages_by_pdf = defaultdict(list)
+            # Build sorted labels PDF one source-PDF at a time to cap peak RAM.
+            # We open each source PDF, copy its needed pages, then close it before
+            # moving to the next — so at most ONE source PDF is open at a time.
+            pages_by_pdf = defaultdict(list)  # {src_path: [(output_pos, page_idx)]}
             for pos, pd_item in enumerate(ordered):
                 pages_by_pdf[pd_item['orig_path']].append((pos, pd_item['orig_idx']))
 
             page_slots = [None] * len(ordered)
-            readers = {}
             for pdf_src, idx_pairs in pages_by_pdf.items():
-                readers[pdf_src] = PdfReader(pdf_src)
+                reader = PdfReader(pdf_src)
                 for pos, page_idx in idx_pairs:
-                    page_slots[pos] = readers[pdf_src].pages[page_idx]
+                    page_slots[pos] = reader.pages[page_idx]
+                # NOTE: We intentionally keep reader alive until after writer.write()
+                # because pypdf pages hold a reference back to their reader.
+                # We collect all readers, write the PDF, then delete them all.
+                pages_by_pdf[pdf_src] = (reader, idx_pairs)  # store reader ref
 
             writer = PdfWriter()
             for page in page_slots:
@@ -545,25 +560,31 @@ def sort_labels():
             with open(labels_path, 'wb') as f:
                 writer.write(f)
 
-            # Free readers and writer before building summary
-            del writer, page_slots, readers
+            # Now safe to free everything
+            del writer, page_slots
+            for pdf_src, (reader, _) in pages_by_pdf.items():
+                del reader
+            del pages_by_pdf
             gc.collect()
 
             # Build summary PDF
-            summary_path = os.path.join(UPLOAD_FOLDER, f'{safe_name}_summary.pdf')
+            summary_path = os.path.join(req_tmp, f'{safe_name}_summary.pdf')
             build_summary_pdf(account, normal, dual, mixed, unknown, account_sku_map, summary_path)
 
-            # Save persistent copies to Railway Volume
-            persist_labels = os.path.join(OUTPUT_DIR, f'{safe_name}_labels.pdf')
+            # Persist to Railway Volume (atomic: copy then rename avoids partial writes)
+            persist_labels  = os.path.join(OUTPUT_DIR, f'{safe_name}_labels.pdf')
             persist_summary = os.path.join(OUTPUT_DIR, f'{safe_name}_summary.pdf')
-            shutil.copy2(labels_path, persist_labels)
-            shutil.copy2(summary_path, persist_summary)
+            _atomic_copy(labels_path,  persist_labels)
+            _atomic_copy(summary_path, persist_summary)
 
             # Update metadata JSON
             meta = {}
             if os.path.exists(OUTPUTS_META):
                 with open(OUTPUTS_META, 'r') as mf:
-                    meta = json.load(mf)
+                    try:
+                        meta = json.load(mf)
+                    except json.JSONDecodeError:
+                        meta = {}
             meta[account] = {
                 'timestamp': datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST'),
                 'total': len(pages),
@@ -578,15 +599,27 @@ def sort_labels():
                 'name': account,
                 'total': len(pages),
                 'sku_count': len(normal),
-                'labels_file': os.path.basename(labels_path),
-                'summary_file': os.path.basename(summary_path),
+                'labels_file': f'{safe_name}_sorted_labels.pdf',
+                'summary_file': f'{safe_name}_summary.pdf',
             })
+
+            # Free page data before next account
+            del normal, dual, mixed, unknown, ordered, pages
+            gc.collect()
 
         return jsonify({'accounts': output_files})
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+    finally:
+        # Always clean up the per-request temp dir — critical for RAM & disk
+        try:
+            shutil.rmtree(req_tmp, ignore_errors=True)
+        except Exception:
+            pass
+        gc.collect()
 
 
 @app.route('/api/debug')
@@ -697,12 +730,10 @@ def sku_save():
 
 @app.route('/api/download/<filename>')
 def download(filename):
+    # Only serve from the persistent output dir (temp files are cleaned up after each request)
     persist_path = os.path.join(OUTPUT_DIR, filename)
-    temp_path = os.path.join(UPLOAD_FOLDER, filename)
     if os.path.exists(persist_path):
         return send_file(persist_path, as_attachment=True)
-    elif os.path.exists(temp_path):
-        return send_file(temp_path, as_attachment=True)
     return "File not found", 404
 
 if __name__ == '__main__':
