@@ -683,7 +683,7 @@ def sort_labels():
                 'name': account,
                 'total': len(pages),
                 'sku_count': len(normal),
-                'labels_file': f'{safe_name}_sorted_labels.pdf',
+                'labels_file': f'{safe_name}_labels.pdf',
                 'summary_file': f'{safe_name}_summary.pdf',
             })
 
