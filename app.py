@@ -76,23 +76,107 @@ def detect_account(text):
 
 def extract_skus_from_page(text):
     """
-    Extract list of (sku_name, qty) from a label page.
-    Returns list of dicts.
+    Extract list of {sku, qty} from a label page.
+
+    pypdf splits the SKU table across multiple lines. The pattern after
+    'SKU ID | Description / QTY' is one of two formats:
+
+    Format A — SKU and description on separate lines, qty alone:
+        "1"
+        "4 QTY - "          ← optional prefix line
+        "SKU NAME "
+        "| Description text"
+        "4"                  ← qty (standalone integer line)
+        "FMPC..."            ← AWB → end of table
+
+    Format B — SKU | description on ONE line (mixed orders, 2nd item):
+        "2"
+        "SKU NAME | Description"
+        "1"
+        "FMPC..."
+
+    Strategy:
+      1. Find the header line.
+      2. Collect all lines until the AWB/FMP line.
+      3. Reconstruct SKU entries by detecting row-number lines as boundaries.
     """
-    lines = text.split('\n')
+    lines = [l.strip() for l in text.split('\n')]
     skus = []
-    capture = False
-    for line in lines:
-        if 'SKU ID | Description' in line or 'SKU ID|Description' in line:
-            capture = True
+
+    # Find start of SKU table
+    start = None
+    for i, line in enumerate(lines):
+        if 'SKU ID' in line and 'Description' in line:
+            start = i + 1
+            break
+    if start is None:
+        return skus
+
+    # Skip the 'QTY' header line if present
+    if start < len(lines) and lines[start].strip() == 'QTY':
+        start += 1
+
+    # Collect table lines until AWB/FMP barcode line (end of label section)
+    table_lines = []
+    for line in lines[start:]:
+        if re.match(r'^(FMP[A-Z0-9]|FMPP|AWB|Tax Invoice)', line):
+            break
+        table_lines.append(line)
+
+    # Split into per-row chunks using standalone row-number lines as boundaries
+    # A row number line is a bare integer (1, 2, 3...) NOT a qty-looking line
+    # We detect it as: digit(s) only, and it appears before any '|' in the chunk
+    row_chunks = []
+    current = []
+    for line in table_lines:
+        if re.match(r'^\d+$', line) and not current:
+            # This is the row number starting a new SKU entry
+            current = [line]
+        elif re.match(r'^\d+$', line) and current:
+            # Could be qty (end of current entry) or next row number
+            # If current already has a '|' containing line, this is qty → close chunk
+            chunk_text = ' '.join(current)
+            if '|' in chunk_text:
+                current.append(line)  # qty line
+                row_chunks.append(current)
+                current = []
+            else:
+                # No | yet — ambiguous, treat as qty and close
+                current.append(line)
+                row_chunks.append(current)
+                current = []
+        else:
+            if current:
+                current.append(line)
+    if current:
+        row_chunks.append(current)
+
+    for chunk in row_chunks:
+        if not chunk:
             continue
-        if capture:
-            # Line like: "1careu Scalp Massager Pack 1 | careu silicone hair scalp 1"
-            m = re.match(r'^\d+\s*(.+?)\s*\|\s*.+?(\d+)\s*$', line)
-            if m:
-                skus.append({'sku': m.group(1).strip(), 'qty': int(m.group(2))})
-            elif re.match(r'^FMP[A-Z0-9]', line) or re.match(r'^AWB', line) or re.match(r'^Tax Invoice', line):
-                capture = False
+        # Join all lines, find SKU (part before first |) and qty (last standalone int)
+        full = ' '.join(chunk)
+
+        # Remove leading row number
+        full = re.sub(r'^\d+\s*', '', full, count=1)
+
+        # Remove optional "N QTY - " prefix (e.g. "4 QTY - ")
+        full = re.sub(r'^\d+\s*QTY\s*-\s*', '', full, flags=re.IGNORECASE)
+
+        # Extract SKU name: everything before the first ' | '
+        pipe_match = re.search(r'\s*\|\s*', full)
+        if pipe_match:
+            sku_name = full[:pipe_match.start()].strip()
+        else:
+            sku_name = full.strip()
+
+        # Extract qty: last standalone integer in the chunk
+        all_ints = re.findall(r'(?<!\S)(\d+)(?!\S)', ' '.join(chunk))
+        qty = int(all_ints[-1]) if all_ints else 1
+
+        if sku_name and sku_name.lower() not in ('', 'qty'):
+            skus.append({'sku': sku_name, 'qty': qty})
+
     return skus
 
 def load_sku_master(xlsx_bytes):
