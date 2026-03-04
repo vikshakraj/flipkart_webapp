@@ -622,6 +622,32 @@ def sort_labels():
         gc.collect()
 
 
+@app.route('/api/debug-pdf', methods=['POST'])
+def debug_pdf():
+    """Upload one PDF and return raw extracted text per page — for diagnosing SKU extraction."""
+    pdf_file = request.files.get('pdf')
+    if not pdf_file:
+        return jsonify({'error': 'No PDF provided'}), 400
+    req_tmp = tempfile.mkdtemp(prefix='fk_dbg_')
+    try:
+        path = os.path.join(req_tmp, 'debug.pdf')
+        pdf_file.save(path)
+        reader = PdfReader(path)
+        pages_out = []
+        for i, page in enumerate(reader.pages[:5]):  # first 5 pages only
+            text = page.extract_text() or ''
+            lines = text.split('\n')
+            pages_out.append({
+                'page': i,
+                'raw_text': text,
+                'lines': lines,
+                'account_detected': detect_account(text),
+                'skus_found': extract_skus_from_page(text),
+            })
+        return jsonify({'pages': pages_out})
+    finally:
+        shutil.rmtree(req_tmp, ignore_errors=True)
+
 @app.route('/api/debug')
 def debug():
     import datetime
