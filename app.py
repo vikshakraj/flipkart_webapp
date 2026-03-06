@@ -48,6 +48,133 @@ def _atomic_copy(src, dst):
     os.replace(dst_tmp, dst)
 
 # ─────────────────────────────────────────────
+# TELEGRAM BOT
+# ─────────────────────────────────────────────
+import urllib.request as _urllib_req
+
+TELEGRAM_TOKEN     = '8734907502:AAF2qgG1eILANUS-VxZrUrM6GfudQi71qCc'
+TELEGRAM_OWNER     = 530170157   # Only this chat_id can use commands
+TELEGRAM_API       = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}'
+# To broadcast to a team group later, add the group chat_id here:
+TELEGRAM_BROADCAST = [TELEGRAM_OWNER]
+
+def _tg_send_message(chat_id, text):
+    """Send a plain HTML text message. Silent on failure."""
+    try:
+        payload = json.dumps({
+            'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'
+        }).encode()
+        _urllib_req.urlopen(
+            _urllib_req.Request(
+                f'{TELEGRAM_API}/sendMessage', data=payload,
+                headers={'Content-Type': 'application/json'}
+            ), timeout=30
+        )
+    except Exception as e:
+        print(f'[Telegram] sendMessage failed: {e}')
+
+def _tg_send_document(chat_id, file_path, caption=''):
+    """Send a PDF file. Uses requests library for multipart upload."""
+    try:
+        import requests as _req
+        with open(file_path, 'rb') as f:
+            _req.post(
+                f'{TELEGRAM_API}/sendDocument',
+                data={'chat_id': chat_id, 'caption': caption, 'parse_mode': 'HTML'},
+                files={'document': (os.path.basename(file_path), f, 'application/pdf')},
+                timeout=60
+            )
+    except Exception as e:
+        print(f'[Telegram] sendDocument failed: {e}')
+
+def tg_notify_sort_done(account, total, normal_count, mixed_count, unknown_count,
+                        labels_path, summary_path):
+    """Broadcast sort-complete alert + both PDFs to all targets."""
+    timestamp = datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST')
+    msg = (
+        f'\U0001f3f7\ufe0f <b>Sort Complete — {account}</b>\n'
+        f'\U0001f550 {timestamp}\n\n'
+        f'\U0001f4e6 Total labels: <b>{total}</b>\n'
+        f'\u2705 Identified: <b>{normal_count}</b>\n'
+        f'\u26a1 Mixed orders: <b>{mixed_count}</b>\n'
+        f'\u2753 Unidentified: <b>{unknown_count}</b>'
+    )
+    for chat_id in TELEGRAM_BROADCAST:
+        _tg_send_message(chat_id, msg)
+        _tg_send_document(chat_id, labels_path,
+                          caption=f'\U0001f4c4 Sorted Labels — {account}')
+        _tg_send_document(chat_id, summary_path,
+                          caption=f'\U0001f4ca Summary — {account}')
+
+def tg_handle_command(chat_id, text):
+    """Handle bot commands. Only TELEGRAM_OWNER can interact."""
+    if chat_id != TELEGRAM_OWNER:
+        return  # silently ignore everyone else
+    text = (text or '').strip()
+
+    if text.startswith('/start'):
+        _tg_send_message(chat_id,
+            '\U0001f44b <b>Flipkart Ops Bot</b>\n\n'
+            "I'll notify you after every sort with both PDFs automatically.\n\n"
+            '<b>Commands:</b>\n'
+            '/status — latest sort info for all accounts\n'
+            '/download refreshwave\n'
+            '/download eonspark\n'
+            '/download cutest_club\n'
+            '/download hellohi'
+        )
+
+    elif text.startswith('/status'):
+        meta = {}
+        if os.path.exists(OUTPUTS_META):
+            with open(OUTPUTS_META) as f:
+                try: meta = json.load(f)
+                except: pass
+        if not meta:
+            _tg_send_message(chat_id, '\U0001f4ed No sorts run yet.')
+            return
+        lines = ['\U0001f4ca <b>Latest Sort Status</b>\n']
+        for acc in KNOWN_ACCOUNTS:
+            if acc in meta:
+                m = meta[acc]
+                lines.append(
+                    f'<b>{acc}</b>\n'
+                    f'  \U0001f550 {m["timestamp"]}\n'
+                    f'  \U0001f4e6 {m["total"]} labels | \u2705 {m["sku_count"]} identified\n'
+                )
+            else:
+                lines.append(f'<b>{acc}</b> — no data yet\n')
+        _tg_send_message(chat_id, '\n'.join(lines))
+
+    elif text.startswith('/download'):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            _tg_send_message(chat_id,
+                '\u26a0\ufe0f Usage: /download &lt;account&gt;\nE.g. /download refreshwave')
+            return
+        query = parts[1].strip().upper().replace('_', ' ')
+        matched = next((a for a in KNOWN_ACCOUNTS if query in a or a in query), None)
+        if not matched:
+            _tg_send_message(chat_id,
+                f'\u274c Unknown account: {query}\n'
+                f'Known: {", ".join(KNOWN_ACCOUNTS)}')
+            return
+        safe_name    = re.sub(r'[^A-Za-z0-9_]', '_', matched)
+        labels_path  = os.path.join(OUTPUT_DIR, f'{safe_name}_labels.pdf')
+        summary_path = os.path.join(OUTPUT_DIR, f'{safe_name}_summary.pdf')
+        if not os.path.exists(labels_path):
+            _tg_send_message(chat_id, f'\U0001f4ed No files found for {matched} yet.')
+            return
+        _tg_send_message(chat_id, f'\U0001f4e4 Sending latest files for <b>{matched}</b>\u2026')
+        _tg_send_document(chat_id, labels_path,  caption=f'\U0001f4c4 Sorted Labels — {matched}')
+        _tg_send_document(chat_id, summary_path, caption=f'\U0001f4ca Summary — {matched}')
+
+    else:
+        _tg_send_message(chat_id,
+            '\U0001f916 Unknown command.\nTry /start, /status, or /download &lt;account&gt;')
+
+
+# ─────────────────────────────────────────────
 # HTML FRONTEND
 # ─────────────────────────────────────────────
 
@@ -661,6 +788,20 @@ def sort_labels():
             _atomic_copy(labels_path,  persist_labels)
             _atomic_copy(summary_path, persist_summary)
 
+            # Telegram notification — send both PDFs immediately after persisting
+            try:
+                tg_notify_sort_done(
+                    account=account,
+                    total=len(pages),
+                    normal_count=len(normal),
+                    mixed_count=len(mixed),
+                    unknown_count=len(unknown),
+                    labels_path=persist_labels,
+                    summary_path=persist_summary,
+                )
+            except Exception as tg_err:
+                print(f'[Telegram notify] {tg_err}')
+
             # Update metadata JSON
             meta = {}
             if os.path.exists(OUTPUTS_META):
@@ -846,8 +987,44 @@ def download(filename):
         return send_file(persist_path, as_attachment=True)
     return "File not found", 404
 
+
+@app.route('/telegram-webhook', methods=['POST'])
+def telegram_webhook():
+    """Receive updates from Telegram and handle commands."""
+    try:
+        update = request.get_json(silent=True) or {}
+        msg = update.get('message') or update.get('edited_message') or {}
+        chat_id = msg.get('chat', {}).get('id')
+        text = msg.get('text', '')
+        if chat_id and text:
+            tg_handle_command(chat_id, text)
+    except Exception as e:
+        print(f'[Telegram webhook] error: {e}')
+    return jsonify({'ok': True})
+
+def _register_telegram_webhook():
+    """Register Railway URL as Telegram webhook on startup."""
+    railway_url = os.environ.get('RAILWAY_PUBLIC_DOMAIN') or os.environ.get('RAILWAY_STATIC_URL')
+    if not railway_url:
+        print('[Telegram] No RAILWAY_PUBLIC_DOMAIN set — webhook not registered (local dev mode)')
+        return
+    webhook_url = f'https://{railway_url}/telegram-webhook'
+    try:
+        payload = json.dumps({'url': webhook_url}).encode()
+        import urllib.request as _ur
+        r = _ur.urlopen(
+            _ur.Request(f'{TELEGRAM_API}/setWebhook', data=payload,
+                        headers={'Content-Type': 'application/json'}),
+            timeout=10
+        )
+        result = json.loads(r.read())
+        print(f'[Telegram] Webhook set to {webhook_url}: {result}')
+    except Exception as e:
+        print(f'[Telegram] Failed to set webhook: {e}')
+
 if __name__ == '__main__':
     import os
+    _register_telegram_webhook()
     port = int(os.environ.get('PORT', 5050))
-    print(f"🏷️  Flipkart Label Sorter running at http://localhost:{port}")
+    print(f"\U0001f3f7\ufe0f  Flipkart Ops Hub running at http://localhost:{port}")
     app.run(host='0.0.0.0', port=port, debug=False)
