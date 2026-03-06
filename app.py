@@ -820,7 +820,7 @@ def build_consolidated_summary_pdf(all_account_data, output_path):
             data.append(row)
             row_num += 1
 
-    # Mixed / unknown summary rows
+    # Mixed / unknown — summary count rows in main table
     if mixed_total:
         data.append([row_num, '⚡ Mixed Orders', '—', '—', '—', '—', '—', mixed_total])
         row_num += 1
@@ -843,18 +843,14 @@ def build_consolidated_summary_pdf(all_account_data, output_path):
         ('TOPPADDING',   (0,0), (-1,-1), 4),
         ('BOTTOMPADDING',(0,0), (-1,-1), 4),
         ('LEFTPADDING',  (0,0), (-1,-1), 4),
-        # Bold the Total column
         ('FONTNAME',     (-1,1),(-1,-1), 'Helvetica-Bold'),
         ('TEXTCOLOR',    (-1,1),(-1,-1), colors.HexColor('#1a237e')),
     ])
-
-    # Highlight high-volume rows (total >= 10)
     for i, row in enumerate(data[1:], 1):
         total_val = row[-1]
         if isinstance(total_val, int) and total_val >= 10:
             style.add('BACKGROUND', (0,i), (-1,i), colors.HexColor('#e8eaf6'))
             style.add('FONTNAME',   (0,i), (-1,i), 'Helvetica-Bold')
-
     table.setStyle(style)
     story.append(table)
 
@@ -865,6 +861,122 @@ def build_consolidated_summary_pdf(all_account_data, output_path):
         'HH = Hellohi &nbsp;|&nbsp; CC = Cutest Club',
         styles['Normal']
     ))
+
+    # ── Mixed Orders Detail (with Account column) ─────────────────────────────
+    # Collect all mixed pages across accounts in fixed account order
+    all_mixed = []
+    for account in ACCOUNT_ORDER:
+        for page in all_account_data.get(account, {}).get('mixed', []):
+            all_mixed.append((account, page))
+    # Also any unknown accounts
+    for account, buckets in all_account_data.items():
+        if account not in ACCOUNT_ORDER:
+            for page in buckets.get('mixed', []):
+                all_mixed.append((account, page))
+
+    if all_mixed:
+        story.append(Spacer(1, 8*mm))
+        story.append(Paragraph('⚡ Mixed Orders Detail', styles['Heading2']))
+        story.append(Spacer(1, 3*mm))
+        story.append(Paragraph(
+            'Each row below is one label. Pack the items listed together in one shipment.',
+            styles['Normal']
+        ))
+        story.append(Spacer(1, 4*mm))
+
+        # Build per-account master lookup for display names
+        full_master = {}
+        if os.path.exists(MASTER_SKU_PATH):
+            with open(MASTER_SKU_PATH, 'rb') as _f:
+                full_master = load_sku_master(_f.read())
+
+        mixed_data = [['#', 'Account', 'Product', 'Qty']]
+        for idx, (account, mp) in enumerate(all_mixed, 1):
+            acct_master = get_account_master(full_master, account)
+            skus = mp.get('skus', [])
+            consolidated_skus = {}
+            for s in skus:
+                info = acct_master.get(s['sku'])
+                display = f"{info['product']} (Pack {info['pack_size']})" if info and info['product'] else s['sku']
+                if s['sku'] in consolidated_skus:
+                    consolidated_skus[s['sku']]['qty'] += s['qty']
+                else:
+                    consolidated_skus[s['sku']] = {'label': display, 'qty': s['qty']}
+            sku_lines = [v['label'] for v in consolidated_skus.values()]
+            qty_lines  = [str(v['qty'])  for v in consolidated_skus.values()]
+            mixed_data.append([idx, account, '\n'.join(sku_lines), '\n'.join(qty_lines)])
+
+        mixed_table = Table(mixed_data, colWidths=[10*mm, 32*mm, 106*mm, 17*mm])
+        mixed_style = TableStyle([
+            ('BACKGROUND',    (0,0), (-1,0),  colors.HexColor('#e67e22')),
+            ('TEXTCOLOR',     (0,0), (-1,0),  colors.white),
+            ('FONTNAME',      (0,0), (-1,0),  'Helvetica-Bold'),
+            ('FONTSIZE',      (0,0), (-1,0),  9),
+            ('ALIGN',         (0,0), (-1,-1), 'LEFT'),
+            ('ALIGN',         (3,0), (3,-1),  'CENTER'),
+            ('FONTSIZE',      (0,1), (-1,-1), 8),
+            ('ROWBACKGROUNDS',(0,1), (-1,-1), [colors.HexColor('#fffbf0'), colors.HexColor('#fff3cd')]),
+            ('GRID',          (0,0), (-1,-1), 0.4, colors.HexColor('#cccccc')),
+            ('TOPPADDING',    (0,0), (-1,-1), 5),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            ('LEFTPADDING',   (0,0), (-1,-1), 6),
+            ('VALIGN',        (0,0), (-1,-1), 'TOP'),
+        ])
+        mixed_table.setStyle(mixed_style)
+        story.append(mixed_table)
+
+    # ── Unidentified Detail (with Account column) ─────────────────────────────
+    all_unknown = []
+    for account in ACCOUNT_ORDER:
+        for page in all_account_data.get(account, {}).get('unknown', []):
+            all_unknown.append((account, page))
+    for account, buckets in all_account_data.items():
+        if account not in ACCOUNT_ORDER:
+            for page in buckets.get('unknown', []):
+                all_unknown.append((account, page))
+
+    if all_unknown:
+        story.append(Spacer(1, 8*mm))
+        story.append(Paragraph('❓ Unidentified SKUs Detail', styles['Heading2']))
+        story.append(Spacer(1, 3*mm))
+        story.append(Paragraph(
+            'These labels could not be matched to the Master SKU file. Add them to the SKU editor to resolve.',
+            styles['Normal']
+        ))
+        story.append(Spacer(1, 4*mm))
+
+        # Group by (account, sku) for a cleaner count table
+        unknown_counts = defaultdict(int)   # (account, sku) -> count
+        for account, page in all_unknown:
+            sku = page['skus'][0]['sku'] if page.get('skus') else 'Unknown'
+            unknown_counts[(account, sku)] += 1
+
+        unk_data = [['#', 'Account', 'SKU', 'Labels']]
+        for i, ((account, sku), cnt) in enumerate(
+            sorted(unknown_counts.items(), key=lambda x: (
+                ACCOUNT_ORDER.index(x[0][0]) if x[0][0] in ACCOUNT_ORDER else 99,
+                -x[1]
+            )), 1
+        ):
+            unk_data.append([i, account, sku, cnt])
+
+        unk_table = Table(unk_data, colWidths=[10*mm, 32*mm, 117*mm, 16*mm])
+        unk_style = TableStyle([
+            ('BACKGROUND',    (0,0), (-1,0),  colors.HexColor('#c0392b')),
+            ('TEXTCOLOR',     (0,0), (-1,0),  colors.white),
+            ('FONTNAME',      (0,0), (-1,0),  'Helvetica-Bold'),
+            ('FONTSIZE',      (0,0), (-1,0),  9),
+            ('ALIGN',         (0,0), (-1,-1), 'LEFT'),
+            ('ALIGN',         (3,0), (3,-1),  'CENTER'),
+            ('FONTSIZE',      (0,1), (-1,-1), 8),
+            ('ROWBACKGROUNDS',(0,1), (-1,-1), [colors.HexColor('#fdf2f2'), colors.HexColor('#f8d7da')]),
+            ('GRID',          (0,0), (-1,-1), 0.4, colors.HexColor('#cccccc')),
+            ('TOPPADDING',    (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ('LEFTPADDING',   (0,0), (-1,-1), 6),
+        ])
+        unk_table.setStyle(unk_style)
+        story.append(unk_table)
 
     doc.build(story)
 
