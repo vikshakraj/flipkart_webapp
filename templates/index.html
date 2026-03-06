@@ -106,6 +106,9 @@
   .sku-action-btn{background:none;border:none;cursor:pointer;padding:5px 7px;border-radius:5px;font-size:1rem;transition:background .15s;line-height:1;}
   .sku-action-btn:hover{background:var(--surface2);}
   .sku-new-row td{background:rgba(0,212,255,0.04)!important;}
+  .ls-consolidated-card{background:linear-gradient(135deg,rgba(0,212,255,0.06),rgba(168,85,247,0.06));border:1.5px solid var(--accent);border-radius:12px;padding:16px 20px;margin-top:12px;}
+  .ls-consolidated-title{font-weight:700;font-size:0.9rem;color:var(--accent);margin-bottom:4px;display:flex;align-items:center;gap:6px;}
+  .ls-consolidated-sub{font-size:0.72rem;color:var(--muted);margin-bottom:10px;}
   @media(max-width:900px){.ls-two-col{grid-template-columns:1fr;}.ls-right{position:static;}}
 </style>
 <style>
@@ -1162,6 +1165,16 @@
           <div style="font-size:0.75rem; color:var(--muted); margin-top:3px;">Ground team: download directly from here</div>
         </div>
         <div id="latestOutputsList"></div>
+        <div id="consolidatedSection" style="display:none;margin-top:0;">
+          <div class="ls-consolidated-card">
+            <div class="ls-consolidated-title">&#128450; Consolidated &mdash; All Accounts</div>
+            <div class="ls-consolidated-sub" id="consolidatedMeta"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <a id="dlConLabels" class="dl-btn dl-labels" style="font-size:0.78rem;padding:7px 12px;" href="#" download>&#11015; Labels</a>
+              <a id="dlConSummary" class="dl-btn dl-summary" style="font-size:0.78rem;padding:7px 12px;" href="#" download>&#11015; Summary</a>
+            </div>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -1425,7 +1438,18 @@ async function loadLatestOutputs(){
       }
       list.appendChild(card);
     }
+    renderConsolidated(data.consolidated);
   } catch(e){ console.error('Failed to load latest outputs', e); }
+}
+
+function renderConsolidated(con){
+  const sec = document.getElementById('consolidatedSection');
+  if(!con || !con.has_output){ sec.style.display='none'; return; }
+  sec.style.display='block';
+  document.getElementById('consolidatedMeta').textContent =
+    con.timestamp + '  |  Accounts: ' + (con.accounts||[]).join(', ');
+  document.getElementById('dlConLabels').href  = '/api/download/' + con.labels_file;
+  document.getElementById('dlConSummary').href = '/api/download/' + con.summary_file;
 }
 
 function renderResults(accounts){
@@ -1444,6 +1468,20 @@ function renderResults(accounts){
         <a class="dl-btn dl-summary" href="/api/download/${acc.summary_file}" download>⬇ Summary PDF</a>
       </div>`;
     container.appendChild(block);
+  }
+  // Consolidated row (shown when multiple accounts sorted)
+  const prevCon = document.getElementById('consolidatedResultRow');
+  if(prevCon) prevCon.remove();
+  if(accounts.length > 1){
+    const conRow = document.createElement('div');
+    conRow.id = 'consolidatedResultRow';
+    conRow.style.cssText = 'margin-top:16px;padding:14px 20px;background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(168,85,247,0.08));border:1.5px solid var(--accent);border-radius:10px;';
+    conRow.innerHTML = '<div style="font-weight:700;color:var(--accent);margin-bottom:10px;">&#128450; Consolidated &mdash; All Accounts</div>'
+      + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+      + '<a class="dl-btn dl-labels" href="/api/download/consolidated_labels.pdf" download>&#11015; Consolidated Labels PDF</a>'
+      + '<a class="dl-btn dl-summary" href="/api/download/consolidated_summary.pdf" download>&#11015; Consolidated Summary PDF</a>'
+      + '</div>';
+    container.appendChild(conRow);
   }
   document.getElementById('results').style.display='block';
   loadLatestOutputs();
