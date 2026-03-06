@@ -661,6 +661,213 @@ def build_summary_pdf(account_name, normal_pages, dual_pages, mixed_pages, unkno
 
     doc.build(story)
 
+
+ACCOUNT_ORDER = ['REFRESHWAVE', 'EONSPARK', 'HELLOHI', 'CUTEST CLUB']
+
+def build_consolidated_pdf(all_account_data, output_path):
+    """
+    Build a single consolidated sorted-labels PDF across all accounts.
+
+    all_account_data: {account: {'normal': [...], 'dual': [...], 'mixed': [...], 'unknown': [...]}}
+
+    Sort order:
+      1. Product group total (sum of ALL pack sizes across ALL accounts) DESC
+      2. Within product: pack size DESC
+      3. Within product+pack: fixed account order (ACCOUNT_ORDER)
+    """
+    # ── Gather all (product, pack_size) combinations and compute totals ────────
+    # product_total: {product_name: total_label_count_across_all_packs_and_accounts}
+    # pack_data: {(product, pack_size): {account: [page_dicts]}}
+    product_total = defaultdict(int)
+    pack_data     = defaultdict(lambda: defaultdict(list))  # (prod,pack) -> {acct: [pages]}
+
+    for account, buckets in all_account_data.items():
+        for page in buckets['normal']:
+            prod = page.get('primary_product', '')
+            pack = page.get('pack_size', 0)
+            product_total[prod] += 1
+            pack_data[(prod, pack)][account].append(page)
+        for page in buckets['dual']:
+            prod = page.get('primary_product', '')
+            pack = page.get('pack_size', 0)
+            product_total[prod] += 1
+            pack_data[(prod, pack)][account].append(page)
+
+    # ── Build ordered list of pages ────────────────────────────────────────────
+    ordered_pages = []
+
+    # Sort products by total DESC, then alpha for tiebreak
+    sorted_products = sorted(
+        set(p for p, _ in pack_data.keys()),
+        key=lambda p: (-product_total[p], p.lower())
+    )
+
+    for prod in sorted_products:
+        # Get all pack sizes for this product, sort DESC
+        packs = sorted(
+            set(pack for (p, pack) in pack_data.keys() if p == prod),
+            reverse=True
+        )
+        for pack in packs:
+            acct_map = pack_data[(prod, pack)]
+            # Within each product+pack, emit pages in fixed account order
+            for account in ACCOUNT_ORDER:
+                for page in acct_map.get(account, []):
+                    ordered_pages.append(page)
+            # Any account not in ACCOUNT_ORDER (unknown accounts) appended last
+            for account, pages in acct_map.items():
+                if account not in ACCOUNT_ORDER:
+                    ordered_pages.extend(pages)
+
+    # Append unknown and mixed from all accounts at the end
+    for account in ACCOUNT_ORDER:
+        buckets = all_account_data.get(account, {})
+        ordered_pages.extend(buckets.get('unknown', []))
+    for account in ACCOUNT_ORDER:
+        buckets = all_account_data.get(account, {})
+        ordered_pages.extend(buckets.get('mixed', []))
+
+    # ── Write PDF ──────────────────────────────────────────────────────────────
+    pages_by_pdf = defaultdict(list)
+    for pos, pd_item in enumerate(ordered_pages):
+        pages_by_pdf[pd_item['orig_path']].append((pos, pd_item['orig_idx']))
+
+    page_slots = [None] * len(ordered_pages)
+    open_readers = {}
+    for pdf_src, idx_pairs in pages_by_pdf.items():
+        reader = PdfReader(pdf_src)
+        open_readers[pdf_src] = reader
+        for pos, page_idx in idx_pairs:
+            page_slots[pos] = reader.pages[page_idx]
+
+    writer = PdfWriter()
+    for page in page_slots:
+        if page is not None:
+            writer.add_page(page)
+    with open(output_path, 'wb') as f:
+        writer.write(f)
+
+    del writer, page_slots, open_readers
+    gc.collect()
+
+
+def build_consolidated_summary_pdf(all_account_data, output_path):
+    """
+    Build consolidated summary PDF with a per-account breakdown table.
+
+    Columns: # | Product | Pack Size | Refreshwave | Eonspark | Hellohi | Cutest Club | Total
+    Rows sorted by product-level total DESC, then pack size DESC within product.
+    """
+    # Gather counts per (product, pack) per account
+    pack_counts = defaultdict(lambda: defaultdict(int))  # (prod,pack) -> {account: count}
+    product_total = defaultdict(int)
+
+    for account, buckets in all_account_data.items():
+        for page in buckets['normal'] + buckets['dual']:
+            prod = page.get('primary_product', '')
+            pack = page.get('pack_size', 0)
+            pack_counts[(prod, pack)][account] += 1
+            product_total[prod] += 1
+
+    # Mixed / unknown totals
+    mixed_total   = sum(len(b.get('mixed',   [])) for b in all_account_data.values())
+    unknown_total = sum(len(b.get('unknown', [])) for b in all_account_data.values())
+    grand_total   = sum(product_total.values()) + mixed_total + unknown_total
+
+    doc = SimpleDocTemplate(output_path, pagesize=A4,
+        leftMargin=10*mm, rightMargin=10*mm, topMargin=15*mm, bottomMargin=15*mm)
+    styles = getSampleStyleSheet()
+    story  = []
+
+    story.append(Paragraph('Consolidated Label Sort Summary — All Accounts', styles['Title']))
+    story.append(Spacer(1, 3*mm))
+    timestamp = datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST')
+    story.append(Paragraph(
+        f'Generated: {timestamp} &nbsp;|&nbsp; '
+        f'Total labels: <b>{grand_total}</b> &nbsp;|&nbsp; '
+        f'Mixed: <b>{mixed_total}</b> &nbsp;|&nbsp; '
+        f'Unidentified: <b>{unknown_total}</b>',
+        styles['Normal']
+    ))
+    story.append(Spacer(1, 6*mm))
+
+    # Table header
+    acct_labels = ['RW', 'ES', 'HH', 'CC']  # short column headers
+    header_row  = ['#', 'Product', 'Pack', ] + acct_labels + ['Total']
+    data = [header_row]
+
+    # Sort products by total DESC
+    sorted_products = sorted(
+        set(p for p, _ in pack_counts.keys()),
+        key=lambda p: (-product_total[p], p.lower())
+    )
+
+    row_num = 1
+    for prod in sorted_products:
+        packs = sorted(
+            set(pack for (p, pack) in pack_counts.keys() if p == prod),
+            reverse=True
+        )
+        for pack in packs:
+            acct_map  = pack_counts[(prod, pack)]
+            row_total = sum(acct_map.values())
+            pack_label = f'Pack {pack}' if pack else '—'
+            row = [row_num, prod, pack_label]
+            for account in ACCOUNT_ORDER:
+                cnt = acct_map.get(account, 0)
+                row.append(cnt if cnt else '—')
+            row.append(row_total)
+            data.append(row)
+            row_num += 1
+
+    # Mixed / unknown summary rows
+    if mixed_total:
+        data.append([row_num, '⚡ Mixed Orders', '—', '—', '—', '—', '—', mixed_total])
+        row_num += 1
+    if unknown_total:
+        data.append([row_num, '❓ Unidentified', '—', '—', '—', '—', '—', unknown_total])
+
+    col_widths = [10*mm, 75*mm, 18*mm, 18*mm, 18*mm, 18*mm, 18*mm, 18*mm]
+    table = Table(data, colWidths=col_widths)
+
+    style = TableStyle([
+        ('BACKGROUND',   (0,0), (-1,0),  colors.HexColor('#1a237e')),
+        ('TEXTCOLOR',    (0,0), (-1,0),  colors.white),
+        ('FONTNAME',     (0,0), (-1,0),  'Helvetica-Bold'),
+        ('FONTSIZE',     (0,0), (-1,0),  9),
+        ('ALIGN',        (0,0), (-1,-1), 'CENTER'),
+        ('ALIGN',        (1,0), (1,-1),  'LEFT'),
+        ('FONTSIZE',     (0,1), (-1,-1), 8),
+        ('ROWBACKGROUNDS',(0,1),(-1,-1), [colors.white, colors.HexColor('#f0f4ff')]),
+        ('GRID',         (0,0), (-1,-1), 0.4, colors.HexColor('#bbbbbb')),
+        ('TOPPADDING',   (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING',(0,0), (-1,-1), 4),
+        ('LEFTPADDING',  (0,0), (-1,-1), 4),
+        # Bold the Total column
+        ('FONTNAME',     (-1,1),(-1,-1), 'Helvetica-Bold'),
+        ('TEXTCOLOR',    (-1,1),(-1,-1), colors.HexColor('#1a237e')),
+    ])
+
+    # Highlight high-volume rows (total >= 10)
+    for i, row in enumerate(data[1:], 1):
+        total_val = row[-1]
+        if isinstance(total_val, int) and total_val >= 10:
+            style.add('BACKGROUND', (0,i), (-1,i), colors.HexColor('#e8eaf6'))
+            style.add('FONTNAME',   (0,i), (-1,i), 'Helvetica-Bold')
+
+    table.setStyle(style)
+    story.append(table)
+
+    # Legend
+    story.append(Spacer(1, 5*mm))
+    story.append(Paragraph(
+        '<b>Columns:</b> RW = Refreshwave &nbsp;|&nbsp; ES = Eonspark &nbsp;|&nbsp; '
+        'HH = Hellohi &nbsp;|&nbsp; CC = Cutest Club',
+        styles['Normal']
+    ))
+
+    doc.build(story)
+
 # ─────────────────────────────────────────────
 # ROUTES
 # ─────────────────────────────────────────────
@@ -737,6 +944,7 @@ def sort_labels():
 
         # ── Step 2: Per-account: classify → sort → write output PDFs ──────────
         output_files = []
+        all_account_data = {}  # {account: {normal, dual, mixed, unknown}} for consolidated
 
         for account, pages in account_pages.items():
             account_sku_map = get_account_master(master, account)
@@ -744,6 +952,14 @@ def sort_labels():
             sorted_normal = sort_normal(normal)
             sorted_dual   = sort_normal(dual)
             ordered = sorted_normal + sorted_dual + unknown + mixed
+
+            # Store for consolidated PDF
+            all_account_data[account] = {
+                'normal':  sorted_normal + sorted_dual,
+                'dual':    [],   # already merged into normal above
+                'mixed':   mixed,
+                'unknown': unknown,
+            }
 
             safe_name = re.sub(r'[^A-Za-z0-9_]', '_', account)
             labels_path = os.path.join(req_tmp, f'{safe_name}_sorted_labels.pdf')
@@ -832,6 +1048,34 @@ def sort_labels():
             del normal, dual, mixed, unknown, ordered, pages
             gc.collect()
 
+        # ── Step 3: Build consolidated PDF if multiple accounts detected ──────
+        active_accounts = [a for a in ACCOUNT_ORDER if a in all_account_data]
+        if len(active_accounts) >= 1:
+            consolidated_labels_path  = os.path.join(req_tmp, 'consolidated_labels.pdf')
+            consolidated_summary_path = os.path.join(req_tmp, 'consolidated_summary.pdf')
+            build_consolidated_pdf(all_account_data, consolidated_labels_path)
+            build_consolidated_summary_pdf(all_account_data, consolidated_summary_path)
+
+            persist_con_labels  = os.path.join(OUTPUT_DIR, 'consolidated_labels.pdf')
+            persist_con_summary = os.path.join(OUTPUT_DIR, 'consolidated_summary.pdf')
+            _atomic_copy(consolidated_labels_path,  persist_con_labels)
+            _atomic_copy(consolidated_summary_path, persist_con_summary)
+
+            # Update meta with consolidated entry
+            meta = {}
+            if os.path.exists(OUTPUTS_META):
+                with open(OUTPUTS_META, 'r') as mf:
+                    try: meta = json.load(mf)
+                    except: pass
+            meta['__consolidated__'] = {
+                'timestamp': datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST'),
+                'accounts':  active_accounts,
+                'labels_file':  'consolidated_labels.pdf',
+                'summary_file': 'consolidated_summary.pdf',
+            }
+            with open(OUTPUTS_META, 'w') as mf:
+                json.dump(meta, mf)
+
         return jsonify({'accounts': output_files})
 
     except Exception as e:
@@ -907,7 +1151,16 @@ def latest_outputs():
         else:
             entry = {'account': account, 'has_output': False}
         result.append(entry)
-    return jsonify({'outputs': result})
+    # Consolidated entry
+    con = meta.get('__consolidated__')
+    consolidated = {
+        'has_output': bool(con),
+        'timestamp':  con['timestamp']  if con else None,
+        'accounts':   con['accounts']   if con else [],
+        'labels_file':  con['labels_file']  if con else None,
+        'summary_file': con['summary_file'] if con else None,
+    }
+    return jsonify({'outputs': result, 'consolidated': consolidated})
 
 
 @app.route('/api/download-master')
