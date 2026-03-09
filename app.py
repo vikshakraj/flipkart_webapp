@@ -40,12 +40,57 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 OUTPUTS_META = os.path.join(_data_dir, 'outputs_meta.json')  # timestamp + stats per account
 
 KNOWN_ACCOUNTS = ['REFRESHWAVE', 'EONSPARK', 'CUTEST CLUB', 'HELLOHI']
+ORDER_DB_PATH  = os.path.join(_data_dir, 'order_db.json')  # persistent order ID history
+ORDER_DB_TTL   = 72 * 3600  # 3 days in seconds
 
 def _atomic_copy(src, dst):
     """Copy src → dst atomically using a temp file + rename to avoid partial writes."""
     dst_tmp = dst + '.tmp'
     shutil.copy2(src, dst_tmp)
     os.replace(dst_tmp, dst)
+
+# ─────────────────────────────────────────────
+# ORDER ID DATABASE  (72-hour TTL)
+# ─────────────────────────────────────────────
+
+def _load_order_db():
+    """Load order DB, purging entries older than 72 hours."""
+    if not os.path.exists(ORDER_DB_PATH):
+        return {}
+    try:
+        with open(ORDER_DB_PATH, 'r') as f:
+            db = json.load(f)
+    except Exception:
+        return {}
+    now = datetime.datetime.now(tz=datetime.timezone.utc).timestamp()
+    purged = {}
+    for account, orders in db.items():
+        kept = {oid: ts for oid, ts in orders.items()
+                if now - ts <= ORDER_DB_TTL}
+        if kept:
+            purged[account] = kept
+    return purged
+
+def _save_order_db(db):
+    tmp = ORDER_DB_PATH + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(db, f)
+    os.replace(tmp, ORDER_DB_PATH)
+
+def _record_order_ids(account_order_ids):
+    """Add newly sorted order IDs to the DB. account_order_ids: {account: [oid, ...]}"""
+    db  = _load_order_db()
+    now = datetime.datetime.now(tz=datetime.timezone.utc).timestamp()
+    for account, oids in account_order_ids.items():
+        if account not in db:
+            db[account] = {}
+        for oid in oids:
+            db[account][oid] = now
+    _save_order_db(db)
+
+def extract_order_ids(text):
+    """Extract all OD... order IDs from a label page."""
+    return re.findall(r'OD\d{15,}', text)
 
 # ─────────────────────────────────────────────
 # TELEGRAM BOT
@@ -1010,6 +1055,83 @@ def upload_master():
     mtime = datetime.datetime.fromtimestamp(os.path.getmtime(MASTER_SKU_PATH), tz=IST).strftime('%d %b %Y, %H:%M IST')
     return jsonify({'ok': True, 'updated': mtime})
 
+
+@app.route('/api/preflight', methods=['POST'])
+def preflight():
+    """
+    Lightweight pre-sort scan. Called before the user confirms sorting.
+    1. Detects accounts + label counts from uploaded PDFs (Feature 1).
+    2. Checks for duplicate Order IDs against the 72-hour DB (Feature 2).
+    Returns JSON the frontend uses to render confirmation modals.
+    """
+    req_tmp = tempfile.mkdtemp(prefix='fk_pre_')
+    try:
+        pdf_files = request.files.getlist('pdfs')
+        if not pdf_files:
+            return jsonify({'error': 'No PDF files provided'}), 400
+
+        # Save uploads
+        pdf_paths = []
+        for upload in pdf_files:
+            safe_fname = re.sub(r'[^A-Za-z0-9._-]', '_', os.path.basename(upload.filename))
+            path = os.path.join(req_tmp, safe_fname)
+            upload.save(path)
+            pdf_paths.append(path)
+
+        # Scan pages — extract account, order ID per page
+        account_counts  = defaultdict(int)          # account -> label count
+        account_oids    = defaultdict(set)           # account -> {order_ids}
+
+        for pdf_path in pdf_paths:
+            reader = PdfReader(pdf_path)
+            for page in reader.pages:
+                text    = page.extract_text() or ''
+                account = detect_account(text)
+                account_counts[account] += 1
+                for oid in extract_order_ids(text):
+                    account_oids[account].add(oid)
+            del reader
+            gc.collect()
+
+        # Check duplicates against DB
+        db = _load_order_db()
+        duplicates = {}   # account -> [oid, ...] that are already in DB
+        for account, oids in account_oids.items():
+            existing = db.get(account, {})
+            dupes = [oid for oid in oids if oid in existing]
+            if dupes:
+                duplicates[account] = sorted(dupes)
+
+        # Build account summary in KNOWN_ACCOUNTS order, unknowns appended
+        ordered_accounts = []
+        for acc in KNOWN_ACCOUNTS:
+            if acc in account_counts:
+                ordered_accounts.append({
+                    'account': acc,
+                    'label_count': account_counts[acc],
+                    'order_count': len(account_oids[acc]),
+                })
+        for acc in account_counts:
+            if acc not in KNOWN_ACCOUNTS:
+                ordered_accounts.append({
+                    'account': acc,
+                    'label_count': account_counts[acc],
+                    'order_count': len(account_oids[acc]),
+                })
+
+        return jsonify({
+            'accounts':   ordered_accounts,
+            'duplicates': duplicates,   # {} if none
+            'has_dupes':  bool(duplicates),
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        shutil.rmtree(req_tmp, ignore_errors=True)
+        gc.collect()
+
 @app.route('/api/sort', methods=['POST'])
 def sort_labels():
     # Per-request temp dir — cleaned up on completion regardless of success/failure
@@ -1020,6 +1142,16 @@ def sort_labels():
             return jsonify({'error': 'No PDF files provided'}), 400
         if not os.path.exists(MASTER_SKU_PATH):
             return jsonify({'error': 'No Master SKU file found on server. Please upload one first.'}), 400
+
+        # Excluded order IDs sent by frontend when user chose "Remove Duplicates"
+        # Format: JSON-encoded dict {account: [oid, ...]}
+        exclude_raw   = request.form.get('exclude_order_ids', '{}')
+        try:
+            exclude_map = json.loads(exclude_raw)  # {account: [oid, ...]}
+        except Exception:
+            exclude_map = {}
+        # Flatten to a set of OIDs to exclude (account-agnostic for simplicity)
+        exclude_oids  = set(oid for oids in exclude_map.values() for oid in oids)
 
         # ── Load master SKU (small xlsx, fine in RAM) ──────────────────────────
         with open(MASTER_SKU_PATH, 'rb') as f:
@@ -1044,11 +1176,17 @@ def sort_labels():
                 text = page.extract_text() or ''
                 account = detect_account(text)
                 skus = extract_skus_from_page(text)
+                order_ids = extract_order_ids(text)
+                # Skip this page entirely if its order ID is in the exclude list
+                if exclude_oids and any(oid in exclude_oids for oid in order_ids):
+                    del text
+                    continue
                 account_pages[account].append({
                     'orig_path': pdf_path,
                     'orig_idx': i,
                     'skus': skus,
                     'text': text,
+                    'order_ids': order_ids,
                 })
                 del text
             del reader   # release file handle + internal buffers immediately
@@ -1187,6 +1325,20 @@ def sort_labels():
             }
             with open(OUTPUTS_META, 'w') as mf:
                 json.dump(meta, mf)
+
+        # ── Record sorted Order IDs into 72h DB ──────────────────────────────
+        account_sorted_oids = {}
+        for account, pages in account_pages.items():
+            oids = set()
+            for pg in pages:
+                oids.update(pg.get('order_ids', []))
+            if oids:
+                account_sorted_oids[account] = list(oids)
+        if account_sorted_oids:
+            try:
+                _record_order_ids(account_sorted_oids)
+            except Exception as db_err:
+                print(f'[OrderDB] Failed to record: {db_err}')
 
         return jsonify({'accounts': output_files})
 
