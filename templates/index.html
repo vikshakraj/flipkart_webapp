@@ -110,6 +110,26 @@
   .ls-consolidated-title{font-weight:700;font-size:0.9rem;color:var(--accent);margin-bottom:4px;display:flex;align-items:center;gap:6px;}
   .ls-consolidated-sub{font-size:0.72rem;color:var(--muted);margin-bottom:10px;}
   @media(max-width:900px){.ls-two-col{grid-template-columns:1fr;}.ls-right{position:static;}}
+  /* ── Confirmation Modals ── */
+  .fk-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
+  .fk-modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 32px;max-width:520px;width:92%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5);}
+  .fk-modal h3{font-size:1.1rem;font-weight:700;color:var(--text);margin-bottom:6px;}
+  .fk-modal p.sub{font-size:.82rem;color:var(--muted);margin-bottom:18px;}
+  .fk-modal-table{width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:20px;}
+  .fk-modal-table th{padding:8px 12px;text-align:left;font-weight:700;color:var(--muted);font-size:.72rem;text-transform:uppercase;border-bottom:1px solid var(--border);}
+  .fk-modal-table td{padding:8px 12px;border-bottom:1px solid rgba(42,54,80,.5);color:var(--text);}
+  .fk-modal-table tr:last-child td{border-bottom:none;}
+  .fk-modal-acct{font-weight:700;color:var(--accent);}
+  .fk-modal-btns{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;}
+  .fk-btn-yes{padding:10px 24px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);font-weight:700;font-size:.9rem;cursor:pointer;font-family:inherit;}
+  .fk-btn-yes:hover{opacity:.88;}
+  .fk-btn-no{padding:10px 24px;border-radius:8px;border:1.5px solid var(--border);background:transparent;color:var(--muted);font-weight:600;font-size:.9rem;cursor:pointer;font-family:inherit;}
+  .fk-btn-no:hover{border-color:var(--danger);color:var(--danger);}
+  .fk-btn-default{padding:10px 24px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);font-weight:700;font-size:.9rem;cursor:pointer;font-family:inherit;}
+  .fk-btn-secondary{padding:10px 24px;border-radius:8px;border:1.5px solid var(--border);background:transparent;color:var(--text);font-weight:600;font-size:.9rem;cursor:pointer;font-family:inherit;}
+  .fk-btn-secondary:hover{border-color:var(--accent);color:var(--accent);}
+  .fk-dupe-account{font-weight:700;color:var(--warning);margin:10px 0 4px;}
+  .fk-dupe-oid{font-size:.78rem;color:var(--muted);font-family:'JetBrains Mono',monospace;padding:2px 0;}
 </style>
 <style>
 .app {
@@ -1369,20 +1389,104 @@ function setProgress(pct,label){
   document.getElementById('progressLabel').textContent=label;
 }
 
+// ── Sort flow state ──────────────────────────────────────────────────────────
+let _preflightData = null;
+let _excludeOids   = null;
+
+function closeModals(){
+  document.getElementById('modalPreview').style.display='none';
+  document.getElementById('modalDupes').style.display='none';
+  document.getElementById('processBtn').disabled=false;
+  _preflightData = null; _excludeOids = null;
+}
+
 async function process(){
   const pdfFiles = document.getElementById('pdfFiles').files;
+  if(!pdfFiles.length) return;
   document.getElementById('errorBox').style.display='none';
   document.getElementById('results').style.display='none';
-  document.getElementById('progressWrap').style.display='block';
   document.getElementById('processBtn').disabled=true;
-  setProgress(10,'Uploading files...');
+  document.getElementById('progressWrap').style.display='block';
+  setProgress(10,'Scanning labels...');
   const fd = new FormData();
   for(const f of pdfFiles) fd.append('pdfs',f);
   try{
-    setProgress(30,'Processing labels...');
-    const resp = await fetch('/api/sort',{method:'POST',body:fd});
-    const data = await resp.json();
-    if(!resp.ok||data.error) throw new Error(data.error||'Server error');
+    const preResp = await fetch('/api/preflight',{method:'POST',body:fd});
+    const raw = await preResp.text();
+    let pre;
+    try{ pre=JSON.parse(raw); }catch(_){
+      throw new Error(preResp.status===503?'Server crashed during scan.':'Unexpected server response.');
+    }
+    if(!preResp.ok||pre.error) throw new Error(pre.error||'Preflight failed');
+    _preflightData = pre;
+    // Populate Modal 1
+    const tbody = document.getElementById('previewTableBody');
+    tbody.innerHTML='';
+    for(const a of pre.accounts){
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td class="fk-modal-acct">${a.account}</td><td>${a.label_count}</td><td>${a.order_count}</td>`;
+      tbody.appendChild(tr);
+    }
+    setProgress(0,'');
+    document.getElementById('progressWrap').style.display='none';
+    document.getElementById('modalPreview').style.display='flex';
+  }catch(e){
+    document.getElementById('errorBox').textContent='Error: '+e.message;
+    document.getElementById('errorBox').style.display='block';
+    setProgress(0,'');
+    document.getElementById('progressWrap').style.display='none';
+    document.getElementById('processBtn').disabled=false;
+  }
+}
+
+function onPreviewConfirm(){
+  document.getElementById('modalPreview').style.display='none';
+  const pre=_preflightData;
+  if(pre.has_dupes){
+    const body=document.getElementById('dupesBody');
+    body.innerHTML='';
+    for(const [account,oids] of Object.entries(pre.duplicates)){
+      const h=document.createElement('div');
+      h.className='fk-dupe-account';
+      h.textContent=account;
+      body.appendChild(h);
+      for(const oid of oids){
+        const d=document.createElement('div');
+        d.className='fk-dupe-oid';
+        d.textContent=oid;
+        body.appendChild(d);
+      }
+    }
+    document.getElementById('modalDupes').style.display='flex';
+  } else {
+    _excludeOids={};
+    runSort();
+  }
+}
+
+function onDupeChoice(removeDupes){
+  document.getElementById('modalDupes').style.display='none';
+  _excludeOids=removeDupes?(_preflightData.duplicates||{}):{};
+  runSort();
+}
+
+async function runSort(){
+  const pdfFiles=document.getElementById('pdfFiles').files;
+  document.getElementById('progressWrap').style.display='block';
+  setProgress(20,'Uploading & sorting...');
+  const fd=new FormData();
+  for(const f of pdfFiles) fd.append('pdfs',f);
+  if(_excludeOids&&Object.keys(_excludeOids).length)
+    fd.append('exclude_order_ids',JSON.stringify(_excludeOids));
+  try{
+    setProgress(40,'Processing labels...');
+    const resp=await fetch('/api/sort',{method:'POST',body:fd});
+    const raw=await resp.text();
+    let data;
+    try{ data=JSON.parse(raw); }catch(_){
+      throw new Error(resp.status===503?'Server crashed (OOM). Try fewer PDFs.':`Server error (HTTP ${resp.status})`);
+    }
+    if(!resp.ok||data.error) throw new Error(data.error||`Server error (HTTP ${resp.status})`);
     setProgress(100,'Done!');
     renderResults(data.accounts);
   }catch(e){
@@ -1391,6 +1495,7 @@ async function process(){
     setProgress(0,'');
   }
   document.getElementById('processBtn').disabled=false;
+  _preflightData=null; _excludeOids=null;
 }
 
 const ACCOUNT_ORDER = ['REFRESHWAVE','EONSPARK','CUTEST CLUB','HELLOHI'];
@@ -3417,5 +3522,34 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 
 window.AdsApp = App;
 </script>
+
+<!-- ── Modal 1: Account Preview ── -->
+<div id="modalPreview" class="fk-overlay" style="display:none;">
+  <div class="fk-modal">
+    <h3>&#128230; Confirm Sort</h3>
+    <p class="sub">The following labels were detected in the uploaded PDFs. Proceed with sorting?</p>
+    <table class="fk-modal-table">
+      <thead><tr><th>Account</th><th>Labels</th><th>Orders</th></tr></thead>
+      <tbody id="previewTableBody"></tbody>
+    </table>
+    <div class="fk-modal-btns">
+      <button class="fk-btn-no" onclick="closeModals()">No, Cancel</button>
+      <button class="fk-btn-yes" onclick="onPreviewConfirm()">Yes, Proceed &#8594;</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal 2: Duplicate Order IDs ── -->
+<div id="modalDupes" class="fk-overlay" style="display:none;">
+  <div class="fk-modal">
+    <h3>&#9888;&#65039; Duplicate Order IDs Detected</h3>
+    <p class="sub">The following Order IDs were already sorted in the last 72 hours. By default they will be excluded. Choose how to proceed:</p>
+    <div id="dupesBody"></div>
+    <div class="fk-modal-btns" style="margin-top:18px;">
+      <button class="fk-btn-secondary" onclick="onDupeChoice(false)">No, Include Duplicates</button>
+      <button class="fk-btn-default" onclick="onDupeChoice(true)">Yes, Remove Duplicates</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
