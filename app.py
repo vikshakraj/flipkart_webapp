@@ -1025,6 +1025,121 @@ def build_consolidated_summary_pdf(all_account_data, output_path):
 
     doc.build(story)
 
+
+@app.route('/api/sales-analytics', methods=['POST'])
+def sales_analytics():
+    """
+    Parse an uploaded Flipkart Orders XLSX and return structured analytics data.
+    Called by the Sales Analytics tab in the frontend.
+    """
+    import re as _re
+    xlsx_file = request.files.get('xlsx')
+    if not xlsx_file:
+        return jsonify({'error': 'No file provided'}), 400
+
+    try:
+        import openpyxl as _openpyxl
+        from io import BytesIO
+        data = xlsx_file.read()
+        import importlib
+        pd_spec = importlib.util.find_spec('pandas')
+        if pd_spec is None:
+            return jsonify({'error': 'pandas not installed on server'}), 500
+        import pandas as pd
+
+        df = pd.read_excel(BytesIO(data), sheet_name='Orders')
+        df['sku_clean'] = df['sku'].str.replace(r'"""SKU:', '', regex=True).str.replace('"""', '', regex=True).str.strip()
+        df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce')
+        df['date_str'] = df['order_date'].dt.strftime('%Y-%m-%d')
+
+        def extract_product(sku):
+            s = _re.sub(r'\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$', '', sku, flags=_re.IGNORECASE).strip()
+            s = _re.sub(r'\s+(ES|RW|CC|HH)\s*$', '', s, flags=_re.IGNORECASE).strip()
+            return s or sku
+
+        df['product'] = df['sku_clean'].apply(extract_product)
+
+        ACTIVE   = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD'}
+        RETURNED = {'RETURNED','RETURN_REQUESTED'}
+        CANCELLED= {'CANCELLED'}
+
+        total_orders  = len(df)
+        total_units   = int(df['quantity'].sum())
+        delivered     = int(df[df['order_item_status']=='DELIVERED']['quantity'].sum())
+        returned_cnt  = int(df[df['order_item_status'].isin(RETURNED)]['quantity'].sum())
+        cancelled_cnt = int(df[df['order_item_status'].isin(CANCELLED)]['quantity'].sum())
+        dispatch_breach = int((df['dispatch_sla_breached']=='Y').sum())
+        delivery_breach = int((df['delivery_sla_breached']=='Y').sum())
+        dispatched_total = int(df['dispatch_sla_breached'].notna().sum())
+        delivered_total  = int(df['delivery_sla_breached'].notna().sum())
+
+        kpis = {
+            'total_orders':    total_orders,
+            'total_units':     total_units,
+            'delivered':       delivered,
+            'returned':        returned_cnt,
+            'cancelled':       cancelled_cnt,
+            'delivered_pct':   round(delivered / total_units * 100, 1) if total_units else 0,
+            'returned_pct':    round(returned_cnt / total_units * 100, 1) if total_units else 0,
+            'cancelled_pct':   round(cancelled_cnt / total_units * 100, 1) if total_units else 0,
+            'dispatch_breach_pct': round(dispatch_breach / dispatched_total * 100, 1) if dispatched_total else 0,
+            'delivery_breach_pct': round(delivery_breach / delivered_total * 100, 1) if delivered_total else 0,
+            'date_from': str(df['order_date'].min().date()),
+            'date_to':   str(df['order_date'].max().date()),
+        }
+
+        # ── Product trend: daily units for top 15 products (active orders only) ──
+        df_active = df[df['order_item_status'].isin(ACTIVE)].copy()
+        top15 = df_active.groupby('product')['quantity'].sum().nlargest(15).index.tolist()
+        df_top = df_active[df_active['product'].isin(top15)]
+        pivot = df_top.pivot_table(index='date_str', columns='product', values='quantity', aggfunc='sum').fillna(0)
+        pivot = pivot.sort_index()
+        trend_dates = pivot.index.tolist()
+        trend_series = []
+        for prod in top15:
+            if prod in pivot.columns:
+                trend_series.append({
+                    'name': prod,
+                    'data': [int(x) for x in pivot[prod].tolist()],
+                })
+
+        # ── Returns breakdown ──
+        df_ret = df[df['order_item_status'].isin(RETURNED | CANCELLED)].copy()
+        # Group return reasons into friendly buckets
+        REASON_MAP = {
+            'order_cancelled':              'Buyer Cancelled',
+            'ORC_validated with customer':  'ORC / CS Resolved',
+            'shield_cancellation':          'Shield Cancel',
+            'MISSHIPMENT':                  'Misshipment',
+            'Attempts_Exhausted':           'Delivery Failed',
+            'MISSING_ITEM':                 'Missing Item',
+            'DAMAGED_PRODUCT':              'Damaged Product',
+            'QUALITY_ISSUE':                'Quality Issue',
+            'Shipment_EOB_Ageing':          'Ageing / EOB',
+            'DEFECTIVE_PRODUCT':            'Defective Product',
+            'DAMAGED_SHIPMENT':             'Damaged Shipment',
+            'not_serviceable':              'Not Serviceable',
+            'Attempts_Exhausted':           'Delivery Failed',
+        }
+        reason_counts = df_ret['return_reason'].fillna('Unknown').map(
+            lambda x: REASON_MAP.get(x, x)
+        ).value_counts()
+        returns_chart = [
+            {'reason': r, 'count': int(c)}
+            for r, c in reason_counts.head(12).items()
+        ]
+
+        return jsonify({
+            'kpis':         kpis,
+            'trend_dates':  trend_dates,
+            'trend_series': trend_series,
+            'returns_chart':returns_chart,
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 # ─────────────────────────────────────────────
 # ROUTES
 # ─────────────────────────────────────────────
