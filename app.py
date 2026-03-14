@@ -1193,7 +1193,27 @@ def sales_upload(account):
         df['sku_clean']  = df['sku'].str.replace(r'"""SKU:', '', regex=True).str.replace('"""', '', regex=True).str.strip()
         df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce')
         df['date_str']   = df['order_date'].dt.strftime('%Y-%m-%d')
-        df['product']    = df['sku_clean'].apply(_extract_product)
+
+        # ── Map SKU → product name using Master SKU file ──────────────────────
+        # Falls back to regex-extracted name if master not available or SKU not found
+        sku_to_product = {}
+        if os.path.exists(MASTER_SKU_PATH):
+            try:
+                with open(MASTER_SKU_PATH, 'rb') as f:
+                    master = load_sku_master(f.read())
+                acct_master = get_account_master(master, account)
+                for sku, info in acct_master.items():
+                    if info.get('product'):
+                        sku_to_product[sku] = info['product']
+            except Exception as me:
+                print(f'[SalesUpload] Master SKU lookup failed: {me}')
+
+        def resolve_product(sku_clean):
+            if sku_clean in sku_to_product:
+                return sku_to_product[sku_clean]
+            return _extract_product(sku_clean)
+
+        df['product'] = df['sku_clean'].apply(resolve_product)
 
         # Filter to last 60 days
         cutoff = (datetime.datetime.now(tz=IST) - datetime.timedelta(days=SALES_TTL_DAYS)).strftime('%Y-%m-%d')
