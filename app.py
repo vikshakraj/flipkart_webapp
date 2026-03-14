@@ -1237,7 +1237,11 @@ def sales_upload(account):
         # Load existing, prune, then overlay new dates (newer wins)
         store = _load_sales_store(account)
         store = _prune_old_dates(store)
-        store.update(new_rows)   # new dates overwrite old for same date
+        # Explicitly remove existing entries for dates in the new upload
+        # so corrected product names take effect immediately on re-upload
+        for d in new_rows:
+            store.pop(d, None)
+        store.update(new_rows)
 
         # Record upload timestamp
         store['__meta__'] = {
@@ -1256,6 +1260,16 @@ def sales_upload(account):
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/sales-clear/<account>', methods=['POST'])
+def sales_clear(account):
+    """Delete stored sales data for an account so it can be re-uploaded cleanly."""
+    account = account.upper().replace('-', ' ')
+    p = _sales_path(account)
+    if os.path.exists(p):
+        os.remove(p)
+    return jsonify({'ok': True, 'account': account})
 
 
 @app.route('/api/sales-data/<account>', methods=['GET'])
