@@ -1026,119 +1026,245 @@ def build_consolidated_summary_pdf(all_account_data, output_path):
     doc.build(story)
 
 
-@app.route('/api/sales-analytics', methods=['POST'])
-def sales_analytics():
+# ─────────────────────────────────────────────
+# SALES ANALYTICS  helpers
+# ─────────────────────────────────────────────
+
+SALES_ACCOUNTS   = ['REFRESHWAVE', 'EONSPARK', 'HELLOHI', 'CUTEST CLUB']
+SALES_DATA_DIR   = os.path.join(_data_dir, 'sales_data')
+os.makedirs(SALES_DATA_DIR, exist_ok=True)
+SALES_TTL_DAYS   = 60
+
+REASON_MAP = {
+    'order_cancelled':             'Buyer Cancelled',
+    'ORC_validated with customer': 'ORC / CS Resolved',
+    'shield_cancellation':         'Shield Cancel',
+    'MISSHIPMENT':                 'Misshipment',
+    'Attempts_Exhausted':          'Delivery Failed',
+    'MISSING_ITEM':                'Missing Item',
+    'DAMAGED_PRODUCT':             'Damaged Product',
+    'QUALITY_ISSUE':               'Quality Issue',
+    'Shipment_EOB_Ageing':         'Ageing / EOB',
+    'DEFECTIVE_PRODUCT':           'Defective Product',
+    'DAMAGED_SHIPMENT':            'Damaged Shipment',
+    'not_serviceable':             'Not Serviceable',
+    'Attempts_Exhausted':          'Delivery Failed',
+}
+
+def _sales_path(account):
+    safe = re.sub(r'[^A-Za-z0-9_]', '_', account.upper())
+    return os.path.join(SALES_DATA_DIR, f'sales_{safe}.json')
+
+def _load_sales_store(account):
+    """Load stored rows dict {date_str: [row, ...]} for an account."""
+    p = _sales_path(account)
+    if not os.path.exists(p):
+        return {}
+    try:
+        with open(p) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_sales_store(account, store):
+    p  = _sales_path(account)
+    tmp = p + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(store, f)
+    os.replace(tmp, p)
+
+def _prune_old_dates(store):
+    """Remove dates older than SALES_TTL_DAYS from today."""
+    cutoff = (datetime.datetime.now(tz=IST) - datetime.timedelta(days=SALES_TTL_DAYS)).strftime('%Y-%m-%d')
+    return {d: rows for d, rows in store.items() if d >= cutoff}
+
+def _extract_product(sku):
+    s = re.sub(r'\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$', '', sku, flags=re.IGNORECASE).strip()
+    s = re.sub(r'\s+(ES|RW|CC|HH)\s*$', '', s, flags=re.IGNORECASE).strip()
+    return s or sku
+
+def _df_to_store_rows(df):
+    """Convert a filtered DataFrame to a {date_str: [row,...]} dict."""
+    import pandas as pd
+    store = defaultdict(list)
+    for _, r in df.iterrows():
+        d = str(r['date_str'])
+        store[d].append({
+            'sku':        r.get('sku_clean',''),
+            'product':    r.get('product',''),
+            'qty':        int(r.get('quantity', 1)),
+            'status':     str(r.get('order_item_status','')),
+            'ret_reason': str(r.get('return_reason','')) if str(r.get('return_reason','')) != 'nan' else '',
+            'disp_breach':str(r.get('dispatch_sla_breached','')),
+            'dlv_breach': str(r.get('delivery_sla_breached','')),
+        })
+    return dict(store)
+
+def _compute_analytics(store):
+    """Compute KPIs + chart data from a {date_str: [row,...]} store dict."""
+    ACTIVE    = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD'}
+    RETURNED  = {'RETURNED','RETURN_REQUESTED'}
+    CANCELLED = {'CANCELLED'}
+
+    all_rows = [r for rows in store.values() for r in rows]
+    if not all_rows:
+        return None
+
+    total_units    = sum(r['qty'] for r in all_rows)
+    delivered      = sum(r['qty'] for r in all_rows if r['status'] == 'DELIVERED')
+    returned_cnt   = sum(r['qty'] for r in all_rows if r['status'] in RETURNED)
+    cancelled_cnt  = sum(r['qty'] for r in all_rows if r['status'] in CANCELLED)
+    dispatch_breach = sum(1 for r in all_rows if r['disp_breach'] == 'Y')
+    delivery_breach = sum(1 for r in all_rows if r['dlv_breach']  == 'Y')
+    dispatched_tot  = sum(1 for r in all_rows if r['disp_breach'] in ('Y','N'))
+    delivered_tot   = sum(1 for r in all_rows if r['dlv_breach']  in ('Y','N'))
+
+    all_dates  = sorted(store.keys())
+    date_from  = all_dates[0]  if all_dates else ''
+    date_to    = all_dates[-1] if all_dates else ''
+
+    kpis = {
+        'total_orders':        len(all_rows),
+        'total_units':         total_units,
+        'delivered':           delivered,
+        'returned':            returned_cnt,
+        'cancelled':           cancelled_cnt,
+        'delivered_pct':       round(delivered     / total_units * 100, 1) if total_units else 0,
+        'returned_pct':        round(returned_cnt  / total_units * 100, 1) if total_units else 0,
+        'cancelled_pct':       round(cancelled_cnt / total_units * 100, 1) if total_units else 0,
+        'dispatch_breach_pct': round(dispatch_breach / dispatched_tot * 100, 1) if dispatched_tot else 0,
+        'delivery_breach_pct': round(delivery_breach / delivered_tot  * 100, 1) if delivered_tot  else 0,
+        'date_from': date_from,
+        'date_to':   date_to,
+    }
+
+    # Product trend (active only) — top 15 by total units
+    prod_day = defaultdict(lambda: defaultdict(int))  # product -> date -> qty
+    prod_total = defaultdict(int)
+    for d, rows in store.items():
+        for r in rows:
+            if r['status'] in ACTIVE:
+                prod_day[r['product']][d] += r['qty']
+                prod_total[r['product']]  += r['qty']
+
+    top15 = [p for p, _ in sorted(prod_total.items(), key=lambda x: -x[1])[:15]]
+    trend_series = []
+    for prod in top15:
+        trend_series.append({
+            'name': prod,
+            'data': {d: prod_day[prod].get(d, 0) for d in all_dates},
+        })
+
+    # Returns chart
+    reason_counts = defaultdict(int)
+    for r in all_rows:
+        if r['status'] in (RETURNED | CANCELLED):
+            label = REASON_MAP.get(r['ret_reason'], r['ret_reason']) if r['ret_reason'] else 'Unknown'
+            reason_counts[label] += 1
+    returns_chart = [
+        {'reason': k, 'count': v}
+        for k, v in sorted(reason_counts.items(), key=lambda x: -x[1])[:12]
+    ]
+
+    return {
+        'kpis':         kpis,
+        'trend_dates':  all_dates,
+        'trend_series': trend_series,
+        'returns_chart':returns_chart,
+    }
+
+@app.route('/api/sales-upload/<account>', methods=['POST'])
+def sales_upload(account):
     """
-    Parse an uploaded Flipkart Orders XLSX and return structured analytics data.
-    Called by the Sales Analytics tab in the frontend.
+    Upload an Orders XLSX for one account. Merges into persistent store,
+    newer upload wins on overlapping dates. Prunes data older than 60 days.
     """
-    import re as _re
+    account = account.upper().replace('-', ' ')
     xlsx_file = request.files.get('xlsx')
     if not xlsx_file:
         return jsonify({'error': 'No file provided'}), 400
-
     try:
-        import openpyxl as _openpyxl
-        from io import BytesIO
-        data = xlsx_file.read()
-        import importlib
-        pd_spec = importlib.util.find_spec('pandas')
-        if pd_spec is None:
-            return jsonify({'error': 'pandas not installed on server'}), 500
         import pandas as pd
+        from io import BytesIO
 
-        df = pd.read_excel(BytesIO(data), sheet_name='Orders')
-        df['sku_clean'] = df['sku'].str.replace(r'"""SKU:', '', regex=True).str.replace('"""', '', regex=True).str.strip()
+        data = xlsx_file.read()
+        df   = pd.read_excel(BytesIO(data), sheet_name='Orders')
+
+        df['sku_clean']  = df['sku'].str.replace(r'"""SKU:', '', regex=True).str.replace('"""', '', regex=True).str.strip()
         df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce')
-        df['date_str'] = df['order_date'].dt.strftime('%Y-%m-%d')
+        df['date_str']   = df['order_date'].dt.strftime('%Y-%m-%d')
+        df['product']    = df['sku_clean'].apply(_extract_product)
 
-        def extract_product(sku):
-            s = _re.sub(r'\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$', '', sku, flags=_re.IGNORECASE).strip()
-            s = _re.sub(r'\s+(ES|RW|CC|HH)\s*$', '', s, flags=_re.IGNORECASE).strip()
-            return s or sku
+        # Filter to last 60 days
+        cutoff = (datetime.datetime.now(tz=IST) - datetime.timedelta(days=SALES_TTL_DAYS)).strftime('%Y-%m-%d')
+        df = df[df['date_str'] >= cutoff].copy()
 
-        df['product'] = df['sku_clean'].apply(extract_product)
+        # Convert to store rows
+        new_rows = _df_to_store_rows(df)
 
-        ACTIVE   = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD'}
-        RETURNED = {'RETURNED','RETURN_REQUESTED'}
-        CANCELLED= {'CANCELLED'}
+        # Load existing, prune, then overlay new dates (newer wins)
+        store = _load_sales_store(account)
+        store = _prune_old_dates(store)
+        store.update(new_rows)   # new dates overwrite old for same date
 
-        total_orders  = len(df)
-        total_units   = int(df['quantity'].sum())
-        delivered     = int(df[df['order_item_status']=='DELIVERED']['quantity'].sum())
-        returned_cnt  = int(df[df['order_item_status'].isin(RETURNED)]['quantity'].sum())
-        cancelled_cnt = int(df[df['order_item_status'].isin(CANCELLED)]['quantity'].sum())
-        dispatch_breach = int((df['dispatch_sla_breached']=='Y').sum())
-        delivery_breach = int((df['delivery_sla_breached']=='Y').sum())
-        dispatched_total = int(df['dispatch_sla_breached'].notna().sum())
-        delivered_total  = int(df['delivery_sla_breached'].notna().sum())
-
-        kpis = {
-            'total_orders':    total_orders,
-            'total_units':     total_units,
-            'delivered':       delivered,
-            'returned':        returned_cnt,
-            'cancelled':       cancelled_cnt,
-            'delivered_pct':   round(delivered / total_units * 100, 1) if total_units else 0,
-            'returned_pct':    round(returned_cnt / total_units * 100, 1) if total_units else 0,
-            'cancelled_pct':   round(cancelled_cnt / total_units * 100, 1) if total_units else 0,
-            'dispatch_breach_pct': round(dispatch_breach / dispatched_total * 100, 1) if dispatched_total else 0,
-            'delivery_breach_pct': round(delivery_breach / delivered_total * 100, 1) if delivered_total else 0,
-            'date_from': str(df['order_date'].min().date()),
-            'date_to':   str(df['order_date'].max().date()),
+        # Record upload timestamp
+        store['__meta__'] = {
+            'updated_at': datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST'),
+            'account':    account,
         }
+        _save_sales_store(account, store)
 
-        # ── Product trend: daily units for top 15 products (active orders only) ──
-        df_active = df[df['order_item_status'].isin(ACTIVE)].copy()
-        top15 = df_active.groupby('product')['quantity'].sum().nlargest(15).index.tolist()
-        df_top = df_active[df_active['product'].isin(top15)]
-        pivot = df_top.pivot_table(index='date_str', columns='product', values='quantity', aggfunc='sum').fillna(0)
-        pivot = pivot.sort_index()
-        trend_dates = pivot.index.tolist()
-        trend_series = []
-        for prod in top15:
-            if prod in pivot.columns:
-                trend_series.append({
-                    'name': prod,
-                    'data': [int(x) for x in pivot[prod].tolist()],
-                })
-
-        # ── Returns breakdown ──
-        df_ret = df[df['order_item_status'].isin(RETURNED | CANCELLED)].copy()
-        # Group return reasons into friendly buckets
-        REASON_MAP = {
-            'order_cancelled':              'Buyer Cancelled',
-            'ORC_validated with customer':  'ORC / CS Resolved',
-            'shield_cancellation':          'Shield Cancel',
-            'MISSHIPMENT':                  'Misshipment',
-            'Attempts_Exhausted':           'Delivery Failed',
-            'MISSING_ITEM':                 'Missing Item',
-            'DAMAGED_PRODUCT':              'Damaged Product',
-            'QUALITY_ISSUE':                'Quality Issue',
-            'Shipment_EOB_Ageing':          'Ageing / EOB',
-            'DEFECTIVE_PRODUCT':            'Defective Product',
-            'DAMAGED_SHIPMENT':             'Damaged Shipment',
-            'not_serviceable':              'Not Serviceable',
-            'Attempts_Exhausted':           'Delivery Failed',
-        }
-        reason_counts = df_ret['return_reason'].fillna('Unknown').map(
-            lambda x: REASON_MAP.get(x, x)
-        ).value_counts()
-        returns_chart = [
-            {'reason': r, 'count': int(c)}
-            for r, c in reason_counts.head(12).items()
-        ]
-
-        return jsonify({
-            'kpis':         kpis,
-            'trend_dates':  trend_dates,
-            'trend_series': trend_series,
-            'returns_chart':returns_chart,
-        })
+        # Return computed analytics immediately
+        clean_store = {k: v for k, v in store.items() if not k.startswith('__')}
+        result = _compute_analytics(clean_store)
+        if result:
+            result['updated_at'] = store['__meta__']['updated_at']
+        return jsonify(result or {'error': 'No data after filtering'})
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/sales-data/<account>', methods=['GET'])
+def sales_data(account):
+    """Return stored analytics for one account (no upload needed)."""
+    account = account.upper().replace('-', ' ')
+    if account == 'CONSOLIDATED':
+        # Merge all accounts
+        merged = {}
+        for acc in SALES_ACCOUNTS:
+            store = _load_sales_store(acc)
+            store = _prune_old_dates(store)
+            for d, rows in store.items():
+                if d.startswith('__'):
+                    continue
+                if d not in merged:
+                    merged[d] = []
+                merged[d].extend(rows)
+        result = _compute_analytics(merged)
+        if not result:
+            return jsonify({'empty': True})
+        # Collect per-account last-updated
+        updates = {}
+        for acc in SALES_ACCOUNTS:
+            s = _load_sales_store(acc)
+            meta = s.get('__meta__', {})
+            if meta.get('updated_at'):
+                updates[acc] = meta['updated_at']
+        result['account_updates'] = updates
+        return jsonify(result)
+    else:
+        store = _load_sales_store(account)
+        store = _prune_old_dates(store)
+        meta  = store.pop('__meta__', {})
+        clean = {k: v for k, v in store.items() if not k.startswith('__')}
+        if not clean:
+            return jsonify({'empty': True})
+        result = _compute_analytics(clean)
+        if result and meta.get('updated_at'):
+            result['updated_at'] = meta['updated_at']
+        return jsonify(result or {'empty': True})
 
 # ─────────────────────────────────────────────
 # ROUTES
