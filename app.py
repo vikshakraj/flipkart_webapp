@@ -1209,21 +1209,23 @@ def sales_upload(account):
                 print(f'[SalesUpload] Master SKU lookup failed: {me}')
 
         def resolve_product(sku_clean):
+            # Normalise helper — title-case for consistent cross-account grouping
+            def norm(s): return s.strip().title()
             # 1. Exact match
             if sku_clean in sku_to_product:
-                return sku_to_product[sku_clean]
+                return norm(sku_to_product[sku_clean])
             # 2. Strip pack suffix from orders SKU and try again
             #    e.g. "Zippd Natural Detox Foot Pad 3PCK" -> "Zippd Natural Detox Foot Pad"
             stripped = re.sub(r'\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$', '', sku_clean, flags=re.IGNORECASE).strip()
             if stripped != sku_clean and stripped in sku_to_product:
-                return sku_to_product[stripped]
+                return norm(sku_to_product[stripped])
             # 3. Strip pack suffix from master SKU keys and compare
             for master_sku, prod_name in sku_to_product.items():
                 ms = re.sub(r'\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$', '', master_sku, flags=re.IGNORECASE).strip()
                 if ms and (ms == stripped or ms == sku_clean):
-                    return prod_name
+                    return norm(prod_name)
             # 4. Fallback: return regex-stripped SKU (no master match found)
-            return stripped or sku_clean
+            return norm(stripped) if stripped else sku_clean
 
         df['product'] = df['sku_clean'].apply(resolve_product)
 
