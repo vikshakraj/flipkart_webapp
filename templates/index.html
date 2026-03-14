@@ -137,8 +137,14 @@
   .fk-dupe-account{font-weight:700;color:var(--warning);margin:10px 0 4px;}
   .fk-dupe-oid{font-size:.78rem;color:var(--muted);font-family:'JetBrains Mono',monospace;padding:2px 0;}
   /* ══ Sales Analytics ══ */
-  .sa-wrap{max-width:1300px;margin:2rem auto;padding:0 2rem;}
-  .sa-upload-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px;max-width:560px;margin:4rem auto;text-align:center;}
+  .sa-wrap{max-width:1300px;margin:1.5rem auto;padding:0 2rem;}
+  .sa-account-tabs-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:20px;}
+  .sa-acct-tab{padding:8px 20px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.85rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;}
+  .sa-acct-tab:hover{border-color:var(--accent);color:var(--text);}
+  .sa-acct-tab.active{background:var(--accent);color:var(--bg);border-color:var(--accent);}
+  .sa-acct-tab-consolidated{border-color:var(--purple)!important;}
+  .sa-acct-tab-consolidated.active{background:var(--purple)!important;border-color:var(--purple)!important;}
+  .sa-upload-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px;max-width:560px;margin:1.5rem auto;text-align:center;}
   .sa-upload-icon{font-size:2.5rem;margin-bottom:12px;}
   .sa-upload-title{font-size:1.3rem;font-weight:700;color:var(--text);margin-bottom:6px;}
   .sa-upload-sub{font-size:.85rem;color:var(--muted);margin-bottom:24px;}
@@ -157,6 +163,7 @@
   .sa-top-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;}
   .sa-period{font-family:'JetBrains Mono',monospace;font-size:.9rem;font-weight:700;color:var(--accent);margin-right:8px;}
   .sa-period-label{font-size:.78rem;color:var(--muted);}
+  .sa-updated-at{font-size:.75rem;color:var(--muted);font-style:italic;}
   .sa-reupload{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.82rem;cursor:pointer;font-family:inherit;transition:all .2s;}
   .sa-reupload:hover{border-color:var(--accent);color:var(--accent);}
   .sa-kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:14px;margin-bottom:28px;}
@@ -1326,71 +1333,76 @@
   <div id="panel-sales" class="tab-panel">
     <div class="sa-wrap">
 
-      <!-- Upload card -->
-      <div class="sa-upload-card" id="saUploadCard">
-        <div class="sa-upload-icon">📊</div>
-        <h2 class="sa-upload-title">Sales Analytics</h2>
-        <p class="sa-upload-sub">Upload your Flipkart Orders XLSX to generate insights</p>
-        <label class="sa-drop-zone" id="saDropZone">
-          <input type="file" id="saFile" accept=".xlsx" onchange="onSaFile(this)">
-          <span class="sa-drop-icon">📁</span>
-          <span id="saFileName">Drop your Orders XLSX here or click to browse</span>
-        </label>
-        <button class="sa-analyse-btn" id="saAnalyseBtn" onclick="runSalesAnalytics()" disabled>Analyse →</button>
-        <div class="sa-error" id="saError" style="display:none;"></div>
+      <!-- Account sub-tabs -->
+      <div class="sa-account-tabs-bar">
+        <button class="sa-acct-tab active" onclick="switchSaAccount('REFRESHWAVE',this)">Refreshwave</button>
+        <button class="sa-acct-tab" onclick="switchSaAccount('EONSPARK',this)">Eonspark</button>
+        <button class="sa-acct-tab" onclick="switchSaAccount('HELLOHI',this)">Hellohi</button>
+        <button class="sa-acct-tab" onclick="switchSaAccount('CUTEST-CLUB',this)">Cutest Club</button>
+        <button class="sa-acct-tab sa-acct-tab-consolidated" onclick="switchSaAccount('CONSOLIDATED',this)">⚡ Consolidated</button>
       </div>
 
-      <!-- Loading state -->
-      <div class="sa-loading" id="saLoading" style="display:none;">
-        <div class="sa-spinner"></div>
-        <p>Crunching your data…</p>
-      </div>
+      <!-- Per-account panels (same structure, swapped by JS) -->
+      <div id="sa-content">
 
-      <!-- Dashboard (hidden until data loads) -->
-      <div id="saDashboard" style="display:none;">
-
-        <!-- Period badge + re-upload -->
-        <div class="sa-top-bar">
-          <div>
-            <span class="sa-period" id="saPeriod"></span>
-            <span class="sa-period-label">data period</span>
-          </div>
-          <button class="sa-reupload" onclick="resetSaAnalytics()">↑ Upload new file</button>
+        <!-- Upload prompt -->
+        <div class="sa-upload-card" id="saUploadCard">
+          <div class="sa-upload-icon">📊</div>
+          <h2 class="sa-upload-title" id="saUploadTitle">Sales Analytics</h2>
+          <p class="sa-upload-sub" id="saUploadSub">Upload the Flipkart Orders XLSX for this account</p>
+          <label class="sa-drop-zone" id="saDropZone">
+            <input type="file" id="saFile" accept=".xlsx" onchange="onSaFile(this)">
+            <span class="sa-drop-icon">📁</span>
+            <span id="saFileName">Drop Orders XLSX here or click to browse</span>
+          </label>
+          <button class="sa-analyse-btn" id="saAnalyseBtn" onclick="runSalesUpload()" disabled>Upload & Analyse →</button>
+          <div class="sa-error" id="saError" style="display:none;"></div>
         </div>
 
-        <!-- KPI Cards -->
-        <div class="sa-kpi-grid" id="saKpiGrid"></div>
-
-        <!-- Charts row -->
-        <div class="sa-charts-row">
-
-          <!-- Product Trend -->
-          <div class="sa-chart-card sa-chart-wide">
-            <div class="sa-chart-header">
-              <div>
-                <h3 class="sa-chart-title">📈 Daily Units — by Product</h3>
-                <p class="sa-chart-sub">Top 15 products · active orders only</p>
-              </div>
-              <select class="sa-product-select" id="saProductSelect" onchange="renderTrendChart()"></select>
-            </div>
-            <canvas id="saTrendCanvas" height="260"></canvas>
-          </div>
-
-          <!-- Returns breakdown -->
-          <div class="sa-chart-card sa-chart-narrow">
-            <div class="sa-chart-header">
-              <div>
-                <h3 class="sa-chart-title">🔄 Return & Cancel Reasons</h3>
-                <p class="sa-chart-sub">All returned + cancelled orders</p>
-              </div>
-            </div>
-            <canvas id="saReturnCanvas" height="320"></canvas>
-          </div>
-
+        <!-- Loading -->
+        <div class="sa-loading" id="saLoading" style="display:none;">
+          <div class="sa-spinner"></div>
+          <p>Crunching your data…</p>
         </div>
-      </div>
-    </div>
+
+        <!-- Dashboard -->
+        <div id="saDashboard" style="display:none;">
+          <div class="sa-top-bar">
+            <div>
+              <span class="sa-period" id="saPeriod"></span>
+              <span class="sa-period-label">data period</span>
+              <span class="sa-updated-at" id="saUpdatedAt"></span>
+            </div>
+            <button class="sa-reupload" onclick="showSaUpload()">↑ Upload new file</button>
+          </div>
+          <div class="sa-kpi-grid" id="saKpiGrid"></div>
+          <div class="sa-charts-row">
+            <div class="sa-chart-card sa-chart-wide">
+              <div class="sa-chart-header">
+                <div>
+                  <h3 class="sa-chart-title">📈 Daily Units — by Product</h3>
+                  <p class="sa-chart-sub">Top 15 products · active orders only</p>
+                </div>
+                <select class="sa-product-select" id="saProductSelect" onchange="renderTrendChart()"></select>
+              </div>
+              <div style="position:relative;height:260px;"><canvas id="saTrendCanvas"></canvas></div>
+            </div>
+            <div class="sa-chart-card sa-chart-narrow">
+              <div class="sa-chart-header">
+                <div>
+                  <h3 class="sa-chart-title">🔄 Return & Cancel Reasons</h3>
+                  <p class="sa-chart-sub">All returned + cancelled orders</p>
+                </div>
+              </div>
+              <div style="position:relative;height:320px;"><canvas id="saReturnCanvas"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /sa-content -->
+    </div><!-- /sa-wrap -->
   </div>
+
 
 </div>
 
@@ -1407,7 +1419,10 @@ function switchTab(name,btn){
   if(name==='sku'&&!window._skuLoaded){
     // Don't auto-load, wait for PIN
   }
-  // sales tab has no lazy-init — always ready
+  if(name==='sales' && !window._saInitDone){
+    window._saInitDone = true;
+    loadSaData('REFRESHWAVE');
+  }
 }
 
 // ── On load: check if master file exists on server ──
@@ -3669,7 +3684,8 @@ window.AdsApp = App;
 /* ═══════════════════════════════════════════════════════════
    SALES ANALYTICS — state + helpers
 ═══════════════════════════════════════════════════════════ */
-let _saData       = null;
+let _saAccount    = 'REFRESHWAVE';
+let _saData       = {};   // cache: account -> analytics payload
 let _saTrendChart = null;
 let _saRetChart   = null;
 
@@ -3679,6 +3695,52 @@ const SA_COLORS = [
   '#67e8f9','#86efac','#fde68a','#d8b4fe','#fca5a5',
 ];
 
+function switchSaAccount(account, btn){
+  _saAccount = account;
+  document.querySelectorAll('.sa-acct-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  // Reset UI state
+  hideSaDashboard();
+  document.getElementById('saError').style.display = 'none';
+  document.getElementById('saFile').value = '';
+  document.getElementById('saFileName').textContent = 'Drop Orders XLSX here or click to browse';
+  document.getElementById('saAnalyseBtn').disabled = true;
+  // Update upload prompt text
+  const friendly = account === 'CONSOLIDATED' ? 'Consolidated' : account.replace('-',' ');
+  document.getElementById('saUploadTitle').textContent = friendly + ' — Sales Analytics';
+  document.getElementById('saUploadSub').textContent =
+    account === 'CONSOLIDATED'
+      ? 'Upload data for each account first to see consolidated view'
+      : 'Upload the Flipkart Orders XLSX for ' + friendly;
+  // Try loading cached / stored data
+  loadSaData(account);
+}
+
+async function loadSaData(account){
+  // Use cache if available
+  if(_saData[account]){
+    renderSaDashboard(_saData[account]);
+    return;
+  }
+  document.getElementById('saUploadCard').style.display = 'none';
+  document.getElementById('saLoading').style.display = 'block';
+  try{
+    const apiAcct = account.replace(' ','-');
+    const resp = await fetch('/api/sales-data/' + apiAcct);
+    const d    = await resp.json();
+    document.getElementById('saLoading').style.display = 'none';
+    if(d.empty || d.error){
+      document.getElementById('saUploadCard').style.display = 'block';
+    } else {
+      _saData[account] = d;
+      renderSaDashboard(d);
+    }
+  } catch(e){
+    document.getElementById('saLoading').style.display = 'none';
+    document.getElementById('saUploadCard').style.display = 'block';
+  }
+}
+
 function onSaFile(input){
   const f = input.files[0];
   if(!f) return;
@@ -3686,22 +3748,23 @@ function onSaFile(input){
   document.getElementById('saAnalyseBtn').disabled = false;
 }
 
-async function runSalesAnalytics(){
+async function runSalesUpload(){
   const fileInput = document.getElementById('saFile');
   if(!fileInput.files.length) return;
   document.getElementById('saError').style.display = 'none';
   document.getElementById('saUploadCard').style.display = 'none';
   document.getElementById('saLoading').style.display = 'block';
-
   const fd = new FormData();
   fd.append('xlsx', fileInput.files[0]);
-
   try{
-    const resp = await fetch('/api/sales-analytics', {method:'POST', body:fd});
-    const data = await resp.json();
-    if(!resp.ok || data.error) throw new Error(data.error || 'Server error');
-    _saData = data;
-    renderSaDashboard(data);
+    const apiAcct = _saAccount.replace(' ','-');
+    const resp = await fetch('/api/sales-upload/' + apiAcct, {method:'POST', body:fd});
+    const d    = await resp.json();
+    if(!resp.ok || d.error) throw new Error(d.error || 'Server error');
+    _saData[_saAccount] = d;
+    // Invalidate consolidated cache so it recomputes
+    delete _saData['CONSOLIDATED'];
+    renderSaDashboard(d);
   } catch(e){
     document.getElementById('saUploadCard').style.display = 'block';
     document.getElementById('saError').textContent = '⚠ ' + e.message;
@@ -3711,34 +3774,42 @@ async function runSalesAnalytics(){
   }
 }
 
-function resetSaAnalytics(){
-  _saData = null;
-  document.getElementById('saDashboard').style.display = 'none';
+function showSaUpload(){
+  hideSaDashboard();
   document.getElementById('saUploadCard').style.display = 'block';
-  document.getElementById('saFile').value = '';
-  document.getElementById('saFileName').textContent = 'Drop your Orders XLSX here or click to browse';
-  document.getElementById('saAnalyseBtn').disabled = true;
+}
+
+function hideSaDashboard(){
+  document.getElementById('saDashboard').style.display = 'none';
   if(_saTrendChart){ _saTrendChart.destroy(); _saTrendChart=null; }
   if(_saRetChart)  { _saRetChart.destroy();   _saRetChart=null;   }
 }
 
 function renderSaDashboard(d){
+  document.getElementById('saUploadCard').style.display = 'none';
+  document.getElementById('saLoading').style.display   = 'none';
   document.getElementById('saDashboard').style.display = 'block';
 
-  // Period
-  document.getElementById('saPeriod').textContent =
-    `${d.kpis.date_from}  →  ${d.kpis.date_to}`;
+  // Period + updated
+  document.getElementById('saPeriod').textContent = d.kpis.date_from + '  →  ' + d.kpis.date_to;
+  const updEl = document.getElementById('saUpdatedAt');
+  if(d.updated_at){
+    updEl.textContent = ' · updated ' + d.updated_at;
+    updEl.style.display = 'inline';
+  } else {
+    updEl.style.display = 'none';
+  }
 
   // KPI cards
   const kGrid = document.getElementById('saKpiGrid');
   const kpis = [
-    { label:'Total Orders',     val: d.kpis.total_orders.toLocaleString(),   sub:'',                         color:'#00d4ff' },
-    { label:'Total Units Sold', val: d.kpis.total_units.toLocaleString(),    sub:'across all SKUs',           color:'#00ff88' },
-    { label:'Delivered',        val: d.kpis.delivered_pct+'%',               sub: d.kpis.delivered.toLocaleString()+' units', color:'#00ff88' },
-    { label:'Returned / RTO',   val: d.kpis.returned_pct+'%',               sub: d.kpis.returned.toLocaleString()+' units', color:'#fbbf24' },
-    { label:'Cancelled',        val: d.kpis.cancelled_pct+'%',              sub: d.kpis.cancelled.toLocaleString()+' units', color:'#ff3366' },
-    { label:'Dispatch SLA Breach', val: d.kpis.dispatch_breach_pct+'%',     sub:'of dispatched orders',      color:'#a855f7' },
-    { label:'Delivery SLA Breach', val: d.kpis.delivery_breach_pct+'%',     sub:'of delivered orders',       color:'#fb923c' },
+    { label:'Total Orders',        val: d.kpis.total_orders.toLocaleString(),  sub:'',                                   color:'#00d4ff' },
+    { label:'Total Units',         val: d.kpis.total_units.toLocaleString(),   sub:'across all SKUs',                    color:'#00d4ff' },
+    { label:'Delivered',           val: d.kpis.delivered_pct+'%',              sub: d.kpis.delivered.toLocaleString()+' units',  color:'#00ff88' },
+    { label:'Returned / RTO',      val: d.kpis.returned_pct+'%',              sub: d.kpis.returned.toLocaleString()+' units',   color:'#fbbf24' },
+    { label:'Cancelled',           val: d.kpis.cancelled_pct+'%',             sub: d.kpis.cancelled.toLocaleString()+' units',  color:'#ff3366' },
+    { label:'Dispatch SLA Breach', val: d.kpis.dispatch_breach_pct+'%',       sub:'of dispatched orders',               color:'#a855f7' },
+    { label:'Delivery SLA Breach', val: d.kpis.delivery_breach_pct+'%',       sub:'of delivered orders',                color:'#fb923c' },
   ];
   kGrid.innerHTML = kpis.map(k=>`
     <div class="sa-kpi">
@@ -3748,9 +3819,9 @@ function renderSaDashboard(d){
       ${k.sub ? `<div class="sa-kpi-sub">${k.sub}</div>` : ''}
     </div>`).join('');
 
-  // Populate product selector
+  // Trend product selector
   const sel = document.getElementById('saProductSelect');
-  sel.innerHTML = '<option value="__ALL__">All Top 15 Products</option>' +
+  sel.innerHTML = '<option value="__ALL__">All Top 15</option>' +
     d.trend_series.map(s=>`<option value="${s.name}">${s.name}</option>`).join('');
 
   renderTrendChart();
@@ -3758,19 +3829,19 @@ function renderSaDashboard(d){
 }
 
 function renderTrendChart(){
-  if(!_saData) return;
-  const d = _saData;
+  if(!_saData[_saAccount]) return;
+  const d      = _saData[_saAccount];
   const chosen = document.getElementById('saProductSelect').value;
-
   const series = chosen === '__ALL__' ? d.trend_series : d.trend_series.filter(s=>s.name===chosen);
+  const labels = d.trend_dates;
 
   const datasets = series.map((s,i)=>({
     label: s.name,
-    data:  s.data,
-    borderColor: SA_COLORS[i % SA_COLORS.length],
+    data:  labels.map(dt => s.data[dt] || 0),
+    borderColor:     SA_COLORS[i % SA_COLORS.length],
     backgroundColor: SA_COLORS[i % SA_COLORS.length] + '18',
     borderWidth: chosen==='__ALL__' ? 1.5 : 2.5,
-    pointRadius: chosen==='__ALL__' ? 0 : 3,
+    pointRadius: chosen==='__ALL__' ? 0   : 3,
     pointHoverRadius: 5,
     tension: 0.35,
     fill: chosen !== '__ALL__',
@@ -3780,40 +3851,17 @@ function renderTrendChart(){
   if(_saTrendChart){ _saTrendChart.destroy(); }
   _saTrendChart = new Chart(canvas, {
     type: 'line',
-    data: { labels: d.trend_dates, datasets },
+    data: { labels, datasets },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode:'index', intersect:false },
-      plugins: {
-        legend: {
-          display: chosen === '__ALL__',
-          labels: {
-            color: '#8b92a8',
-            font: { size: 10, family:"'IBM Plex Sans',sans-serif" },
-            boxWidth: 12,
-            padding: 10,
-          }
-        },
-        tooltip: {
-          backgroundColor: '#141b2d',
-          borderColor: '#2a3650',
-          borderWidth: 1,
-          titleColor: '#e4e7eb',
-          bodyColor: '#8b92a8',
-          padding: 10,
-        }
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ display: chosen==='__ALL__', labels:{ color:'#8b92a8', font:{size:10,family:"'IBM Plex Sans',sans-serif"}, boxWidth:12, padding:10 } },
+        tooltip:{ backgroundColor:'#141b2d', borderColor:'#2a3650', borderWidth:1, titleColor:'#e4e7eb', bodyColor:'#8b92a8', padding:10 }
       },
-      scales: {
-        x: {
-          ticks: { color:'#8b92a8', font:{size:10}, maxTicksLimit:14 },
-          grid:  { color:'rgba(42,54,80,.4)' },
-        },
-        y: {
-          beginAtZero: true,
-          ticks: { color:'#8b92a8', font:{size:10}, stepSize:1 },
-          grid:  { color:'rgba(42,54,80,.4)' },
-        }
+      scales:{
+        x:{ ticks:{color:'#8b92a8',font:{size:10},maxTicksLimit:14}, grid:{color:'rgba(42,54,80,.4)'} },
+        y:{ beginAtZero:true, ticks:{color:'#8b92a8',font:{size:10},stepSize:1}, grid:{color:'rgba(42,54,80,.4)'} }
       }
     }
   });
@@ -3823,48 +3871,32 @@ function renderReturnChart(data){
   const canvas = document.getElementById('saReturnCanvas');
   if(_saRetChart){ _saRetChart.destroy(); }
   _saRetChart = new Chart(canvas, {
-    type: 'bar',
-    data: {
-      labels:   data.map(d=>d.reason),
-      datasets: [{
-        label: 'Count',
+    type:'bar',
+    data:{
+      labels: data.map(d=>d.reason),
+      datasets:[{
+        label:'Count',
         data:  data.map(d=>d.count),
-        backgroundColor: data.map((_,i)=> SA_COLORS[i % SA_COLORS.length] + 'bb'),
-        borderColor:     data.map((_,i)=> SA_COLORS[i % SA_COLORS.length]),
-        borderWidth: 1.5,
-        borderRadius: 5,
+        backgroundColor: data.map((_,i)=> SA_COLORS[i%SA_COLORS.length]+'bb'),
+        borderColor:     data.map((_,i)=> SA_COLORS[i%SA_COLORS.length]),
+        borderWidth:1.5, borderRadius:5,
       }]
     },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display:false },
-        tooltip: {
-          backgroundColor: '#141b2d',
-          borderColor: '#2a3650',
-          borderWidth: 1,
-          titleColor: '#e4e7eb',
-          bodyColor: '#8b92a8',
-          padding: 10,
-        }
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{ backgroundColor:'#141b2d', borderColor:'#2a3650', borderWidth:1, titleColor:'#e4e7eb', bodyColor:'#8b92a8', padding:10 }
       },
-      scales: {
-        x: {
-          beginAtZero: true,
-          ticks: { color:'#8b92a8', font:{size:10} },
-          grid:  { color:'rgba(42,54,80,.4)' },
-        },
-        y: {
-          ticks: { color:'#e4e7eb', font:{size:10, family:"'IBM Plex Sans',sans-serif"} },
-          grid:  { display:false },
-        }
+      scales:{
+        x:{ beginAtZero:true, ticks:{color:'#8b92a8',font:{size:10}}, grid:{color:'rgba(42,54,80,.4)'} },
+        y:{ ticks:{color:'#e4e7eb',font:{size:10,family:"'IBM Plex Sans',sans-serif"}}, grid:{display:false} }
       }
     }
   });
 }
 </script>
+
 
 <!-- ── Modal 1: Account Preview ── -->
 <div id="modalPreview" class="fk-overlay" style="display:none;">
