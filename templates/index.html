@@ -166,6 +166,8 @@
   .sa-updated-at{font-size:.75rem;color:var(--muted);font-style:italic;}
   .sa-reupload{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.82rem;cursor:pointer;font-family:inherit;transition:all .2s;}
   .sa-reupload:hover{border-color:var(--accent);color:var(--accent);}
+  .sa-clear-btn{padding:8px 18px;border-radius:8px;border:1px solid var(--danger);background:transparent;color:var(--danger);font-size:.82rem;cursor:pointer;font-family:inherit;transition:all .2s;opacity:.7;}
+  .sa-clear-btn:hover{opacity:1;background:rgba(255,51,102,.08);}
   .sa-kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:14px;margin-bottom:28px;}
   .sa-kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 18px;position:relative;overflow:hidden;transition:border-color .2s;}
   .sa-kpi:hover{border-color:var(--accent);}
@@ -1373,7 +1375,10 @@
               <span class="sa-period-label">data period</span>
               <span class="sa-updated-at" id="saUpdatedAt"></span>
             </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+            <button class="sa-clear-btn" onclick="clearSaData()" title="Wipe stored data and re-upload from scratch">🗑 Clear & Re-upload</button>
             <button class="sa-reupload" onclick="showSaUpload()">↑ Upload new file</button>
+          </div>
           </div>
           <div class="sa-kpi-grid" id="saKpiGrid"></div>
           <div class="sa-charts-row">
@@ -3782,6 +3787,21 @@ function hideSaDashboard(){
   document.getElementById('saDashboard').style.display = 'none';
   if(_saTrendChart){ _saTrendChart.destroy(); _saTrendChart=null; }
   if(_saRetChart)  { _saRetChart.destroy();   _saRetChart=null;   }
+}
+
+async function clearSaData(){
+  if(!confirm('This will delete all stored data for ' + _saAccount + '. Are you sure?')) return;
+  const apiAcct = _saAccount.replace(' ','-');
+  try{
+    await fetch('/api/sales-clear/' + apiAcct, {method:'POST'});
+    delete _saData[_saAccount];
+    delete _saData['CONSOLIDATED'];
+    hideSaDashboard();
+    document.getElementById('saUploadCard').style.display = 'block';
+    document.getElementById('saFileName').textContent = 'Drop Orders XLSX here or click to browse';
+    document.getElementById('saFile').value = '';
+    document.getElementById('saAnalyseBtn').disabled = true;
+  } catch(e){ alert('Failed to clear: ' + e.message); }
 }
 
 function renderSaDashboard(d){
