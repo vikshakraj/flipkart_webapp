@@ -2069,10 +2069,12 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 }));
             };
 
-            // Load from server when switching to an account that has no data yet
+            // Load from server whenever the active account changes,
+            // unless we already have data cached for it in this session
+            const loadedRef = React.useRef({});
             useEffect(() => {
-                const st = getState(activeAccount);
-                if (!st.showDashboard && !st.loading && Object.keys(st.data).length === 0) {
+                if (!loadedRef.current[activeAccount]) {
+                    loadedRef.current[activeAccount] = true;
                     loadFromServer(activeAccount);
                 }
             }, [activeAccount]);
