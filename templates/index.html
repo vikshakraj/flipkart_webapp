@@ -2083,11 +2083,18 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 setState(account, { loading: true });
                 try {
                     const apiAcct = account.replace(/ /g, '-');
+                    console.log('[AdsShell] Fetching:', '/api/ads-data/' + apiAcct);
                     const resp = await fetch('/api/ads-data/' + apiAcct);
+                    console.log('[AdsShell] Response status:', resp.status);
                     const result = await resp.json();
+                    console.log('[AdsShell] Result keys:', Object.keys(result));
+                    console.log('[AdsShell] result.empty:', result.empty, 'result.error:', result.error);
+                    console.log('[AdsShell] result.data keys:', result.data ? Object.keys(result.data) : 'NO DATA KEY');
                     if (result.empty || result.error) {
+                        console.log('[AdsShell] → showing upload screen');
                         setState(account, { loading: false, showDashboard: false });
                     } else {
+                        console.log('[AdsShell] → showing dashboard, data keys:', Object.keys(result.data || {}));
                         setState(account, {
                             loading: false,
                             data: result.data,
@@ -2097,6 +2104,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         });
                     }
                 } catch(e) {
+                    console.error('[AdsShell] fetch error:', e);
                     setState(account, { loading: false });
                 }
             };
@@ -2288,10 +2296,14 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             const hasMinimumData = data.consolidated || data.pla || data.consolidatedFSN;
             const [showDashboard, setShowDashboard] = useState(!!initialData);
             useEffect(() => {
+                console.log('[OriginalApp] useEffect initialData:', initialData ? Object.keys(initialData) : null);
                 if (initialData && Object.keys(initialData).length > 0) {
+                    console.log('[OriginalApp] Setting data and showing dashboard');
                     setData(initialData);
                     if (initialDateRange) setDateRange(initialDateRange);
                     setShowDashboard(true);
+                } else {
+                    console.log('[OriginalApp] No initialData — showing upload screen');
                 }
             }, [initialData]);
 
