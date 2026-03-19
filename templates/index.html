@@ -2150,6 +2150,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                             </div>
                         ) : (
                             <OriginalApp
+                                key={activeAccount}
                                 initialData={st.showDashboard ? st.data : null}
                                 initialDateRange={st.showDashboard ? st.dateRange : null}
                                 onClear={() => handleReset(activeAccount)}
