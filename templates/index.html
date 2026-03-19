@@ -195,7 +195,6 @@
 </style>
 <style>
 .app {
-            min-height: 100vh;
             position: relative;
         }
 
@@ -227,8 +226,9 @@
 
         /* Header */
         .header {
-            padding: 2rem 3rem;
-            border-bottom: 2px solid var(--color-border);
+            padding: 0;
+            border-bottom: none;
+            display: none;
             background: linear-gradient(135deg, var(--color-surface) 0%, #0f1623 100%);
             backdrop-filter: blur(20px);
             position: sticky;
@@ -298,7 +298,7 @@
         /* Upload Section */
         .upload-section {
             max-width: 1600px;
-            margin: 3rem auto;
+            margin: 0.5rem auto;
             padding: 0 3rem;
             animation: fadeIn 0.8s ease-out 0.2s both;
         }
