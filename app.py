@@ -1539,6 +1539,24 @@ def ads_data_get(account):
 
 
 
+
+@app.route('/api/ads-status/<account>', methods=['GET'])
+def ads_status(account):
+    """Quick status check — returns meta + bucket keys without full data."""
+    account = account.upper().replace('-', ' ')
+    store = _load_ads_store(account)
+    if not store:
+        return jsonify({'exists': False})
+    meta = store.get('__meta__', {})
+    buckets = {k: list(v.keys()) if isinstance(v, dict) else type(v).__name__
+               for k, v in store.items() if not k.startswith('__')}
+    return jsonify({
+        'exists': True,
+        'meta': meta,
+        'buckets': buckets,
+        'file_path': _ads_path(account),
+    })
+
 @app.route('/api/ads-debug/<account>', methods=['GET'])
 def ads_debug(account):
     """Temporary debug endpoint — shows what's stored for an account."""
