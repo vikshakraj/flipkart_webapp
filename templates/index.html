@@ -183,6 +183,15 @@
   .sa-product-select{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 12px;color:var(--text);font-size:.8rem;font-family:inherit;cursor:pointer;max-width:220px;}
   .sa-product-select:focus{outline:none;border-color:var(--accent);}
   @media(max-width:1000px){.sa-charts-row{grid-template-columns:1fr;}.sa-chart-wide,.sa-chart-narrow{width:100%;}}
+  /* ── Ads account tabs ── */
+  .ads-acct-tabs-bar{display:flex;gap:6px;flex-wrap:wrap;padding:16px 24px 0;background:transparent;}
+  .ads-acct-tab{padding:8px 20px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.85rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;}
+  .ads-acct-tab:hover{border-color:var(--accent);color:var(--text);}
+  .ads-acct-tab.active{background:var(--accent);color:var(--bg);border-color:var(--accent);}
+  .ads-acct-tab-consolidated{border-color:var(--purple)!important;}
+  .ads-acct-tab-consolidated.active{background:var(--purple)!important;border-color:var(--purple)!important;}
+  .ads-loading{text-align:center;padding:80px 0;color:var(--muted);}
+  .ads-spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px;}
 </style>
 <style>
 .app {
@@ -1955,6 +1964,9 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         const { useState, useEffect, useMemo } = React;
 
         // Utility Functions
+const { useState, useEffect, useMemo } = React;
+
+        // Utility Functions
         const formatCurrency = (value) => {
             if (!value && value !== 0) return '₹0';
             return `₹${parseFloat(value).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
@@ -2039,8 +2051,119 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             });
         };
 
-        // Main App Component
-        function App() {
+// ── Account tab wrapper ──────────────────────────────────────────────
+        const ADS_ACCOUNTS = ['REFRESHWAVE', 'EONSPARK', 'HELLOHI', 'CUTEST CLUB'];
+
+        function AdsAccountShell() {
+            const [activeAccount, setActiveAccount] = useState('REFRESHWAVE');
+            // Per-account state cache: { account: { data, dateRange, showDashboard, loading, updatedAt } }
+            const [accountState, setAccountState] = useState({});
+
+            const getState = (acc) => accountState[acc] || {
+                data: {}, dateRange: { start: null, end: null },
+                showDashboard: false, loading: false, updatedAt: ''
+            };
+
+            const setState = (acc, patch) => {
+                setAccountState(prev => ({
+                    ...prev,
+                    [acc]: { ...getState(acc), ...patch }
+                }));
+            };
+
+            // Load from server when switching to an account that has no data yet
+            useEffect(() => {
+                const st = getState(activeAccount);
+                if (!st.showDashboard && !st.loading && Object.keys(st.data).length === 0) {
+                    loadFromServer(activeAccount);
+                }
+            }, [activeAccount]);
+
+            const loadFromServer = async (account) => {
+                setState(account, { loading: true });
+                try {
+                    const apiAcct = account.replace(/ /g, '-');
+                    const resp = await fetch('/api/ads-data/' + apiAcct);
+                    const result = await resp.json();
+                    if (result.empty || result.error) {
+                        setState(account, { loading: false, showDashboard: false });
+                    } else {
+                        setState(account, {
+                            loading: false,
+                            data: result.data,
+                            updatedAt: result.updated_at || '',
+                            dateRange: { start: result.date_from, end: result.date_to },
+                            showDashboard: true
+                        });
+                    }
+                } catch(e) {
+                    setState(account, { loading: false });
+                }
+            };
+
+            const handleUploadSuccess = (account, result) => {
+                setState(account, {
+                    data: result.data,
+                    updatedAt: result.updated_at || '',
+                    dateRange: { start: result.date_from, end: result.date_to },
+                    showDashboard: true,
+                    loading: false
+                });
+                // Invalidate consolidated cache
+                setAccountState(prev => {
+                    const n = { ...prev };
+                    delete n['CONSOLIDATED'];
+                    return n;
+                });
+            };
+
+            const handleReset = (account) => {
+                setState(account, {
+                    data: {}, dateRange: { start: null, end: null },
+                    showDashboard: false, loading: false, updatedAt: ''
+                });
+            };
+
+            const st = getState(activeAccount);
+
+            return (
+                <div className="app">
+                    <div className="background-grid"></div>
+                    <div className="content">
+                        {/* Account tab bar */}
+                        <div className="ads-acct-tabs-bar">
+                            {ADS_ACCOUNTS.map(acc => (
+                                <button
+                                    key={acc}
+                                    className={'ads-acct-tab' + (activeAccount === acc ? ' active' : '')}
+                                    onClick={() => setActiveAccount(acc)}
+                                >{acc.charAt(0) + acc.slice(1).toLowerCase()}</button>
+                            ))}
+                            <button
+                                className={'ads-acct-tab ads-acct-tab-consolidated' + (activeAccount === 'CONSOLIDATED' ? ' active' : '')}
+                                onClick={() => setActiveAccount('CONSOLIDATED')}
+                            >⚡ Consolidated</button>
+                        </div>
+
+                        {st.loading ? (
+                            <div className="ads-loading">
+                                <div className="ads-spinner"></div>
+                                <p>Loading data…</p>
+                            </div>
+                        ) : (
+                            <OriginalApp
+                                initialData={st.showDashboard ? st.data : null}
+                                initialDateRange={st.showDashboard ? st.dateRange : null}
+                                onClear={() => handleReset(activeAccount)}
+                            />
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+// Original App Component
+        function OriginalApp({ initialData, initialDateRange, onClear }) {
             const [files, setFiles] = useState({});
             const [dragOver, setDragOver] = useState(false);
             const [loading, setLoading] = useState(false);
@@ -2050,13 +2173,13 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             const [dateRange, setDateRange] = useState({ start: null, end: null });
 
             const fileTypes = [
-                { key: 'campaignOrder', label: 'Campaign Report  (has: Campaign Name, SKU, Revenue)', icon: '📦' },
-                { key: 'consolidated', label: 'Consolidated FSN Report  (has: Campaign, Date, Ad Spend, Clicks)', icon: '📊' },
-                { key: 'consolidatedFSN', label: 'Consolidated Daily Report  (has: Campaign, Order ID, Revenue)', icon: '🎯' },
+                { key: 'campaignOrder', label: 'Campaign Order Report', icon: '📦' },
+                { key: 'consolidated', label: 'Consolidated Daily Report', icon: '📊' },
+                { key: 'consolidatedFSN', label: 'Consolidated FSN Report', icon: '🎯' },
                 { key: 'keyword', label: 'Keyword Report', icon: '🔑' },
-                { key: 'pla', label: 'PLA Report  (has: Campaign Status, Budget, Spend)', icon: '📋' },
-                { key: 'placement', label: 'Placement Report  (has: Placement Type, Views, Clicks)', icon: '📍' },
-                { key: 'searchTerm', label: 'Search Term Report  (has: Query, Views, Clicks)', icon: '🔍' }
+                { key: 'pla', label: 'PLA Report', icon: '📋' },
+                { key: 'placement', label: 'Placement Performance', icon: '📍' },
+                { key: 'searchTerm', label: 'Search Term Report', icon: '🔍' }
             ];
 
             const handleFileUpload = async (event, fileType) => {
@@ -2103,12 +2226,30 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 return { valid: true, message: '', start: firstStart, end: firstEnd };
             };
 
-            const handleAnalyze = () => {
+            const handleAnalyze = async () => {
                 const validation = validateDateRanges();
                 if (!validation.valid) {
                     alert(validation.message);
                     return;
                 }
+                setLoading(true);
+                // POST all files to server for persistence
+                try {
+                    const fd = new FormData();
+                    for (const [key, file] of Object.entries(files)) {
+                        fd.append(key, file);
+                    }
+                    // Get current account from parent shell via DOM (simplest approach)
+                    const activeBtn = document.querySelector('.ads-acct-tab.active');
+                    const acctLabel = activeBtn ? activeBtn.textContent.trim() : 'REFRESHWAVE';
+                    const acctMap = {'Refreshwave':'REFRESHWAVE','Eonspark':'EONSPARK','Hellohi':'HELLOHI','Cutest club':'CUTEST-CLUB','Cutest Club':'CUTEST-CLUB','⚡ Consolidated':'CONSOLIDATED'};
+                    const apiAcct = acctMap[acctLabel] || acctLabel.toUpperCase().replace(/ /g,'-');
+                    await fetch('/api/ads-upload/' + apiAcct, { method: 'POST', body: fd });
+                } catch(e) {
+                    console.warn('[AdsUpload] Server save failed:', e);
+                    // Non-fatal — continue to show dashboard from local data
+                }
+                setLoading(false);
                 setDateRange({ start: validation.start, end: validation.end });
                 setShowDashboard(true);
             };
@@ -2141,7 +2282,14 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             };
 
             const hasMinimumData = data.consolidated || data.pla || data.consolidatedFSN;
-            const [showDashboard, setShowDashboard] = useState(false);
+            const [showDashboard, setShowDashboard] = useState(!!initialData);
+            useEffect(() => {
+                if (initialData && Object.keys(initialData).length > 0) {
+                    setData(initialData);
+                    if (initialDateRange) setDateRange(initialDateRange);
+                    setShowDashboard(true);
+                }
+            }, []);
 
             return (
                 <div className="app">
@@ -2172,6 +2320,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                     setDateRanges({});
                                     setDateRange({ start: null, end: null });
                                     setShowDashboard(false);
+                                    if (onClear) onClear();
                                 }}
                             />
                         )}
@@ -2317,6 +2466,18 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                     {formatDateRange()}
                                 </p>
                             </div>
+                            <button className="btn btn-secondary" onClick={async () => {
+                                    const activeBtn = document.querySelector('.ads-acct-tab.active');
+                                    const acctLabel = activeBtn ? activeBtn.textContent.trim() : '';
+                                    const acctMap = {'Refreshwave':'REFRESHWAVE','Eonspark':'EONSPARK','Hellohi':'HELLOHI','Cutest Club':'CUTEST-CLUB','⚡ Consolidated':'CONSOLIDATED'};
+                                    const apiAcct = acctMap[acctLabel] || acctLabel.toUpperCase().replace(/ /g,'-');
+                                    if (confirm('Clear stored data for ' + (acctLabel || 'this account') + '?')) {
+                                        await fetch('/api/ads-clear/' + apiAcct, { method: 'POST' });
+                                        onReset();
+                                    }
+                                }} style={{marginRight:'8px', fontSize:'.8rem', opacity:'.7'}}>
+                                🗑 Clear & Re-upload
+                            </button>
                             <button className="btn btn-secondary" onClick={onReset}>
                                 🔄 Reset Data
                             </button>
@@ -2666,7 +2827,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 const skuMap = {};
                 
                 data.campaignOrder.forEach(row => {
-                    const fsn = row['Sku Id'];
+                    const fsn = row['Advertised FSN ID'];
                     if (!fsn) return;
 
                     if (!skuMap[fsn]) {
@@ -2718,15 +2879,21 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                             // Find matching records by campaign ID and product name/SKU
                             const matchingRecords = data.consolidatedFSN.filter(row => {
                                 const rowCampaignId = row['Campaign ID'];
-                                const rowProductName = row['Product Name'] ? String(row['Product Name']) : '';
+                                const rowProductName = row['Product Name'];
+                                const rowSkuId = row['Sku Id'];
+                                
+                                // Convert to strings for comparison
+                                const rowSkuIdStr = rowSkuId ? String(rowSkuId) : '';
+                                const rowProductNameStr = rowProductName ? String(rowProductName) : '';
+                                const skuFsnStr = sku.fsn ? String(sku.fsn) : '';
                                 const skuProductNameStr = sku.productName ? String(sku.productName) : '';
-                                // Consolidated Daily has Campaign ID + Product Name
+                                
+                                // Match by campaign and either FSN, SKU ID, or product name
                                 return rowCampaignId === campaign.id && (
-                                    rowProductName === skuProductNameStr ||
-                                    (rowProductName && skuProductNameStr && (
-                                        rowProductName.includes(skuProductNameStr) ||
-                                        skuProductNameStr.includes(rowProductName)
-                                    ))
+                                    rowSkuIdStr === skuFsnStr ||
+                                    rowProductNameStr === skuProductNameStr ||
+                                    (rowSkuIdStr && skuFsnStr && rowSkuIdStr.includes(skuFsnStr)) ||
+                                    (rowProductNameStr && skuProductNameStr && skuProductNameStr.includes(rowProductNameStr))
                                 );
                             });
                             
@@ -3250,7 +3417,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                     const skuMap = {};
                     
                     data.campaignOrder.forEach(row => {
-                        const fsn = row['Sku Id'];
+                        const fsn = row['Advertised FSN ID'];
                         if (!fsn) return;
 
                         if (!skuMap[fsn]) {
@@ -3675,10 +3842,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             );
         }
 
-
-    
-
-window.AdsApp = App;
+window.AdsApp = AdsAccountShell;
 </script>
 
 <script>
