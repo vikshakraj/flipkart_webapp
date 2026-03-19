@@ -192,6 +192,7 @@
   .ads-acct-tab-consolidated.active{background:var(--purple)!important;border-color:var(--purple)!important;}
   .ads-loading{text-align:center;padding:80px 0;color:var(--muted);}
   .ads-spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px;}
+  #ads-root,#ads-root>div{min-height:0!important;}
   #panel-ads .app{min-height:0!important;}
   #panel-ads .content{padding-top:0!important;min-height:0!important;}
   #panel-ads .upload-section{margin-top:0!important;padding-top:0!important;}
@@ -1341,8 +1342,8 @@
 
   </div>
 
-  <div id="panel-ads" class="tab-panel">
-    <div id="ads-root"></div>
+  <div id="panel-ads" class="tab-panel" style="min-height:0;">
+    <div id="ads-root" style="min-height:0;"></div>
   </div>
 
   <!-- ════════════════════════════════════════════════════════
@@ -1432,6 +1433,7 @@ function switchTab(name,btn){
   document.querySelectorAll('.main-tab').forEach(b=>b.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
   btn.classList.add('active');
+  window.scrollTo({top:0, behavior:'smooth'});
   if(name==='ads'&&!window._adsMounted){
     window._adsMounted=true;
     ReactDOM.render(React.createElement(AdsApp),document.getElementById('ads-root'));
