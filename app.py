@@ -1429,6 +1429,27 @@ def ads_upload(account):
         if not parsed:
             return jsonify({'error': 'No valid files uploaded'}), 400
 
+        # Auto-correct consolidated/consolidatedFSN swap:
+        # The correct 'consolidated' key must have 'Ad Spend' (campaign-level spend data).
+        # If the user uploaded them in the wrong slots, fix it here at storage time.
+        def _has_spend(rows):
+            return bool(rows) and 'Ad Spend' in (rows[0] if rows else {})
+
+        c     = parsed.get('consolidated', [])
+        c_fsn = parsed.get('consolidatedFSN', [])
+        if c and c_fsn:
+            if not _has_spend(c) and _has_spend(c_fsn):
+                # Swap: consolidatedFSN has spend, consolidated has order data
+                parsed['consolidated'], parsed['consolidatedFSN'] = c_fsn, c
+        elif c and not _has_spend(c) and not c_fsn:
+            # Only consolidated uploaded but it's the wrong one — move it
+            parsed['consolidatedFSN'] = c
+            del parsed['consolidated']
+        elif c_fsn and _has_spend(c_fsn) and not c:
+            # Only consolidatedFSN uploaded and it has spend — promote it
+            parsed['consolidated'] = c_fsn
+            del parsed['consolidatedFSN']
+
         # Store under a composite key: date range + each report type
         # Use date_from as the bucket key (or 'undated' fallback)
         bucket_key = date_from or 'undated'
