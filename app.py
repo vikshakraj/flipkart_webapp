@@ -1371,11 +1371,20 @@ def _prune_ads_store(store):
 def _parse_csv_bytes(data_bytes, report_type):
     """Parse a CSV bytes object into list-of-dicts, applying correct skip rows."""
     import pandas as pd
+    import math
     from io import BytesIO
     skip = ADS_SKIP_ROWS.get(report_type, 2)
     df   = pd.read_csv(BytesIO(data_bytes), skiprows=skip)
     df.columns = [c.strip() for c in df.columns]
-    return df.to_dict(orient='records')
+    rows = df.to_dict(orient='records')
+    # Replace NaN/Inf with None so json.dumps produces valid JSON
+    clean = []
+    for row in rows:
+        clean.append({
+            k: (None if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v)
+            for k, v in row.items()
+        })
+    return clean
 
 def _merge_ads_rows(existing_rows, new_rows):
     """Merge two lists of row dicts — new rows appended, no dedup needed (date-bucketed)."""
