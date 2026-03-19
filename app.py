@@ -1500,6 +1500,29 @@ def ads_data_get(account):
         return jsonify(result)
 
 
+
+@app.route('/api/ads-debug/<account>', methods=['GET'])
+def ads_debug(account):
+    """Temporary debug endpoint — shows what's stored for an account."""
+    account = account.upper().replace('-', ' ')
+    store = _load_ads_store(account)
+    result = {}
+    for bucket, reports in store.items():
+        if bucket.startswith('__'):
+            result[bucket] = reports
+            continue
+        if not isinstance(reports, dict):
+            continue
+        result[bucket] = {}
+        for key, rows in reports.items():
+            sample = rows[0] if rows else {}
+            result[bucket][key] = {
+                'row_count': len(rows),
+                'columns': list(sample.keys()) if sample else [],
+                'sample_row': {k: str(v)[:80] for k, v in list(sample.items())[:6]} if sample else {}
+            }
+    return jsonify(result)
+
 @app.route('/api/ads-clear/<account>', methods=['POST'])
 def ads_clear(account):
     """Delete stored ads data for an account."""
