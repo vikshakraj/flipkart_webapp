@@ -2232,19 +2232,26 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 setLoading(true);
                 // POST all files to server for persistence
                 try {
-                    const fd = new FormData();
-                    for (const [key, file] of Object.entries(files)) {
-                        fd.append(key, file);
-                    }
-                    // Get current account from parent shell via DOM (simplest approach)
                     const activeBtn = document.querySelector('.ads-acct-tab.active');
                     const acctLabel = activeBtn ? activeBtn.textContent.trim() : 'REFRESHWAVE';
                     const acctMap = {'Refreshwave':'REFRESHWAVE','Eonspark':'EONSPARK','Hellohi':'HELLOHI','Cutest club':'CUTEST-CLUB','Cutest Club':'CUTEST-CLUB','⚡ Consolidated':'CONSOLIDATED'};
                     const apiAcct = acctMap[acctLabel] || acctLabel.toUpperCase().replace(/ /g,'-');
-                    await fetch('/api/ads-upload/' + apiAcct, { method: 'POST', body: fd });
+                    // Upload all files in one request
+                    const fd = new FormData();
+                    for (const [key, file] of Object.entries(files)) {
+                        fd.append(key, file);
+                    }
+                    const saveResp = await fetch('/api/ads-upload/' + apiAcct, {
+                        method: 'POST',
+                        body: fd
+                    });
+                    if (!saveResp.ok) {
+                        const err = await saveResp.json().catch(() => ({}));
+                        throw new Error(err.error || 'HTTP ' + saveResp.status);
+                    }
                 } catch(e) {
-                    console.warn('[AdsUpload] Server save failed:', e);
-                    // Non-fatal — continue to show dashboard from local data
+                    console.error('[AdsUpload] Server save failed:', e);
+                    alert('Warning: Could not save to server (' + e.message + '). Data will be lost on page reload. Please try uploading again.');
                 }
                 setLoading(false);
                 setDateRange({ start: validation.start, end: validation.end });
