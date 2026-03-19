@@ -2050,13 +2050,13 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             const [dateRange, setDateRange] = useState({ start: null, end: null });
 
             const fileTypes = [
-                { key: 'campaignOrder', label: 'Campaign Order Report', icon: '📦' },
-                { key: 'consolidated', label: 'Consolidated Daily Report', icon: '📊' },
-                { key: 'consolidatedFSN', label: 'Consolidated FSN Report', icon: '🎯' },
+                { key: 'campaignOrder', label: 'Campaign Report  (has: Campaign Name, SKU, Revenue)', icon: '📦' },
+                { key: 'consolidated', label: 'Consolidated FSN Report  (has: Campaign, Date, Ad Spend, Clicks)', icon: '📊' },
+                { key: 'consolidatedFSN', label: 'Consolidated Daily Report  (has: Campaign, Order ID, Revenue)', icon: '🎯' },
                 { key: 'keyword', label: 'Keyword Report', icon: '🔑' },
-                { key: 'pla', label: 'PLA Report', icon: '📋' },
-                { key: 'placement', label: 'Placement Performance', icon: '📍' },
-                { key: 'searchTerm', label: 'Search Term Report', icon: '🔍' }
+                { key: 'pla', label: 'PLA Report  (has: Campaign Status, Budget, Spend)', icon: '📋' },
+                { key: 'placement', label: 'Placement Report  (has: Placement Type, Views, Clicks)', icon: '📍' },
+                { key: 'searchTerm', label: 'Search Term Report  (has: Query, Views, Clicks)', icon: '🔍' }
             ];
 
             const handleFileUpload = async (event, fileType) => {
