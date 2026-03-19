@@ -2666,7 +2666,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 const skuMap = {};
                 
                 data.campaignOrder.forEach(row => {
-                    const fsn = row['Advertised FSN ID'];
+                    const fsn = row['Sku Id'];
                     if (!fsn) return;
 
                     if (!skuMap[fsn]) {
@@ -2718,21 +2718,15 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                             // Find matching records by campaign ID and product name/SKU
                             const matchingRecords = data.consolidatedFSN.filter(row => {
                                 const rowCampaignId = row['Campaign ID'];
-                                const rowProductName = row['Product Name'];
-                                const rowSkuId = row['Sku Id'];
-                                
-                                // Convert to strings for comparison
-                                const rowSkuIdStr = rowSkuId ? String(rowSkuId) : '';
-                                const rowProductNameStr = rowProductName ? String(rowProductName) : '';
-                                const skuFsnStr = sku.fsn ? String(sku.fsn) : '';
+                                const rowProductName = row['Product Name'] ? String(row['Product Name']) : '';
                                 const skuProductNameStr = sku.productName ? String(sku.productName) : '';
-                                
-                                // Match by campaign and either FSN, SKU ID, or product name
+                                // Consolidated Daily has Campaign ID + Product Name
                                 return rowCampaignId === campaign.id && (
-                                    rowSkuIdStr === skuFsnStr ||
-                                    rowProductNameStr === skuProductNameStr ||
-                                    (rowSkuIdStr && skuFsnStr && rowSkuIdStr.includes(skuFsnStr)) ||
-                                    (rowProductNameStr && skuProductNameStr && skuProductNameStr.includes(rowProductNameStr))
+                                    rowProductName === skuProductNameStr ||
+                                    (rowProductName && skuProductNameStr && (
+                                        rowProductName.includes(skuProductNameStr) ||
+                                        skuProductNameStr.includes(rowProductName)
+                                    ))
                                 );
                             });
                             
@@ -3256,7 +3250,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                     const skuMap = {};
                     
                     data.campaignOrder.forEach(row => {
-                        const fsn = row['Advertised FSN ID'];
+                        const fsn = row['Sku Id'];
                         if (!fsn) return;
 
                         if (!skuMap[fsn]) {
