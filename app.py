@@ -1549,6 +1549,16 @@ def _build_ads_response(store):
                 merged[key] = []
             merged[key].extend(rows)
 
+    # Auto-correct common swap: if 'consolidated' lacks 'Ad Spend' but 'consolidatedFSN'
+    # has it, swap them so the frontend KPI block always reads spend from 'consolidated'
+    def _has_spend(rows):
+        return bool(rows) and 'Ad Spend' in (rows[0] if rows else {})
+
+    consol     = merged.get('consolidated', [])
+    consol_fsn = merged.get('consolidatedFSN', [])
+    if not _has_spend(consol) and _has_spend(consol_fsn):
+        merged['consolidated'], merged['consolidatedFSN'] = consol_fsn, consol
+
     return {
         'data':       merged,
         'updated_at': meta.get('updated_at', ''),
