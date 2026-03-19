@@ -1429,6 +1429,23 @@ def ads_upload(account):
         if not parsed:
             return jsonify({'error': 'No valid files uploaded'}), 400
 
+        # Cap large reports to keep stored JSON manageable
+        ROW_CAPS = {
+            'searchTerm':    2000,   # 54k rows is too large; top 2000 by views is plenty
+            'campaignOrder': 5000,
+            'keyword':       3000,
+            'placement':     2000,
+        }
+        for key, cap in ROW_CAPS.items():
+            if key in parsed and len(parsed[key]) > cap:
+                # Sort by Views desc if available, else just truncate
+                rows = parsed[key]
+                try:
+                    rows = sorted(rows, key=lambda r: float(r.get('Views', 0) or 0), reverse=True)
+                except Exception:
+                    pass
+                parsed[key] = rows[:cap]
+
         # Auto-correct consolidated/consolidatedFSN swap:
         # The correct 'consolidated' key must have 'Ad Spend' (campaign-level spend data).
         # If the user uploaded them in the wrong slots, fix it here at storage time.
