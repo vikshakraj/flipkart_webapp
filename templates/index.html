@@ -2819,7 +2819,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 const skuMap = {};
                 
                 data.campaignOrder.forEach(row => {
-                    const fsn = row['Advertised FSN ID'];
+                    const fsn = row['Sku Id'];
                     if (!fsn) return;
 
                     if (!skuMap[fsn]) {
@@ -3409,7 +3409,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                     const skuMap = {};
                     
                     data.campaignOrder.forEach(row => {
-                        const fsn = row['Advertised FSN ID'];
+                        const fsn = row['Sku Id'];
                         if (!fsn) return;
 
                         if (!skuMap[fsn]) {
