@@ -2125,11 +2125,8 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             const st = getState(activeAccount);
 
             return (
-                <div className="app">
-                    <div className="background-grid"></div>
-                    <div className="content">
-                        {/* Account tab bar */}
-                        <div className="ads-acct-tabs-bar">
+                <div>
+                    <div className="ads-acct-tabs-bar">
                             {ADS_ACCOUNTS.map(acc => (
                                 <button
                                     key={acc}
@@ -2156,7 +2153,6 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                 onClear={() => handleReset(activeAccount)}
                             />
                         )}
-                    </div>
                 </div>
             );
         }
@@ -2291,9 +2287,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             }, []);
 
             return (
-                <div className="app">
-                    <div className="background-grid"></div>
-                    <div className="content">
+                <div>
                         {!showDashboard ? (
                             <UploadSection 
                                 fileTypes={fileTypes}
@@ -2323,7 +2317,6 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                 }}
                             />
                         )}
-                    </div>
                 </div>
             );
         }
