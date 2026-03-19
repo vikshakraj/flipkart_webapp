@@ -1438,6 +1438,20 @@ function switchTab(name,btn){
     window._adsMounted=true;
     ReactDOM.render(React.createElement(AdsApp),document.getElementById('ads-root'));
   }
+  if(name==='ads'){
+    setTimeout(()=>{
+      const panel = document.getElementById('panel-ads');
+      const root  = document.getElementById('ads-root');
+      const first = root && root.firstElementChild;
+      console.log('[GAP DEBUG] panel-ads rect:', panel && panel.getBoundingClientRect());
+      console.log('[GAP DEBUG] ads-root rect:', root && root.getBoundingClientRect());
+      console.log('[GAP DEBUG] ads-root firstChild:', first && first.className, first && first.getBoundingClientRect());
+      if(first){
+        const children = Array.from(first.children);
+        children.forEach((c,i)=>console.log('[GAP DEBUG] child '+i+':', c.className||c.tagName, c.getBoundingClientRect()));
+      }
+    }, 500);
+  }
   if(name==='sku'&&!window._skuLoaded){
     // Don't auto-load, wait for PIN
   }
