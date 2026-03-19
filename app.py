@@ -1314,6 +1314,225 @@ def sales_data(account):
             result['updated_at'] = meta['updated_at']
         return jsonify(result or {'empty': True})
 
+
+# ─────────────────────────────────────────────
+# ADS ANALYTICS  helpers
+# ─────────────────────────────────────────────
+
+ADS_DATA_DIR  = os.path.join(_data_dir, 'ads_data')
+os.makedirs(ADS_DATA_DIR, exist_ok=True)
+ADS_TTL_DAYS  = 60
+
+# How many metadata rows to skip per report type
+ADS_SKIP_ROWS = {
+    'campaignOrder':   2,
+    'consolidated':    2,
+    'consolidatedFSN': 2,
+    'keyword':         2,
+    'pla':             4,
+    'placement':       2,
+    'searchTerm':      2,
+}
+
+def _ads_path(account):
+    safe = re.sub(r'[^A-Za-z0-9_]', '_', account.upper())
+    return os.path.join(ADS_DATA_DIR, f'ads_{safe}.json')
+
+def _load_ads_store(account):
+    p = _ads_path(account)
+    if not os.path.exists(p):
+        return {}
+    try:
+        with open(p) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_ads_store(account, store):
+    p   = _ads_path(account)
+    tmp = p + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(store, f)
+    os.replace(tmp, p)
+
+def _prune_ads_store(store):
+    """Remove date-keyed entries older than ADS_TTL_DAYS."""
+    cutoff = (datetime.datetime.now(tz=IST) - datetime.timedelta(days=ADS_TTL_DAYS)).strftime('%Y-%m-%d')
+    pruned = {}
+    for k, v in store.items():
+        # keep meta keys and non-date keys always; prune only date-shaped keys
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', k):
+            if k >= cutoff:
+                pruned[k] = v
+        else:
+            pruned[k] = v
+    return pruned
+
+def _parse_csv_bytes(data_bytes, report_type):
+    """Parse a CSV bytes object into list-of-dicts, applying correct skip rows."""
+    import pandas as pd
+    from io import BytesIO
+    skip = ADS_SKIP_ROWS.get(report_type, 2)
+    df   = pd.read_csv(BytesIO(data_bytes), skiprows=skip)
+    df.columns = [c.strip() for c in df.columns]
+    return df.to_dict(orient='records')
+
+def _merge_ads_rows(existing_rows, new_rows):
+    """Merge two lists of row dicts — new rows appended, no dedup needed (date-bucketed)."""
+    return new_rows   # for date-bucketed store, new fully replaces
+
+@app.route('/api/ads-upload/<account>', methods=['POST'])
+def ads_upload(account):
+    """
+    Receive up to 7 CSVs for one ads account. Parse server-side, merge into
+    persistent JSON store (60-day TTL, newer upload wins per date bucket).
+    """
+    account = account.upper().replace('-', ' ')
+    try:
+        import pandas as pd
+
+        # Load + prune existing store
+        store = _load_ads_store(account)
+        store = _prune_ads_store(store)
+
+        # Collect uploaded files
+        file_keys = ['campaignOrder', 'consolidated', 'consolidatedFSN',
+                     'keyword', 'pla', 'placement', 'searchTerm']
+        parsed = {}
+        date_from, date_to = None, None
+
+        for key in file_keys:
+            f = request.files.get(key)
+            if not f:
+                continue
+            raw = f.read()
+
+            # Extract date range from first two rows
+            import io as _io
+            text_lines = raw.decode('utf-8-sig', errors='replace').splitlines()
+            if len(text_lines) > 0 and 'Start Time' in text_lines[0]:
+                parts = text_lines[0].split(',')
+                if len(parts) > 1:
+                    date_from = parts[1].strip()[:10]   # YYYY-MM-DD
+            if len(text_lines) > 1 and 'End Time' in text_lines[1]:
+                parts = text_lines[1].split(',')
+                if len(parts) > 1:
+                    date_to = parts[1].strip()[:10]
+
+            try:
+                rows = _parse_csv_bytes(raw, key)
+                parsed[key] = rows
+            except Exception as pe:
+                print(f'[AdsUpload] Failed to parse {key}: {pe}')
+                continue
+
+        if not parsed:
+            return jsonify({'error': 'No valid files uploaded'}), 400
+
+        # Store under a composite key: date range + each report type
+        # Use date_from as the bucket key (or 'undated' fallback)
+        bucket_key = date_from or 'undated'
+
+        # Merge: for same bucket, new upload wins entirely
+        if bucket_key not in store:
+            store[bucket_key] = {}
+        for key, rows in parsed.items():
+            store[bucket_key][key] = rows
+
+        # Also keep track of overall date range in meta
+        store['__meta__'] = {
+            'updated_at': datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST'),
+            'account':    account,
+            'date_from':  date_from,
+            'date_to':    date_to,
+        }
+
+        _save_ads_store(account, store)
+
+        # Return merged data across all buckets
+        result = _build_ads_response(store)
+        return jsonify(result)
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ads-data/<account>', methods=['GET'])
+def ads_data_get(account):
+    """Return stored ads analytics for one account, or CONSOLIDATED."""
+    account = account.upper().replace('-', ' ')
+
+    if account == 'CONSOLIDATED':
+        merged_store = {'__meta__': {'account': 'CONSOLIDATED'}}
+        any_data = False
+        for acc in SALES_ACCOUNTS:   # reuse same account list
+            s = _load_ads_store(acc)
+            s = _prune_ads_store(s)
+            for bucket, reports in s.items():
+                if bucket.startswith('__'):
+                    continue
+                any_data = True
+                if bucket not in merged_store:
+                    merged_store[bucket] = {}
+                for report_key, rows in reports.items():
+                    if report_key not in merged_store[bucket]:
+                        merged_store[bucket][report_key] = []
+                    merged_store[bucket][report_key].extend(rows)
+        if not any_data:
+            return jsonify({'empty': True})
+        result = _build_ads_response(merged_store)
+        # Add per-account update times
+        updates = {}
+        for acc in SALES_ACCOUNTS:
+            s = _load_ads_store(acc)
+            meta = s.get('__meta__', {})
+            if meta.get('updated_at'):
+                updates[acc] = meta['updated_at']
+        result['account_updates'] = updates
+        return jsonify(result)
+    else:
+        store = _load_ads_store(account)
+        store = _prune_ads_store(store)
+        if not any(not k.startswith('__') for k in store):
+            return jsonify({'empty': True})
+        result = _build_ads_response(store)
+        return jsonify(result)
+
+
+@app.route('/api/ads-clear/<account>', methods=['POST'])
+def ads_clear(account):
+    """Delete stored ads data for an account."""
+    account = account.upper().replace('-', ' ')
+    p = _ads_path(account)
+    if os.path.exists(p):
+        os.remove(p)
+    return jsonify({'ok': True})
+
+
+def _build_ads_response(store):
+    """Merge all date buckets in store into a flat data dict for the frontend."""
+    meta = store.get('__meta__', {})
+
+    # Merge rows across all date buckets
+    merged = {}   # report_key -> [rows]
+    for bucket, reports in store.items():
+        if bucket.startswith('__'):
+            continue
+        if not isinstance(reports, dict):
+            continue
+        for key, rows in reports.items():
+            if key not in merged:
+                merged[key] = []
+            merged[key].extend(rows)
+
+    return {
+        'data':       merged,
+        'updated_at': meta.get('updated_at', ''),
+        'date_from':  meta.get('date_from', ''),
+        'date_to':    meta.get('date_to', ''),
+    }
+
 # ─────────────────────────────────────────────
 # ROUTES
 # ─────────────────────────────────────────────
