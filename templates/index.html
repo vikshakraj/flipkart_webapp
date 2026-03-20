@@ -1753,37 +1753,32 @@ function onPreviewConfirm(){
   _clearCountdown();
   document.getElementById('modalPreview').style.display='none';
   const pre=_preflightData;
+
+  // Batch dupes are ALWAYS auto-excluded — no popup needed
+  // Store them to pass to the sort route regardless of user's choice on DB dupes
+  window._batchExcludeOids = pre.batch_dupes || {};
+
   if(pre.has_dupes){
+    // Only DB (historical) dupes get the confirmation popup
     const body=document.getElementById('dupesBody');
     body.innerHTML='';
-    const batchDupes = pre.batch_dupes || {};
-    const hasBatch = Object.keys(batchDupes).some(a=>batchDupes[a].length>0);
-    // Update subtitle
     const sub = document.getElementById('dupeModalSub');
-    if(sub){
-      if(hasBatch)
-        sub.textContent = 'Some PDFs appear to have been uploaded more than once in this batch (same Order IDs found). By default duplicates will be excluded.';
-      else
-        sub.textContent = 'The following Order IDs were already sorted in the last 72 hours. By default they will be excluded.';
-    }
+    if(sub) sub.textContent = 'The following Order IDs were already sorted in the last 72 hours. Choose how to proceed:';
     for(const [account,oids] of Object.entries(pre.duplicates)){
       const h=document.createElement('div');
       h.className='fk-dupe-account';
       h.textContent=account;
       body.appendChild(h);
-      const batchSet = new Set((batchDupes[account]||[]));
       for(const oid of oids){
         const d=document.createElement('div');
         d.className='fk-dupe-oid';
-        // Tag batch dupes with a badge
-        d.innerHTML = batchSet.has(oid)
-          ? `${oid} <span style="color:var(--warning);font-size:.72rem;margin-left:6px;">⚠ in this batch</span>`
-          : oid;
+        d.textContent=oid;
         body.appendChild(d);
       }
     }
     document.getElementById('modalDupes').style.display='flex';
   } else {
+    // No historical dupes — just run sort (batch dupes auto-excluded via _batchExcludeOids)
     _excludeOids={};
     runSort();
   }
@@ -1803,6 +1798,10 @@ async function runSort(){
   for(const f of pdfFiles) fd.append('pdfs',f);
   if(_excludeOids&&Object.keys(_excludeOids).length)
     fd.append('exclude_order_ids',JSON.stringify(_excludeOids));
+  // Always send batch dupes for auto-exclusion
+  const batchExcl = window._batchExcludeOids || {};
+  if(Object.keys(batchExcl).length)
+    fd.append('batch_exclude_oids',JSON.stringify(batchExcl));
   try{
     setProgress(40,'Processing labels...');
     const resp=await fetch('/api/sort',{method:'POST',body:fd});
