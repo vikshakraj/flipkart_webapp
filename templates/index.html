@@ -2991,10 +2991,10 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 const dailyRows = data.consolidated    || [];
 
                 // Step 1: sum revenue per canonical product name from FSN report
+                // FSN report is a period aggregate — no Date column — so no date filtering on rows.
+                // The date range is implicitly set by which file the user uploaded.
                 const prodRevenue = {};
                 fsnRows.forEach(row => {
-                    const d = row['Date'] || row['Report Date'] || row['date'] || row['Day'] || '';
-                    if ((fromDate && d < fromDate) || (toDate && d > toDate)) return;
                     const skuId = (row['Sku Id'] || '').trim();
                     if (!skuId) return;
                     // Resolve to canonical product name; fall back to raw SKU ID
