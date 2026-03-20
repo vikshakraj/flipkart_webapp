@@ -2966,22 +2966,34 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             }, [data.consolidated, fromDate, toDate]);
 
             // Product tiles — top 10 by revenue in filtered range
+            // Uses consolidatedFSN report which has per-SKU rows with Product Name + ROI columns.
+            // Spend is not a direct column in FSN report — it's derived as revenue / ROI.
             const productTiles = useMemo(() => {
+                const src = data.consolidatedFSN || [];
                 const prodMap = {};
-                filteredConsolidated.forEach(row => {
-                    const rawName = row['Product Name'] || row['SKU Name'] || row['Sku Id'] || 'Unknown';
-                    const name = masterSkuMap[rawName] || rawName;
-                    const spend   = parseFloat(row['Ad Spend']) || 0;
+                src.forEach(row => {
+                    const d = row['Date'] || row['Report Date'] || row['date'] || row['Day'] || '';
+                    if ((fromDate && d < fromDate) || (toDate && d > toDate)) return;
+
+                    const rawName = row['SKU Name'] || row['Sku Name'] || row['Product Name'] || row['Sku Id'] || 'Unknown';
+                    // Resolve via masterSkuMap: try the raw name as a key first, then the Sku Id
+                    const skuId = row['Sku Id'] || '';
+                    const name = masterSkuMap[skuId] || masterSkuMap[rawName] || rawName;
+
                     const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
+                    const roi     = parseFloat(row['ROI']) || 0; // ROI column = ROAS in FSN report
+                    const spend   = roi > 0 ? revenue / roi : 0;
+
                     if (!prodMap[name]) prodMap[name] = { name, spend: 0, revenue: 0 };
                     prodMap[name].spend   += spend;
                     prodMap[name].revenue += revenue;
                 });
                 return Object.values(prodMap)
+                    .filter(p => p.revenue > 0)
                     .map(p => ({ ...p, roas: p.spend > 0 ? p.revenue / p.spend : 0 }))
                     .sort((a, b) => b.revenue - a.revenue)
                     .slice(0, 10);
-            }, [filteredConsolidated, masterSkuMap]);
+            }, [data.consolidatedFSN, fromDate, toDate, masterSkuMap]);
 
             const topCampaigns = useMemo(() => {
                 const campaignMap = {};
@@ -3027,6 +3039,11 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                     </div>
 
                     {/* Product tiles */}
+                    {!data.consolidatedFSN && (
+                        <div style={{color:'var(--color-text-muted)',fontSize:'0.83rem',padding:'10px 0 4px',opacity:0.7}}>
+                            ℹ️ Upload a <b>Consolidated FSN Report</b> to see product tiles.
+                        </div>
+                    )}
                     {productTiles.length > 0 && (
                         <div className="section">
                             <div className="section-header">
