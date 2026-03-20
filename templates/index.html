@@ -4305,50 +4305,60 @@ function _renderReturnsCharts(d, from, to){
 }
 
 function _filterRetsByDate(d, from, to){
-  // If no date filter, use precomputed
-  if(!from && !to) return d.returns_by_product || [];
-  // Filter daily_stats and recompute per product
-  // Use d.sku_by_product to get product-level daily data
-  const sbp = d.sku_by_product || {};
-  const prodReturns = {};
-  const prodOrders  = {};
-  // daily_stats gives us total returns/orders per day, but not per product
-  // So for filtered range, we use the ratio from full-range data as approximation
-  // and scale by the date-filtered daily totals
-  const allDays  = (d.daily_stats || []);
-  const filtDays = allDays.filter(s => (!from||s.date>=from) && (!to||s.date<=to));
-  if(!filtDays.length) return d.returns_by_product || [];
-
-  const filtDates = new Set(filtDays.map(s=>s.date));
-  // Re-aggregate from trend_series (active) and returns data
-  // Since we don't have per-product per-day return data, approximate using full-range proportions
-  // scaled by filtered-range total returns/orders
-  const fullRet = allDays.reduce((s,x)=>s+x.returns,0) || 1;
-  const filtRet = filtDays.reduce((s,x)=>s+x.returns,0);
-  const scale   = filtRet / fullRet;
-
-  return (d.returns_by_product || []).map(p => ({
-    ...p,
-    returns: Math.round(p.returns * scale),
-    total:   Math.round(p.total * scale),
-    rate:    p.rate,  // keep original rate as approximation
-  })).filter(p => p.returns > 0);
+  const data = d.returns_by_product || [];
+  if(!from && !to) return data;
+  // Use per-product daily data stored in each entry for accurate filtering
+  return data.map(p => {
+    const dailyRet    = p.daily_ret    || {};
+    const dailyOrders = p.daily_orders || {};
+    let returns = 0, total = 0;
+    Object.keys(dailyRet).forEach(date => {
+      if((!from || date >= from) && (!to || date <= to)){
+        returns += dailyRet[date] || 0;
+      }
+    });
+    Object.keys(dailyOrders).forEach(date => {
+      if((!from || date >= from) && (!to || date <= to)){
+        total += dailyOrders[date] || 0;
+      }
+    });
+    return {
+      ...p,
+      returns,
+      total,
+      rate: total > 0 ? Math.round(returns / total * 1000) / 10 : 0,
+    };
+  }).filter(p => p.returns > 0)
+    .sort((a,b) => b.returns - a.returns)
+    .slice(0, 15);
 }
 
 function _filterCancelsByDate(d, from, to){
-  if(!from && !to) return d.cancels_by_product || [];
-  const allDays  = (d.daily_stats || []);
-  const filtDays = allDays.filter(s => (!from||s.date>=from) && (!to||s.date<=to));
-  if(!filtDays.length) return d.cancels_by_product || [];
-  const fullCancel = allDays.reduce((s,x)=>s+x.cancels,0) || 1;
-  const filtCancel = filtDays.reduce((s,x)=>s+x.cancels,0);
-  const scale      = filtCancel / fullCancel;
-  return (d.cancels_by_product || []).map(p => ({
-    ...p,
-    cancels: Math.round(p.cancels * scale),
-    total:   Math.round(p.total   * scale),
-    rate:    p.rate,
-  })).filter(p => p.cancels > 0);
+  const data = d.cancels_by_product || [];
+  if(!from && !to) return data;
+  return data.map(p => {
+    const dailyCancel = p.daily_cancel || {};
+    const dailyOrders = p.daily_orders || {};
+    let cancels = 0, total = 0;
+    Object.keys(dailyCancel).forEach(date => {
+      if((!from || date >= from) && (!to || date <= to)){
+        cancels += dailyCancel[date] || 0;
+      }
+    });
+    Object.keys(dailyOrders).forEach(date => {
+      if((!from || date >= from) && (!to || date <= to)){
+        total += dailyOrders[date] || 0;
+      }
+    });
+    return {
+      ...p,
+      cancels,
+      total,
+      rate: total > 0 ? Math.round(cancels / total * 1000) / 10 : 0,
+    };
+  }).filter(p => p.cancels > 0)
+    .sort((a,b) => b.cancels - a.cancels)
+    .slice(0, 15);
 }
 
 function _filterTrendByDate(trend, from, to){
