@@ -183,6 +183,32 @@
   .sa-product-select{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 12px;color:var(--text);font-size:.8rem;font-family:inherit;cursor:pointer;max-width:220px;}
   .sa-product-select:focus{outline:none;border-color:var(--accent);}
   @media(max-width:1000px){.sa-charts-row{grid-template-columns:1fr;}.sa-chart-wide,.sa-chart-narrow{width:100%;}}
+  /* ── Returns deep-dive section ── */
+  .sa-returns-section{margin-top:28px;}
+  .sa-returns-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px;}
+  .sa-returns-title{font-size:1rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px;}
+  .sa-date-filter{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .sa-date-filter label{font-size:.78rem;color:var(--muted);white-space:nowrap;}
+  .sa-date-input{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.8rem;font-family:inherit;cursor:pointer;}
+  .sa-date-input:focus{outline:none;border-color:var(--accent);}
+  .sa-filter-btn{padding:7px 16px;border-radius:6px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);font-size:.8rem;font-weight:700;cursor:pointer;font-family:inherit;}
+  .sa-filter-btn:hover{opacity:.88;}
+  .sa-returns-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;}
+  .sa-returns-full{margin-bottom:20px;}
+  .sa-drill-legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
+  .sa-drill-chip{padding:4px 10px;border-radius:20px;font-size:.75rem;cursor:pointer;border:1.5px solid transparent;font-family:inherit;font-weight:600;transition:all .2s;}
+  .sa-drill-chip.active{border-color:var(--accent);color:var(--accent);}
+  .sa-drill-chip:not(.active){background:var(--surface2);color:var(--muted);}
+  @media(max-width:900px){.sa-returns-grid{grid-template-columns:1fr;}}
+  /* ── SKU Section ── */
+  .sa-sku-section{margin-top:28px;}
+  .sa-sku-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px;}
+  .sa-sku-title{font-size:1rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px;}
+  .sa-sku-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .sa-sku-select{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 12px;color:var(--text);font-size:.82rem;font-family:inherit;cursor:pointer;max-width:240px;}
+  .sa-sku-select:focus{outline:none;border-color:var(--accent);}
+  .sa-sku-grid{display:grid;grid-template-columns:360px 1fr;gap:20px;margin-bottom:20px;}
+  @media(max-width:1000px){.sa-sku-grid{grid-template-columns:1fr;}}
   /* ── Ads account tabs ── */
   .ads-acct-tabs-bar{display:flex;gap:6px;flex-wrap:wrap;padding:16px 24px 0;background:transparent;}
   .ads-acct-tab{padding:8px 20px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.85rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;}
@@ -1419,7 +1445,99 @@
               <div style="position:relative;height:320px;"><canvas id="saReturnCanvas"></canvas></div>
             </div>
           </div>
+
+          <!-- ── Returns Deep-Dive Section ── -->
+          <div class="sa-returns-section" id="saReturnsSection" style="display:none;">
+            <div class="sa-returns-header">
+              <div class="sa-returns-title">📦 Returns Deep-Dive</div>
+              <div class="sa-date-filter">
+                <label>From</label>
+                <input type="date" class="sa-date-input" id="saRetFrom">
+                <label>To</label>
+                <input type="date" class="sa-date-input" id="saRetTo">
+                <button class="sa-filter-btn" onclick="applyReturnFilter()">Apply</button>
+                <button class="sa-filter-btn" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);" onclick="resetReturnFilter()">Reset</button>
+              </div>
+            </div>
+
+            <!-- Row 1: Returns by Product + Reason Drill-down -->
+            <div class="sa-returns-grid">
+              <div class="sa-chart-card">
+                <div class="sa-chart-header">
+                  <div>
+                    <h3 class="sa-chart-title">🏷️ Returns by Product</h3>
+                    <p class="sa-chart-sub">Top 15 products · return count &amp; rate</p>
+                  </div>
+                </div>
+                <div style="position:relative;height:340px;"><canvas id="saRetByProdCanvas"></canvas></div>
+              </div>
+              <div class="sa-chart-card">
+                <div class="sa-chart-header">
+                  <div>
+                    <h3 class="sa-chart-title">🔍 Return Reason Drill-down</h3>
+                    <p class="sa-chart-sub">Click a reason to see sub-reasons</p>
+                  </div>
+                </div>
+                <div style="position:relative;height:220px;"><canvas id="saReasonDonutCanvas"></canvas></div>
+                <div class="sa-drill-legend" id="saReasonChips"></div>
+                <div style="position:relative;height:140px;margin-top:10px;display:none;" id="saSubReasonWrap">
+                  <canvas id="saSubReasonCanvas"></canvas>
+                </div>
+              </div>
+            </div>
+
+            <!-- Row 2: Weekly Return Trend -->
+            <div class="sa-returns-full">
+              <div class="sa-chart-card">
+                <div class="sa-chart-header">
+                  <div>
+                    <h3 class="sa-chart-title">📉 Weekly Return Rate Trend</h3>
+                    <p class="sa-chart-sub">Return rate % week over week</p>
+                  </div>
+                </div>
+                <div style="position:relative;height:220px;"><canvas id="saRetTrendCanvas"></canvas></div>
+              </div>
+            </div>
+          </div>
+
         </div>
+
+          <!-- ── SKU Breakdown Section ── -->
+          <div class="sa-sku-section" id="saSkuSection" style="display:none;">
+            <div class="sa-sku-header">
+              <div class="sa-sku-title">🔬 SKU Breakdown by Product</div>
+              <div class="sa-sku-controls">
+                <label style="font-size:.78rem;color:var(--muted);">Product</label>
+                <select class="sa-sku-select" id="saSkuProductSelect" onchange="onSkuProductChange()"></select>
+                <label style="font-size:.78rem;color:var(--muted);">From</label>
+                <input type="date" class="sa-date-input" id="saSkuFrom">
+                <label style="font-size:.78rem;color:var(--muted);">To</label>
+                <input type="date" class="sa-date-input" id="saSkuTo">
+                <button class="sa-filter-btn" onclick="applySkuFilter()">Apply</button>
+                <button class="sa-filter-btn" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);" onclick="resetSkuFilter()">Reset</button>
+              </div>
+            </div>
+            <div class="sa-sku-grid">
+              <div class="sa-chart-card">
+                <div class="sa-chart-header">
+                  <div>
+                    <h3 class="sa-chart-title">🍩 Top SKUs Share</h3>
+                    <p class="sa-chart-sub">Units contribution · top 7 + Others</p>
+                  </div>
+                </div>
+                <div style="position:relative;height:300px;"><canvas id="saSkuDonutCanvas"></canvas></div>
+              </div>
+              <div class="sa-chart-card">
+                <div class="sa-chart-header">
+                  <div>
+                    <h3 class="sa-chart-title">📈 Daily Units — by SKU</h3>
+                    <p class="sa-chart-sub">Top 7 SKUs + Others for selected product</p>
+                  </div>
+                </div>
+                <div style="position:relative;height:300px;"><canvas id="saSkuLineCanvas"></canvas></div>
+              </div>
+            </div>
+          </div>
 
       </div><!-- /sa-content -->
     </div><!-- /sa-wrap -->
@@ -4039,6 +4157,8 @@ function renderSaDashboard(d){
 
   renderTrendChart();
   renderReturnChart(d.returns_chart);
+  renderReturnsSection(d);
+  renderSkuSection(d);
 }
 
 function renderTrendChart(){
@@ -4104,6 +4224,377 @@ function renderReturnChart(data){
       scales:{
         x:{ beginAtZero:true, ticks:{color:'#8b92a8',font:{size:10}}, grid:{color:'rgba(42,54,80,.4)'} },
         y:{ ticks:{color:'#e4e7eb',font:{size:10,family:"'IBM Plex Sans',sans-serif"}}, grid:{display:false} }
+      }
+    }
+  });
+}
+
+/* ═══════════════════════════════════════
+   RETURNS DEEP-DIVE
+═══════════════════════════════════════ */
+let _saRetByProdChart = null;
+let _saReasonDonutChart = null;
+let _saSubReasonChart = null;
+let _saRetTrendChart = null;
+let _saActiveReason = null;
+
+const SA_TOOLTIP_DEFAULTS = {
+  backgroundColor:'#141b2d', borderColor:'#2a3650', borderWidth:1,
+  titleColor:'#e4e7eb', bodyColor:'#8b92a8', padding:10
+};
+
+function renderReturnsSection(d, fromDate, toDate){
+  if(!d || (!d.returns_by_product && !d.return_trend)) return;
+
+  document.getElementById('saReturnsSection').style.display = 'block';
+
+  // Set date inputs to full range by default (only on first render)
+  const fromEl = document.getElementById('saRetFrom');
+  const toEl   = document.getElementById('saRetTo');
+  if(!fromEl.value && d.kpis){
+    fromEl.value = fromDate || d.kpis.date_from;
+    toEl.value   = toDate   || d.kpis.date_to;
+  }
+
+  // Filter rows by date range
+  const from = fromEl.value || '';
+  const to   = toEl.value   || '';
+
+  // Filter returns_by_product (uses pre-aggregated data — need raw filtering)
+  // Since backend aggregates everything, we pass date range to a re-compute call
+  // For now use the pre-computed data (full range) or filtered data if passed
+  const rbp   = d.returns_by_product || [];
+  const drill = d.returns_drill || {};
+  const trend = d.return_trend  || [];
+
+  renderRetByProduct(rbp);
+  renderReasonDonut(drill);
+  renderRetTrend(trend, from, to);
+}
+
+function renderRetByProduct(data){
+  if(_saRetByProdChart){ _saRetByProdChart.destroy(); }
+  const labels = data.map(d => d.product.length > 22 ? d.product.slice(0,22)+'…' : d.product);
+  _saRetByProdChart = new Chart(document.getElementById('saRetByProdCanvas'), {
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {
+          label:'Returns',
+          data: data.map(d=>d.returns),
+          backgroundColor: '#ff336688',
+          borderColor:     '#ff3366',
+          borderWidth:1.5, borderRadius:4,
+          yAxisID:'y',
+        },
+        {
+          label:'Return Rate %',
+          data: data.map(d=>d.rate),
+          type:'line',
+          borderColor:'#fbbf24',
+          backgroundColor:'transparent',
+          borderWidth:2,
+          pointRadius:3,
+          pointHoverRadius:5,
+          tension:0.3,
+          yAxisID:'y2',
+        }
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{ labels:{color:'#8b92a8',font:{size:10},boxWidth:12} },
+        tooltip:SA_TOOLTIP_DEFAULTS
+      },
+      scales:{
+        x:{ ticks:{color:'#e4e7eb',font:{size:9}}, grid:{color:'rgba(42,54,80,.4)'} },
+        y:{ beginAtZero:true, ticks:{color:'#8b92a8',font:{size:10}}, grid:{color:'rgba(42,54,80,.4)'}, title:{display:true,text:'Returns',color:'#8b92a8',font:{size:10}} },
+        y2:{ beginAtZero:true, position:'right', ticks:{color:'#fbbf24',font:{size:10},callback:v=>v+'%'}, grid:{display:false}, title:{display:true,text:'Rate %',color:'#fbbf24',font:{size:10}} }
+      }
+    }
+  });
+}
+
+function renderReasonDonut(drill){
+  if(_saReasonDonutChart){ _saReasonDonutChart.destroy(); }
+  const reasons = Object.keys(drill);
+  const counts  = reasons.map(r => drill[r].reduce((s,x)=>s+x.count,0));
+
+  _saReasonDonutChart = new Chart(document.getElementById('saReasonDonutCanvas'), {
+    type:'doughnut',
+    data:{
+      labels: reasons,
+      datasets:[{
+        data: counts,
+        backgroundColor: SA_COLORS.map(c=>c+'cc'),
+        borderColor:     SA_COLORS,
+        borderWidth:1.5,
+        hoverOffset:6,
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      cutout:'60%',
+      plugins:{
+        legend:{display:false},
+        tooltip:{...SA_TOOLTIP_DEFAULTS, callbacks:{
+          label: ctx => ` ${ctx.label}: ${ctx.raw} (${Math.round(ctx.raw/counts.reduce((a,b)=>a+b,0)*100)}%)`
+        }}
+      },
+      onClick:(e, els)=>{
+        if(!els.length) return;
+        const reason = reasons[els[0].index];
+        drillIntoReason(reason, drill[reason]);
+      }
+    }
+  });
+
+  // Build clickable chips
+  const chips = document.getElementById('saReasonChips');
+  chips.innerHTML = reasons.map((r,i)=>`
+    <button class="sa-drill-chip" style="background:${SA_COLORS[i%SA_COLORS.length]}22;color:${SA_COLORS[i%SA_COLORS.length]};"
+      onclick="drillIntoReason('${r}', null)">${r}</button>`).join('');
+
+  // Store drill data on window for chip clicks
+  window._saDrillData = drill;
+}
+
+function drillIntoReason(reason, subs){
+  if(!subs) subs = (window._saDrillData || {})[reason] || [];
+  _saActiveReason = reason;
+
+  // Update chip active state
+  document.querySelectorAll('.sa-drill-chip').forEach(c=>{
+    c.classList.toggle('active', c.textContent.trim() === reason);
+  });
+
+  const wrap = document.getElementById('saSubReasonWrap');
+  wrap.style.display = 'block';
+  if(_saSubReasonChart){ _saSubReasonChart.destroy(); }
+
+  _saSubReasonChart = new Chart(document.getElementById('saSubReasonCanvas'), {
+    type:'bar',
+    data:{
+      labels: subs.map(s=>s.sub.length>28?s.sub.slice(0,28)+'…':s.sub),
+      datasets:[{
+        label: reason,
+        data:  subs.map(s=>s.count),
+        backgroundColor: '#a855f7aa',
+        borderColor:     '#a855f7',
+        borderWidth:1.5, borderRadius:4,
+      }]
+    },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:SA_TOOLTIP_DEFAULTS },
+      scales:{
+        x:{ beginAtZero:true, ticks:{color:'#8b92a8',font:{size:9}}, grid:{color:'rgba(42,54,80,.4)'} },
+        y:{ ticks:{color:'#e4e7eb',font:{size:9}}, grid:{display:false} }
+      }
+    }
+  });
+}
+
+function renderRetTrend(trend, from, to){
+  if(_saRetTrendChart){ _saRetTrendChart.destroy(); }
+  // Filter by date range if specified
+  let filtered = trend;
+  if(from || to){
+    filtered = trend.filter(w=>{
+      // Week key is YYYY-Www — compare by first day approximation
+      return (!from || w.week >= from.slice(0,7)) && (!to || w.week <= to.slice(0,7));
+    });
+  }
+  _saRetTrendChart = new Chart(document.getElementById('saRetTrendCanvas'), {
+    type:'line',
+    data:{
+      labels: filtered.map(w=>w.week),
+      datasets:[
+        {
+          label:'Return Rate %',
+          data:  filtered.map(w=>w.rate),
+          borderColor:'#ff3366',
+          backgroundColor:'rgba(255,51,102,.12)',
+          borderWidth:2.5,
+          pointRadius:4,
+          pointHoverRadius:6,
+          tension:0.35,
+          fill:true,
+          yAxisID:'y',
+        },
+        {
+          label:'Returns (units)',
+          data:  filtered.map(w=>w.returns),
+          borderColor:'#fbbf24',
+          backgroundColor:'transparent',
+          borderWidth:1.5,
+          pointRadius:3,
+          tension:0.35,
+          borderDash:[4,3],
+          yAxisID:'y2',
+        }
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{ legend:{labels:{color:'#8b92a8',font:{size:10},boxWidth:12}}, tooltip:SA_TOOLTIP_DEFAULTS },
+      scales:{
+        x:{ ticks:{color:'#8b92a8',font:{size:10}}, grid:{color:'rgba(42,54,80,.4)'} },
+        y:{ beginAtZero:true, ticks:{color:'#8b92a8',font:{size:10},callback:v=>v+'%'}, grid:{color:'rgba(42,54,80,.4)'} },
+        y2:{ beginAtZero:true, position:'right', ticks:{color:'#fbbf24',font:{size:10}}, grid:{display:false} }
+      }
+    }
+  });
+}
+
+function applyReturnFilter(){
+  const d = _saData[_saAccount];
+  if(!d) return;
+  const from = document.getElementById('saRetFrom').value;
+  const to   = document.getElementById('saRetTo').value;
+  // Re-render trend with filter; product/drill charts need server-side filtering
+  // For now filter the trend client-side and note that product/drill show full range
+  if(_saRetTrendChart){ _saRetTrendChart.destroy(); }
+  renderRetTrend(d.return_trend || [], from, to);
+}
+
+function resetReturnFilter(){
+  const d = _saData[_saAccount];
+  if(!d) return;
+  document.getElementById('saRetFrom').value = d.kpis.date_from;
+  document.getElementById('saRetTo').value   = d.kpis.date_to;
+  if(_saRetTrendChart){ _saRetTrendChart.destroy(); }
+  renderRetTrend(d.return_trend || [], '', '');
+}
+
+/* ═══════════════════════════════════════
+   SKU BREAKDOWN SECTION
+═══════════════════════════════════════ */
+let _saSkuDonutChart = null;
+let _saSkuLineChart  = null;
+
+function renderSkuSection(d){
+  if(!d || !d.sku_by_product || !Object.keys(d.sku_by_product).length) return;
+  document.getElementById('saSkuSection').style.display = 'block';
+
+  // Populate product dropdown — order by total sales desc (same as trend chart)
+  const sel = document.getElementById('saSkuProductSelect');
+  // Use top15 from trend_series order (already sorted by total)
+  const products = (d.trend_series || []).map(s=>s.name).filter(p => d.sku_by_product[p]);
+  // Add any remaining products not in top15
+  Object.keys(d.sku_by_product).forEach(p=>{ if(!products.includes(p)) products.push(p); });
+
+  sel.innerHTML = products.map(p=>`<option value="${p}">${p}</option>`).join('');
+
+  // Set date inputs to full range
+  const fromEl = document.getElementById('saSkuFrom');
+  const toEl   = document.getElementById('saSkuTo');
+  if(!fromEl.value){ fromEl.value = d.kpis.date_from; toEl.value = d.kpis.date_to; }
+
+  renderSkuCharts(d, products[0], fromEl.value, toEl.value);
+}
+
+function onSkuProductChange(){
+  const d = _saData[_saAccount];
+  if(!d) return;
+  const prod = document.getElementById('saSkuProductSelect').value;
+  const from = document.getElementById('saSkuFrom').value;
+  const to   = document.getElementById('saSkuTo').value;
+  renderSkuCharts(d, prod, from, to);
+}
+
+function applySkuFilter(){
+  const d = _saData[_saAccount];
+  if(!d) return;
+  const prod = document.getElementById('saSkuProductSelect').value;
+  const from = document.getElementById('saSkuFrom').value;
+  const to   = document.getElementById('saSkuTo').value;
+  renderSkuCharts(d, prod, from, to);
+}
+
+function resetSkuFilter(){
+  const d = _saData[_saAccount];
+  if(!d) return;
+  document.getElementById('saSkuFrom').value = d.kpis.date_from;
+  document.getElementById('saSkuTo').value   = d.kpis.date_to;
+  const prod = document.getElementById('saSkuProductSelect').value;
+  renderSkuCharts(d, prod, d.kpis.date_from, d.kpis.date_to);
+}
+
+function renderSkuCharts(d, product, from, to){
+  const series = (d.sku_by_product || {})[product];
+  if(!series) return;
+
+  // Filter dates
+  const dates = (d.trend_dates || []).filter(dt => (!from||dt>=from) && (!to||dt<=to));
+
+  // ── Donut: total units per SKU in filtered range ──────────────────────────
+  const donutData = series.map(s=>{
+    const total = dates.reduce((sum,dt)=>(s.daily[dt]||0)+sum, 0);
+    return { sku: s.sku, total };
+  }).filter(s=>s.total>0).sort((a,b)=>b.total-a.total);
+
+  if(_saSkuDonutChart){ _saSkuDonutChart.destroy(); }
+  _saSkuDonutChart = new Chart(document.getElementById('saSkuDonutCanvas'),{
+    type:'doughnut',
+    data:{
+      labels: donutData.map(s => s.sku.length>28 ? s.sku.slice(0,28)+'…' : s.sku),
+      datasets:[{
+        data:            donutData.map(s=>s.total),
+        backgroundColor: SA_COLORS.map(c=>c+'cc'),
+        borderColor:     SA_COLORS,
+        borderWidth:1.5,
+        hoverOffset:6,
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      cutout:'55%',
+      plugins:{
+        legend:{ position:'right', labels:{ color:'#8b92a8', font:{size:9,family:"'IBM Plex Sans',sans-serif"}, boxWidth:10, padding:8 } },
+        tooltip:{ ...SA_TOOLTIP_DEFAULTS, callbacks:{
+          label: ctx=>{
+            const tot = donutData.reduce((s,x)=>s+x.total,0);
+            return ` ${ctx.label}: ${ctx.raw} units (${Math.round(ctx.raw/tot*100)}%)`;
+          }
+        }}
+      }
+    }
+  });
+
+  // ── Line chart: daily units per SKU ──────────────────────────────────────
+  if(_saSkuLineChart){ _saSkuLineChart.destroy(); }
+  const lineDatasets = series.map((s,i)=>({
+    label: s.sku.length>30 ? s.sku.slice(0,30)+'…' : s.sku,
+    data:  dates.map(dt=>s.daily[dt]||0),
+    borderColor:     SA_COLORS[i%SA_COLORS.length],
+    backgroundColor: SA_COLORS[i%SA_COLORS.length]+'18',
+    borderWidth: s.sku==='Others' ? 1.5 : 2,
+    borderDash:  s.sku==='Others' ? [4,3] : [],
+    pointRadius: 0,
+    pointHoverRadius: 4,
+    tension:0.3,
+    fill: false,
+  }));
+
+  _saSkuLineChart = new Chart(document.getElementById('saSkuLineCanvas'),{
+    type:'line',
+    data:{ labels: dates, datasets: lineDatasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ labels:{ color:'#8b92a8', font:{size:9,family:"'IBM Plex Sans',sans-serif"}, boxWidth:10, padding:8 } },
+        tooltip: SA_TOOLTIP_DEFAULTS,
+        title:{ display:true, text: product, color:'#e4e7eb', font:{size:11,weight:'600'}, padding:{bottom:8} }
+      },
+      scales:{
+        x:{ ticks:{color:'#8b92a8',font:{size:9},maxTicksLimit:14}, grid:{color:'rgba(42,54,80,.4)'} },
+        y:{ beginAtZero:true, ticks:{color:'#8b92a8',font:{size:10}}, grid:{color:'rgba(42,54,80,.4)'} }
       }
     }
   });
