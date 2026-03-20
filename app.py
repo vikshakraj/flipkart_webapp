@@ -1138,8 +1138,8 @@ def _df_to_store_rows(df):
 def _compute_analytics(store):
     """Compute KPIs + chart data from a {date_str: [row,...]} store dict."""
     ACTIVE    = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD'}
-    RETURNED  = {'RETURNED','RETURN_REQUESTED'}
-    CANCELLED = {'CANCELLED'}
+    RETURNED  = {'RETURNED'}
+    CANCELLED = {'CANCELLED','RETURN_REQUESTED'}
 
     all_rows = [r for rows in store.values() for r in rows]
     if not all_rows:
