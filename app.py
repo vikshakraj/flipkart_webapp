@@ -1894,9 +1894,10 @@ def preflight():
 
         return jsonify({
             'accounts':    ordered_accounts,
-            'duplicates':  duplicates,
-            'batch_dupes': batch_dupes,
-            'has_dupes':   bool(duplicates),
+            'duplicates':  db_dupes,           # only historical — shown in popup
+            'batch_dupes': batch_dupes,         # within-batch — auto-excluded silently
+            'has_dupes':   bool(db_dupes),      # popup only for historical dupes
+            'has_batch_dupes': bool(batch_dupes),
         })
 
     except Exception as e:
@@ -1921,11 +1922,19 @@ def sort_labels():
         # Format: JSON-encoded dict {account: [oid, ...]}
         exclude_raw   = request.form.get('exclude_order_ids', '{}')
         try:
-            exclude_map = json.loads(exclude_raw)  # {account: [oid, ...]}
+            exclude_map = json.loads(exclude_raw)  # {account: [oid, ...]} — user-chosen DB dupes
         except Exception:
             exclude_map = {}
-        # Flat set of OIDs to exclude — AWB check handled per-page below
-        exclude_oids  = set(oid for oids in exclude_map.values() for oid in oids)
+
+        batch_exclude_raw = request.form.get('batch_exclude_oids', '{}')
+        try:
+            batch_exclude_map = json.loads(batch_exclude_raw)  # {account: [oid, ...]} — auto batch dupes
+        except Exception:
+            batch_exclude_map = {}
+
+        # Merge both into one flat exclude set — batch dupes always excluded
+        exclude_oids = set(oid for oids in exclude_map.values() for oid in oids)
+        exclude_oids |= set(oid for oids in batch_exclude_map.values() for oid in oids)
 
         # ── Load master SKU (small xlsx, fine in RAM) ──────────────────────────
         with open(MASTER_SKU_PATH, 'rb') as f:
