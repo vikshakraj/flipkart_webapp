@@ -1095,6 +1095,7 @@ def _df_to_store_rows(df):
             'qty':        int(r.get('quantity', 1)),
             'status':     str(r.get('order_item_status','')),
             'ret_reason': str(r.get('return_reason','')) if str(r.get('return_reason','')) != 'nan' else '',
+            'ret_sub':    str(r.get('return_sub_reason','')) if str(r.get('return_sub_reason','')) != 'nan' else '',
             'disp_breach':str(r.get('dispatch_sla_breached','')),
             'dlv_breach': str(r.get('delivery_sla_breached','')),
         })
@@ -1166,11 +1167,108 @@ def _compute_analytics(store):
         for k, v in sorted(reason_counts.items(), key=lambda x: -x[1])[:12]
     ]
 
+    # ── Returns by product ──────────────────────────────────────────────────
+    prod_returns = defaultdict(int)   # product -> return count
+    prod_orders  = defaultdict(int)   # product -> total orders
+    for r in all_rows:
+        prod_orders[r['product']] += r['qty']
+        if r['status'] in RETURNED:
+            prod_returns[r['product']] += r['qty']
+    # Top 15 by return count, include rate
+    top_ret_prods = sorted(prod_returns.items(), key=lambda x: -x[1])[:15]
+    returns_by_product = [
+        {
+            'product':  p,
+            'returns':  cnt,
+            'total':    prod_orders[p],
+            'rate':     round(cnt / prod_orders[p] * 100, 1) if prod_orders[p] else 0,
+        }
+        for p, cnt in top_ret_prods
+    ]
+
+    # ── Return reason drill-down: reason -> {sub_reason: count} ─────────────
+    reason_drill = defaultdict(lambda: defaultdict(int))
+    for r in all_rows:
+        if r['status'] in RETURNED:
+            label = REASON_MAP.get(r['ret_reason'], r['ret_reason']) if r['ret_reason'] else 'Unknown'
+            sub   = r.get('ret_sub', '') or r.get('ret_reason', '') or 'Unknown'
+            reason_drill[label][sub] += 1
+    returns_drill = {
+        reason: [{'sub': s, 'count': c} for s, c in sorted(subs.items(), key=lambda x: -x[1])]
+        for reason, subs in reason_drill.items()
+    }
+
+    # ── Weekly return trend (all products combined) ──────────────────────────
+    from collections import OrderedDict
+    week_returns = defaultdict(int)
+    week_orders  = defaultdict(int)
+    for d, rows in store.items():
+        try:
+            import datetime as _dt
+            dt  = _dt.datetime.strptime(d, '%Y-%m-%d')
+            # ISO week key: YYYY-Www
+            wk  = dt.strftime('%Y-W%W')
+        except Exception:
+            continue
+        for r in rows:
+            week_orders[wk]  += r['qty']
+            if r['status'] in RETURNED:
+                week_returns[wk] += r['qty']
+    all_weeks = sorted(set(list(week_orders.keys()) + list(week_returns.keys())))
+    return_trend = [
+        {
+            'week':    w,
+            'returns': week_returns.get(w, 0),
+            'orders':  week_orders.get(w, 0),
+            'rate':    round(week_returns.get(w, 0) / week_orders.get(w, 1) * 100, 1),
+        }
+        for w in all_weeks
+    ]
+
+    # ── SKU breakdown per product (active orders only) ──────────────────────
+    # Structure: { product: { sku: {total, daily: {date: qty}} } }
+    prod_sku_daily = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+    prod_sku_total = defaultdict(lambda: defaultdict(int))
+    for d, rows in store.items():
+        for r in rows:
+            if r['status'] in ACTIVE:
+                prod_sku_daily[r['product']][r['sku']][d] += r['qty']
+                prod_sku_total[r['product']][r['sku']]    += r['qty']
+
+    # For each product: top 7 SKUs by total, rest = Others
+    sku_by_product = {}
+    for prod, sku_totals in prod_sku_total.items():
+        top7 = sorted(sku_totals.items(), key=lambda x: -x[1])[:7]
+        top7_skus = [s for s, _ in top7]
+        others_daily = defaultdict(int)
+        for sku, day_map in prod_sku_daily[prod].items():
+            if sku not in top7_skus:
+                for d, q in day_map.items():
+                    others_daily[d] += q
+        series = []
+        for sku in top7_skus:
+            series.append({
+                'sku':   sku,
+                'total': prod_sku_total[prod][sku],
+                'daily': {d: prod_sku_daily[prod][sku].get(d, 0) for d in all_dates},
+            })
+        if others_daily:
+            series.append({
+                'sku':   'Others',
+                'total': sum(others_daily.values()),
+                'daily': {d: others_daily.get(d, 0) for d in all_dates},
+            })
+        sku_by_product[prod] = series
+
     return {
-        'kpis':         kpis,
-        'trend_dates':  all_dates,
-        'trend_series': trend_series,
-        'returns_chart':returns_chart,
+        'kpis':              kpis,
+        'trend_dates':       all_dates,
+        'trend_series':      trend_series,
+        'returns_chart':     returns_chart,
+        'returns_by_product':returns_by_product,
+        'returns_drill':     returns_drill,
+        'return_trend':      return_trend,
+        'sku_by_product':    sku_by_product,
     }
 
 @app.route('/api/sales-upload/<account>', methods=['POST'])
