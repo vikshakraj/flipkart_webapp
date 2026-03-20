@@ -1232,22 +1232,34 @@ def _compute_analytics(store):
         for reason, subs in reason_drill.items()
     }
 
-    # ── Weekly return trend (all products combined) ──────────────────────────
-    from collections import OrderedDict
+    # ── Daily return/cancel data for client-side date filtering ─────────────
+    daily_returns  = defaultdict(int)   # date -> return qty
+    daily_orders   = defaultdict(int)   # date -> total qty
+    daily_cancels  = defaultdict(int)   # date -> cancel qty
+    prod_cancels   = defaultdict(int)   # product -> cancel count
+    prod_cancel_orders = defaultdict(int)  # product -> total orders
+    for d, rows in store.items():
+        for r in rows:
+            daily_orders[d] += r['qty']
+            if r['status'] in RETURNED:
+                daily_returns[d] += r['qty']
+            if r['status'] in CANCELLED:
+                daily_cancels[d] += r['qty']
+                prod_cancels[r['product']] += r['qty']
+            prod_cancel_orders[r['product']] += r['qty']
+
+    # ── Weekly return trend ───────────────────────────────────────────────────
+    import datetime as _dt
     week_returns = defaultdict(int)
     week_orders  = defaultdict(int)
-    for d, rows in store.items():
+    for d in all_dates:
         try:
-            import datetime as _dt
-            dt  = _dt.datetime.strptime(d, '%Y-%m-%d')
-            # ISO week key: YYYY-Www
-            wk  = dt.strftime('%Y-W%W')
+            dt = _dt.datetime.strptime(d, '%Y-%m-%d')
+            wk = dt.strftime('%G-W%V')   # ISO week: 2026-W12
         except Exception:
             continue
-        for r in rows:
-            week_orders[wk]  += r['qty']
-            if r['status'] in RETURNED:
-                week_returns[wk] += r['qty']
+        week_orders[wk]  += daily_orders.get(d, 0)
+        week_returns[wk] += daily_returns.get(d, 0)
     all_weeks = sorted(set(list(week_orders.keys()) + list(week_returns.keys())))
     return_trend = [
         {
@@ -1257,6 +1269,29 @@ def _compute_analytics(store):
             'rate':    round(week_returns.get(w, 0) / week_orders.get(w, 1) * 100, 1),
         }
         for w in all_weeks
+    ]
+
+    # ── Cancellations by product (top 15) ─────────────────────────────────────
+    top_cancel_prods = sorted(prod_cancels.items(), key=lambda x: -x[1])[:15]
+    cancels_by_product = [
+        {
+            'product': p,
+            'cancels': cnt,
+            'total':   prod_cancel_orders[p],
+            'rate':    round(cnt / prod_cancel_orders[p] * 100, 1) if prod_cancel_orders[p] else 0,
+        }
+        for p, cnt in top_cancel_prods
+    ]
+
+    # ── Per-date return/cancel totals for client-side date filter ─────────────
+    daily_stats = [
+        {
+            'date':    d,
+            'returns': daily_returns.get(d, 0),
+            'cancels': daily_cancels.get(d, 0),
+            'orders':  daily_orders.get(d, 0),
+        }
+        for d in all_dates
     ]
 
     # ── SKU breakdown per product (active orders only) ──────────────────────
@@ -1295,14 +1330,16 @@ def _compute_analytics(store):
         sku_by_product[prod] = series
 
     return {
-        'kpis':              kpis,
-        'trend_dates':       all_dates,
-        'trend_series':      trend_series,
-        'returns_chart':     returns_chart,
-        'returns_by_product':returns_by_product,
-        'returns_drill':     returns_drill,
-        'return_trend':      return_trend,
-        'sku_by_product':    sku_by_product,
+        'kpis':               kpis,
+        'trend_dates':        all_dates,
+        'trend_series':       trend_series,
+        'returns_chart':      returns_chart,
+        'returns_by_product': returns_by_product,
+        'returns_drill':      returns_drill,
+        'return_trend':       return_trend,
+        'cancels_by_product': cancels_by_product,
+        'daily_stats':        daily_stats,
+        'sku_by_product':     sku_by_product,
     }
 
 @app.route('/api/sales-upload/<account>', methods=['POST'])
