@@ -2973,57 +2973,34 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 
             // Product tiles — top 10 by revenue in filtered range.
             //
-            // Sources:
-            //   FSN report  (data.consolidatedFSN): revenue per Sku Id (= your internal SKU ID).
-            //               ROI only present on rows with conversions — unreliable for total spend.
-            //   Daily report (data.consolidated):   Ad Spend per campaign per day — the reliable spend total.
-            //
-            // Name resolution:
-            //   FSN "Sku Id" = your internal SKU ID (e.g. "Naosucura Herbal Knee Patch Pack 1").
-            //   masterSkuMap keys are also internal SKU IDs → ProductName 1.
-            //   Multiple SKU IDs map to the same ProductName → they get grouped together.
-            //
-            // Spend allocation:
-            //   Total spend from daily report is distributed to products proportionally by revenue share,
-            //   since the FSN report has no reliable per-SKU spend column.
+            // FSN report has ROI (= ROAS) populated on every row that has revenue.
+            // spend = revenue / ROI per row → gives accurate per-SKU spend.
+            // Multiple FSN rows map to the same canonical ProductName via masterSkuMap
+            // and get summed together. ROAS is then revenue / spend for that product group.
             const productTiles = useMemo(() => {
-                const fsnRows   = data.consolidatedFSN || [];
-                const dailyRows = data.consolidated    || [];
+                const fsnRows = data.consolidatedFSN || [];
+                const prodMap = {}; // name → { revenue, spend }
 
-                // Step 1: sum revenue per canonical product name from FSN report
-                // FSN report is a period aggregate — no Date column — so no date filtering on rows.
-                // The date range is implicitly set by which file the user uploaded.
-                const prodRevenue = {};
                 fsnRows.forEach(row => {
-                    const skuId = (row['Sku Id'] || '').trim();
+                    const skuId  = (row['Sku Id'] || '').trim();
                     if (!skuId) return;
-                    // Resolve to canonical product name; fall back to raw SKU ID
-                    const name = masterSkuMap[skuId] || skuId;
+                    const name    = masterSkuMap[skuId] || skuId;
                     const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
-                    prodRevenue[name] = (prodRevenue[name] || 0) + revenue;
+                    const roi     = parseFloat(row['ROI']) || 0;
+                    // spend = revenue / ROI; only valid when both are non-zero
+                    const spend   = (revenue > 0 && roi > 0) ? revenue / roi : 0;
+
+                    if (!prodMap[name]) prodMap[name] = { name, revenue: 0, spend: 0 };
+                    prodMap[name].revenue += revenue;
+                    prodMap[name].spend   += spend;
                 });
 
-                // Step 2: total ad spend from daily report in date range
-                const totalSpend = dailyRows.reduce((sum, row) => {
-                    const d = row['Date'] || row['Report Date'] || row['date'] || row['Day'] || '';
-                    if ((fromDate && d < fromDate) || (toDate && d > toDate)) return sum;
-                    return sum + (parseFloat(row['Ad Spend']) || 0);
-                }, 0);
-
-                const totalRevenue = Object.values(prodRevenue).reduce((a, b) => a + b, 0);
-
-                // Step 3: build tiles — allocate spend proportionally by revenue share
-                return Object.entries(prodRevenue)
-                    .filter(([, rev]) => rev > 0)
-                    .map(([name, revenue]) => {
-                        const share = totalRevenue > 0 ? revenue / totalRevenue : 0;
-                        const spend = totalSpend * share;
-                        const roas  = spend > 0 ? revenue / spend : 0;
-                        return { name, revenue, spend, roas };
-                    })
+                return Object.values(prodMap)
+                    .filter(p => p.revenue > 0)
+                    .map(p => ({ ...p, roas: p.spend > 0 ? p.revenue / p.spend : 0 }))
                     .sort((a, b) => b.revenue - a.revenue)
                     .slice(0, 10);
-            }, [data.consolidatedFSN, data.consolidated, fromDate, toDate, masterSkuMap]);
+            }, [data.consolidatedFSN, masterSkuMap]);
 
             const topCampaigns = useMemo(() => {
                 const campaignMap = {};
