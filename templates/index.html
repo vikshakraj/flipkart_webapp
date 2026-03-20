@@ -1463,8 +1463,17 @@
               </div>
             </div>
 
-            <!-- Row 1: Returns by Product + Cancels by Product + Reason Drill-down -->
+            <!-- Row 1: Sales + Returns + Cancellations by Product -->
             <div class="sa-returns-grid-3">
+              <div class="sa-chart-card">
+                <div class="sa-chart-header">
+                  <div>
+                    <h3 class="sa-chart-title">📊 Sales by Product</h3>
+                    <p class="sa-chart-sub">Top 15 products · units sold (active orders)</p>
+                  </div>
+                </div>
+                <div style="position:relative;height:340px;"><canvas id="saSalesByProdCanvas"></canvas></div>
+              </div>
               <div class="sa-chart-card">
                 <div class="sa-chart-header">
                   <div>
@@ -1483,23 +1492,10 @@
                 </div>
                 <div style="position:relative;height:340px;"><canvas id="saCancelByProdCanvas"></canvas></div>
               </div>
-              <div class="sa-chart-card">
-                <div class="sa-chart-header">
-                  <div>
-                    <h3 class="sa-chart-title">🔍 Return Reason Drill-down</h3>
-                    <p class="sa-chart-sub">Click a reason to see sub-reasons</p>
-                  </div>
-                </div>
-                <div style="position:relative;height:220px;"><canvas id="saReasonDonutCanvas"></canvas></div>
-                <div class="sa-drill-legend" id="saReasonChips"></div>
-                <div style="position:relative;height:140px;margin-top:10px;display:none;" id="saSubReasonWrap">
-                  <canvas id="saSubReasonCanvas"></canvas>
-                </div>
-              </div>
             </div>
 
-            <!-- Row 2: Weekly Return Trend -->
-            <div class="sa-returns-full">
+            <!-- Row 2: Weekly Return Trend + Reason Drill-down -->
+            <div class="sa-returns-grid" style="margin-bottom:20px;">
               <div class="sa-chart-card">
                 <div class="sa-chart-header">
                   <div>
@@ -1507,7 +1503,20 @@
                     <p class="sa-chart-sub">Return rate % week over week</p>
                   </div>
                 </div>
-                <div style="position:relative;height:220px;"><canvas id="saRetTrendCanvas"></canvas></div>
+                <div style="position:relative;height:260px;"><canvas id="saRetTrendCanvas"></canvas></div>
+              </div>
+              <div class="sa-chart-card">
+                <div class="sa-chart-header">
+                  <div>
+                    <h3 class="sa-chart-title">🔍 Return Reason Drill-down</h3>
+                    <p class="sa-chart-sub">Click a reason to see sub-reasons</p>
+                  </div>
+                </div>
+                <div style="position:relative;height:200px;"><canvas id="saReasonDonutCanvas"></canvas></div>
+                <div class="sa-drill-legend" id="saReasonChips"></div>
+                <div style="position:relative;height:140px;margin-top:10px;display:none;" id="saSubReasonWrap">
+                  <canvas id="saSubReasonCanvas"></canvas>
+                </div>
               </div>
             </div>
           </div>
@@ -4295,9 +4304,10 @@ function _renderReturnsCharts(d, from, to){
   // otherwise fall back to full precomputed data
   const rbp  = _filterRetsByDate(d, from, to);
   const cbp  = _filterCancelsByDate(d, from, to);
-  const drill = d.returns_drill || {};  // drill-down stays full range (complex to filter)
+  const drill = d.returns_drill || {};
   const trend = _filterTrendByDate(d.return_trend || [], from, to);
 
+  renderSalesByProduct(d, from, to);
   renderRetByProduct(rbp);
   renderCancelByProduct(cbp);
   renderReasonDonut(drill);
@@ -4424,7 +4434,50 @@ function renderRetByProduct(data){
   });
 }
 
+let _saSalesByProdChart  = null;
 let _saCancelByProdChart = null;
+
+function renderSalesByProduct(d, from, to){
+  if(_saSalesByProdChart){ _saSalesByProdChart.destroy(); }
+  const series = d.trend_series || [];
+  // Sum units per product over filtered date range
+  const prodTotals = series.map(s => {
+    const total = Object.entries(s.data || {})
+      .filter(([dt]) => (!from || dt >= from) && (!to || dt <= to))
+      .reduce((sum, [, qty]) => sum + qty, 0);
+    return { name: s.name, total };
+  }).filter(p => p.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 15);
+
+  if(!prodTotals.length) return;
+
+  _saSalesByProdChart = new Chart(document.getElementById('saSalesByProdCanvas'), {
+    type: 'bar',
+    data: {
+      labels: prodTotals.map(p => p.name.length > 22 ? p.name.slice(0,22)+'…' : p.name),
+      datasets: [{
+        label: 'Units Sold',
+        data:  prodTotals.map(p => p.total),
+        backgroundColor: '#22d3ee88',
+        borderColor:     '#22d3ee',
+        borderWidth: 1.5,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#8b92a8', font: { size: 10 }, boxWidth: 12 } },
+        tooltip: SA_TOOLTIP_DEFAULTS,
+      },
+      scales: {
+        x: { ticks: { color: '#e4e7eb', font: { size: 9 } }, grid: { color: 'rgba(42,54,80,.4)' } },
+        y: { beginAtZero: true, ticks: { color: '#8b92a8', font: { size: 10 } }, grid: { color: 'rgba(42,54,80,.4)' }, title: { display: true, text: 'Units', color: '#8b92a8', font: { size: 10 } } }
+      }
+    }
+  });
+}
 
 function renderCancelByProduct(data){
   if(_saCancelByProdChart){ _saCancelByProdChart.destroy(); }
