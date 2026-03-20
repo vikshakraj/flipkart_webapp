@@ -1781,6 +1781,23 @@ def ads_data_get(account):
 
 
 
+@app.route('/api/ads-colcheck/<account>', methods=['GET'])
+def ads_colcheck(account):
+    """Debug: show column names in stored campaignOrder for an account."""
+    account = account.upper().replace('-', ' ')
+    store = _load_ads_store(account)
+    store = _prune_ads_store(store)
+    result = _build_ads_response(store)
+    data = result.get('data', {})
+    co = data.get('campaignOrder', [])
+    return jsonify({
+        'account': account,
+        'campaignOrder_rows': len(co),
+        'campaignOrder_columns': list(co[0].keys()) if co else [],
+        'campaignOrder_sample': co[0] if co else {},
+        'available_report_types': list(data.keys()),
+    })
+
 @app.route('/api/ads-status/<account>', methods=['GET'])
 def ads_status(account):
     """Quick status check — returns meta + bucket keys without full data."""
