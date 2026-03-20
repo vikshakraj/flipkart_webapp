@@ -1924,7 +1924,7 @@ def sort_labels():
             exclude_map = json.loads(exclude_raw)  # {account: [oid, ...]}
         except Exception:
             exclude_map = {}
-        # Flatten to a set of OIDs to exclude (account-agnostic for simplicity)
+        # Flat set of OIDs to exclude — AWB check handled per-page below
         exclude_oids  = set(oid for oids in exclude_map.values() for oid in oids)
 
         # ── Load master SKU (small xlsx, fine in RAM) ──────────────────────────
@@ -1952,20 +1952,12 @@ def sort_labels():
                 skus = extract_skus_from_page(text)
                 order_ids  = extract_order_ids(text)
                 page_awb   = extract_awb(text)
-                # Skip page if (OID, AWB) composite key is excluded
-                # Same OID + different AWB = different label = keep it
+                # Skip page if its OID is in the exclude set
+                # Note: preflight already accounts for AWB differentiation when
+                # building the duplicate list shown to the user
                 if exclude_oids and any(oid in exclude_oids for oid in order_ids):
-                    # Double-check: only skip if AWB also matches (or no AWB stored)
-                    skip = False
-                    for oid in order_ids:
-                        if oid in exclude_oids:
-                            excl_awbs = exclude_oids[oid] if isinstance(exclude_oids, dict) else None
-                            if excl_awbs is None or page_awb in excl_awbs or not page_awb:
-                                skip = True
-                                break
-                    if skip:
-                        del text
-                        continue
+                    del text
+                    continue
                 account_pages[account].append({
                     'orig_path': pdf_path,
                     'orig_idx': i,
@@ -1980,6 +1972,10 @@ def sort_labels():
         # ── Step 2: Per-account: classify → sort → write output PDFs ──────────
         output_files = []
         all_account_data = {}  # {account: {normal, dual, mixed, unknown}} for consolidated
+
+        total_pages = sum(len(v) for v in account_pages.values())
+        if not account_pages or total_pages == 0:
+            return jsonify({'error': 'All labels were identified as duplicates and excluded. Nothing to sort.'}), 400
 
         for account, pages in account_pages.items():
             account_sku_map = get_account_master(master, account)
