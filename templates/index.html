@@ -2251,6 +2251,15 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 }
             }, [activeAccount]);
 
+            // Load master SKU map once
+            const [masterSkuMap, setMasterSkuMap] = React.useState({});
+            React.useEffect(() => {
+                fetch('/api/master-sku-map')
+                    .then(r => r.json())
+                    .then(d => { if (d.mapping) setMasterSkuMap(d.mapping); })
+                    .catch(() => {});
+            }, []);
+
             const loadFromServer = async (account) => {
                 setState(account, { loading: true });
                 try {
@@ -2333,6 +2342,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                 initialData={st.showDashboard ? st.data : null}
                                 initialDateRange={st.showDashboard ? st.dateRange : null}
                                 onClear={() => handleReset(activeAccount)}
+                                masterSkuMap={masterSkuMap}
                             />
                         )}
                 </div>
@@ -2340,7 +2350,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         }
 
 // Original App Component
-        function OriginalApp({ initialData, initialDateRange, onClear }) {
+        function OriginalApp({ initialData, initialDateRange, onClear, masterSkuMap = {} }) {
             const [files, setFiles] = useState({});
             const [dragOver, setDragOver] = useState(false);
             const [loading, setLoading] = useState(false);
@@ -2500,6 +2510,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                 activeTab={activeTab}
                                 setActiveTab={setActiveTab}
                                 dateRange={dateRange}
+                                masterSkuMap={masterSkuMap}
                                 onReset={() => {
                                     setFiles({});
                                     setData({});
@@ -2613,7 +2624,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         }
 
         // Dashboard Component
-        function Dashboard({ data, activeTab, setActiveTab, dateRange, onReset }) {
+        function Dashboard({ data, activeTab, setActiveTab, dateRange, masterSkuMap = {}, onReset }) {
             const tabs = [
                 { id: 'overview', label: 'Overview', icon: '📊' },
                 { id: 'campaigns', label: 'Campaigns', icon: '🎯' },
@@ -2684,9 +2695,9 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                     </div>
 
                     <div className="tab-content">
-                        {activeTab === 'overview' && <OverviewTab data={data} />}
+                        {activeTab === 'overview' && <OverviewTab data={data} masterSkuMap={masterSkuMap} />}
                         {activeTab === 'campaigns' && <CampaignsTab data={data} />}
-                        {activeTab === 'skus' && <SKUTab data={data} />}
+                        {activeTab === 'skus' && <SKUTab data={data} masterSkuMap={masterSkuMap} />}
                         {activeTab === 'keywords' && <KeywordsTab data={data} />}
                         {activeTab === 'placements' && <PlacementsTab data={data} />}
                         {activeTab === 'search-terms' && <SearchTermsTab data={data} />}
@@ -2926,42 +2937,121 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         }
 
         // Overview Tab
-        function OverviewTab({ data }) {
-            const topCampaigns = useMemo(() => {
+        function OverviewTab({ data, masterSkuMap = {} }) {
+            // Date range filter state
+            const allDates = useMemo(() => {
                 if (!data.consolidated) return [];
-                
-                const campaignMap = {};
-                data.consolidated.forEach(row => {
-                    const id = row['Campaign ID'];
-                    if (!campaignMap[id]) {
-                        campaignMap[id] = {
-                            id,
-                            name: row['Campaign Name'],
-                            spend: 0,
-                            revenue: 0,
-                            clicks: 0,
-                            conversions: 0
-                        };
-                    }
-                    campaignMap[id].spend += parseFloat(row['Ad Spend']) || 0;
-                    campaignMap[id].revenue += parseFloat(row['Total Revenue (Rs.)']) || 0;
-                    campaignMap[id].clicks += parseInt(row.Clicks) || 0;
-                    campaignMap[id].conversions += parseInt(row['Total converted units']) || 0;
-                });
+                const dates = [...new Set(data.consolidated.map(r =>
+                    r['Date'] || r['Report Date'] || r['date'] || r['Day'] || ''
+                ).filter(Boolean))].sort();
+                return dates;
+            }, [data.consolidated]);
 
-                return Object.values(campaignMap)
-                    .map(c => ({ 
-                        ...c, 
-                        roas: c.spend > 0 ? c.revenue / c.spend : 0,
-                        conversionRate: c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0
-                    }))
+            const [fromDate, setFromDate] = React.useState('');
+            const [toDate,   setToDate]   = React.useState('');
+
+            React.useEffect(() => {
+                if (allDates.length) {
+                    setFromDate(allDates[0]);
+                    setToDate(allDates[allDates.length - 1]);
+                }
+            }, [allDates.join(',')]);
+
+            const filteredConsolidated = useMemo(() => {
+                if (!data.consolidated) return [];
+                return data.consolidated.filter(row => {
+                    const d = row['Date'] || row['Report Date'] || row['date'] || row['Day'] || '';
+                    return (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
+                });
+            }, [data.consolidated, fromDate, toDate]);
+
+            // Product tiles — top 10 by revenue in filtered range
+            const productTiles = useMemo(() => {
+                const prodMap = {};
+                filteredConsolidated.forEach(row => {
+                    const rawName = row['Product Name'] || row['SKU Name'] || row['Sku Id'] || 'Unknown';
+                    const name = masterSkuMap[rawName] || rawName;
+                    const spend   = parseFloat(row['Ad Spend']) || 0;
+                    const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
+                    if (!prodMap[name]) prodMap[name] = { name, spend: 0, revenue: 0 };
+                    prodMap[name].spend   += spend;
+                    prodMap[name].revenue += revenue;
+                });
+                return Object.values(prodMap)
+                    .map(p => ({ ...p, roas: p.spend > 0 ? p.revenue / p.spend : 0 }))
                     .sort((a, b) => b.revenue - a.revenue)
                     .slice(0, 10);
-            }, [data.consolidated]);
+            }, [filteredConsolidated, masterSkuMap]);
+
+            const topCampaigns = useMemo(() => {
+                const campaignMap = {};
+                filteredConsolidated.forEach(row => {
+                    const id = row['Campaign ID'];
+                    if (!id) return;
+                    if (!campaignMap[id]) {
+                        campaignMap[id] = { id, name: row['Campaign Name'], spend: 0, revenue: 0, clicks: 0, conversions: 0 };
+                    }
+                    campaignMap[id].spend   += parseFloat(row['Ad Spend']) || 0;
+                    campaignMap[id].revenue += parseFloat(row['Total Revenue (Rs.)']) || 0;
+                    campaignMap[id].clicks  += parseInt(row.Clicks) || 0;
+                    campaignMap[id].conversions += parseInt(row['Total converted units']) || 0;
+                });
+                return Object.values(campaignMap)
+                    .map(c => ({ ...c, roas: c.spend > 0 ? c.revenue / c.spend : 0,
+                        conversionRate: c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0 }))
+                    .sort((a, b) => b.revenue - a.revenue)
+                    .slice(0, 10);
+            }, [filteredConsolidated]);
+
+            const fmt = v => '₹' + Math.round(v).toLocaleString('en-IN');
 
             return (
                 <div>
                     <DailyTrendChart data={data} />
+
+                    {/* Date filter row */}
+                    <div style={{display:'flex',alignItems:'center',gap:'12px',margin:'16px 0',flexWrap:'wrap'}}>
+                        <span style={{color:'var(--color-text-muted)',fontSize:'0.85rem',fontWeight:600}}>Filter:</span>
+                        <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)}
+                            style={{background:'var(--color-surface)',border:'1px solid var(--color-border)',borderRadius:'6px',
+                                padding:'6px 10px',color:'var(--color-text)',fontSize:'0.82rem',fontFamily:'inherit'}} />
+                        <span style={{color:'var(--color-text-muted)',fontSize:'0.82rem'}}>to</span>
+                        <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)}
+                            style={{background:'var(--color-surface)',border:'1px solid var(--color-border)',borderRadius:'6px',
+                                padding:'6px 10px',color:'var(--color-text)',fontSize:'0.82rem',fontFamily:'inherit'}} />
+                        <button onClick={()=>{setFromDate(allDates[0]||'');setToDate(allDates[allDates.length-1]||'');}}
+                            style={{padding:'6px 14px',borderRadius:'6px',border:'1px solid var(--color-border)',
+                                background:'var(--color-surface)',color:'var(--color-text-muted)',fontSize:'0.8rem',cursor:'pointer',fontFamily:'inherit'}}>
+                            Reset
+                        </button>
+                    </div>
+
+                    {/* Product tiles */}
+                    {productTiles.length > 0 && (
+                        <div className="section">
+                            <div className="section-header">
+                                <h3 className="section-title">Top 10 Products by Revenue</h3>
+                            </div>
+                            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:'12px',marginBottom:'8px'}}>
+                                {productTiles.map((p, i) => (
+                                    <div key={i} style={{background:'var(--color-surface)',border:'1px solid var(--color-border)',
+                                        borderRadius:'10px',padding:'14px 16px',display:'flex',flexDirection:'column',gap:'6px'}}>
+                                        <div style={{fontSize:'0.78rem',color:'var(--color-text-muted)',fontWeight:600,
+                                            overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={p.name}>
+                                            {p.name}
+                                        </div>
+                                        <div style={{fontSize:'1.05rem',fontWeight:700,color:'var(--color-accent-green)',marginTop:'2px'}}>
+                                            {fmt(p.revenue)}
+                                        </div>
+                                        <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.78rem',color:'var(--color-text-muted)',marginTop:'2px'}}>
+                                            <span>Spend: {fmt(p.spend)}</span>
+                                            <span style={{color:'#fbbf24',fontWeight:700}}>{p.roas.toFixed(2)}x</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     <div className="section">
                         <div className="section-header">
                             <h3 className="section-title">Top 10 Campaigns by Revenue</h3>
@@ -3143,7 +3233,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         }
 
         // SKU Tab
-        function SKUTab({ data }) {
+        function SKUTab({ data, masterSkuMap = {} }) {
             const [sortBy, setSortBy] = useState('revenue');
             const [selectedSKU, setSelectedSKU] = useState(null);
 
@@ -3186,6 +3276,28 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         }
                     });
                 }
+
+                // Build FSN → SKU name lookup from consolidatedFSN report
+                // Some Campaign Order rows use FSN codes instead of SKU names
+                const fsnToSkuName = {};
+                if (data.consolidatedFSN) {
+                    data.consolidatedFSN.forEach(row => {
+                        const fsn = row['FSN'] || row['Sku Id'] || row['Product ID'] || '';
+                        const skuName = row['SKU Name'] || row['Sku Name'] || row['Product Name'] || '';
+                        if (fsn && skuName) fsnToSkuName[fsn] = skuName;
+                    });
+                }
+                // Also check consolidated report for FSN→name mapping
+                if (data.consolidated) {
+                    data.consolidated.forEach(row => {
+                        const fsn = row['FSN'] || row['Product ID'] || '';
+                        const skuName = row['SKU Name'] || row['Product Name'] || '';
+                        if (fsn && skuName && !fsnToSkuName[fsn]) fsnToSkuName[fsn] = skuName;
+                    });
+                }
+
+                const isFsnCode = s => s && /^[A-Z0-9]{10,}$/.test(s.trim());
+                const resolveSkuName = fsn => fsnToSkuName[fsn] || fsn;
 
                 const skuMap = {};
                 
@@ -3335,7 +3447,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         <table>
                             <thead>
                                 <tr>
-                                    <th>FSN</th>
+                                    <th>SKU ID</th>
                                     <th>Product Name</th>
                                     <th>Campaigns</th>
                                     <th>Revenue</th>
@@ -3352,9 +3464,10 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                     </td></tr>
                                 ) : skus.slice(0, 50).map((sku, idx) => (
                                     <tr key={idx}>
-                                        <td>{sku.fsn}</td>
-                                        <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {sku.productName}
+                                        <td title={sku.fsn}>{isFsnCode(sku.fsn) ? resolveSkuName(sku.fsn) : sku.fsn}</td>
+                                        <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                            title={sku.productName}>
+                                            {masterSkuMap[sku.fsn] || masterSkuMap[sku.productName] || sku.productName}
                                         </td>
                                         <td>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
