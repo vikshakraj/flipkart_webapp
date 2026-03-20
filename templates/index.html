@@ -2749,6 +2749,170 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             );
         }
 
+        // Daily Performance Trend Chart
+        function DailyTrendChart({ data }) {
+            const chartRef = React.useRef(null);
+            const chartInstance = React.useRef(null);
+
+            const dailyData = useMemo(() => {
+                if (!data.consolidated || !data.consolidated.length) return [];
+
+                // Aggregate by date — try common Flipkart date column names
+                const dateMap = {};
+                data.consolidated.forEach(row => {
+                    const date = row['Date'] || row['Report Date'] || row['date'] || row['Day'] || '';
+                    if (!date) return;
+                    const spend   = parseFloat(row['Ad Spend']) || 0;
+                    const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
+                    const clicks  = parseInt(row['Clicks']) || 0;
+                    if (!dateMap[date]) dateMap[date] = { spend: 0, revenue: 0, clicks: 0 };
+                    dateMap[date].spend   += spend;
+                    dateMap[date].revenue += revenue;
+                    dateMap[date].clicks  += clicks;
+                });
+
+                return Object.entries(dateMap)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([date, v]) => ({
+                        date,
+                        spend:   v.spend,
+                        revenue: v.revenue,
+                        roas:    v.spend > 0 ? parseFloat((v.revenue / v.spend).toFixed(2)) : 0,
+                    }))
+                    .filter(d => d.spend > 0 || d.revenue > 0);
+            }, [data.consolidated]);
+
+            React.useEffect(() => {
+                if (!chartRef.current || !dailyData.length) return;
+                if (chartInstance.current) chartInstance.current.destroy();
+
+                const labels  = dailyData.map(d => d.date);
+                const ctx     = chartRef.current.getContext('2d');
+                const colors  = {
+                    spend:   { line: '#22d3ee', fill: 'rgba(34,211,238,0.08)' },
+                    revenue: { line: '#4ade80', fill: 'rgba(74,222,128,0.08)' },
+                    roas:    { line: '#fbbf24', fill: 'transparent' },
+                };
+
+                chartInstance.current = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            {
+                                label: 'Revenue (₹)',
+                                data:  dailyData.map(d => d.revenue),
+                                borderColor: colors.revenue.line,
+                                backgroundColor: colors.revenue.fill,
+                                borderWidth: 2,
+                                pointRadius: dailyData.length > 30 ? 0 : 3,
+                                pointHoverRadius: 5,
+                                tension: 0.3,
+                                fill: true,
+                                yAxisID: 'yMoney',
+                            },
+                            {
+                                label: 'Ad Spend (₹)',
+                                data:  dailyData.map(d => d.spend),
+                                borderColor: colors.spend.line,
+                                backgroundColor: colors.spend.fill,
+                                borderWidth: 2,
+                                pointRadius: dailyData.length > 30 ? 0 : 3,
+                                pointHoverRadius: 5,
+                                tension: 0.3,
+                                fill: true,
+                                yAxisID: 'yMoney',
+                            },
+                            {
+                                label: 'ROAS',
+                                data:  dailyData.map(d => d.roas),
+                                borderColor: colors.roas.line,
+                                backgroundColor: 'transparent',
+                                borderWidth: 2.5,
+                                pointRadius: dailyData.length > 30 ? 0 : 3,
+                                pointHoverRadius: 5,
+                                tension: 0.3,
+                                borderDash: [5, 3],
+                                yAxisID: 'yRoas',
+                            },
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: {
+                                labels: { color: 'var(--color-text-muted)', font: { size: 11 }, boxWidth: 14, padding: 16 }
+                            },
+                            tooltip: {
+                                backgroundColor: '#141b2d',
+                                borderColor: '#2a3650',
+                                borderWidth: 1,
+                                titleColor: 'var(--color-text)',
+                                bodyColor: 'var(--color-text-muted)',
+                                padding: 12,
+                                callbacks: {
+                                    label: ctx => {
+                                        if (ctx.dataset.label === 'ROAS')
+                                            return ` ROAS: ${ctx.raw}x`;
+                                        return ` ${ctx.dataset.label}: ₹${ctx.raw.toLocaleString('en-IN', {maximumFractionDigits:0})}`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                ticks: { color: 'var(--color-text-muted)', font: { size: 10 }, maxTicksLimit: 18, maxRotation: 45 },
+                                grid:  { color: 'rgba(42,54,80,0.4)' }
+                            },
+                            yMoney: {
+                                beginAtZero: true,
+                                position: 'left',
+                                ticks: {
+                                    color: 'var(--color-text-muted)', font: { size: 10 },
+                                    callback: v => '₹' + (v >= 1000 ? (v/1000).toFixed(0)+'k' : v)
+                                },
+                                grid: { color: 'rgba(42,54,80,0.4)' },
+                                title: { display: true, text: 'Revenue / Spend (₹)', color: 'var(--color-text-muted)', font: { size: 10 } }
+                            },
+                            yRoas: {
+                                beginAtZero: true,
+                                position: 'right',
+                                ticks: {
+                                    color: '#fbbf24', font: { size: 10 },
+                                    callback: v => v + 'x'
+                                },
+                                grid: { display: false },
+                                title: { display: true, text: 'ROAS', color: '#fbbf24', font: { size: 10 } }
+                            }
+                        }
+                    }
+                });
+
+                return () => { if (chartInstance.current) chartInstance.current.destroy(); };
+            }, [dailyData]);
+
+            if (!dailyData.length) return (
+                <div className="section">
+                    <div className="section-header"><h3 className="section-title">📈 Daily Performance Trend</h3></div>
+                    <p style={{color:'var(--color-text-muted)',padding:'1rem'}}>No daily data available. Upload a Consolidated Daily report to see trends.</p>
+                </div>
+            );
+
+            return (
+                <div className="section">
+                    <div className="section-header">
+                        <h3 className="section-title">📈 Daily Performance Trend</h3>
+                        <p style={{color:'var(--color-text-muted)',fontSize:'0.85rem',margin:0}}>{dailyData.length} days · Revenue, Ad Spend &amp; ROAS</p>
+                    </div>
+                    <div style={{position:'relative', height:'300px'}}>
+                        <canvas ref={chartRef}></canvas>
+                    </div>
+                </div>
+            );
+        }
+
         // Overview Tab
         function OverviewTab({ data }) {
             const topCampaigns = useMemo(() => {
@@ -2785,6 +2949,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 
             return (
                 <div>
+                    <DailyTrendChart data={data} />
                     <div className="section">
                         <div className="section-header">
                             <h3 className="section-title">Top 10 Campaigns by Revenue</h3>
