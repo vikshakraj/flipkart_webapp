@@ -65,8 +65,18 @@ def _load_order_db():
     now = datetime.datetime.now(tz=datetime.timezone.utc).timestamp()
     purged = {}
     for account, orders in db.items():
-        kept = {oid: ts for oid, ts in orders.items()
-                if now - ts <= ORDER_DB_TTL}
+        kept = {}
+        for oid, val in orders.items():
+            if isinstance(val, dict):
+                # New format: {awb: timestamp}
+                kept_awbs = {awb: ts for awb, ts in val.items()
+                             if now - ts <= ORDER_DB_TTL}
+                if kept_awbs:
+                    kept[oid] = kept_awbs
+            else:
+                # Legacy format: flat timestamp
+                if now - val <= ORDER_DB_TTL:
+                    kept[oid] = val
         if kept:
             purged[account] = kept
     return purged
@@ -78,19 +88,43 @@ def _save_order_db(db):
     os.replace(tmp, ORDER_DB_PATH)
 
 def _record_order_ids(account_order_ids):
-    """Add newly sorted order IDs to the DB. account_order_ids: {account: [oid, ...]}"""
+    """Add newly sorted order IDs to the DB.
+    account_order_ids: {account: [(oid, awb), ...]}
+    Stored as {account: {oid: {awb: timestamp}}}
+    """
     db  = _load_order_db()
     now = datetime.datetime.now(tz=datetime.timezone.utc).timestamp()
-    for account, oids in account_order_ids.items():
+    for account, keys in account_order_ids.items():
         if account not in db:
             db[account] = {}
-        for oid in oids:
-            db[account][oid] = now
+        for item in keys:
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                oid, awb = item
+            else:
+                oid, awb = item, ''
+            if oid not in db[account]:
+                db[account][oid] = {}
+            # Handle legacy flat format
+            if not isinstance(db[account][oid], dict):
+                db[account][oid] = {}
+            db[account][oid][awb] = now
     _save_order_db(db)
 
 def extract_order_ids(text):
     """Extract all OD... order IDs from a label page."""
     return re.findall(r'OD\d{15,}', text)
+
+def extract_awb(text):
+    """Extract AWB/tracking ID (FMP...) from a label page."""
+    m = re.search(r'(?:DTr:|AWB[^\w]*)?(FMP[A-Z]\d+)', text)
+    return m.group(1) if m else ''
+
+def extract_label_keys(text):
+    """Return list of (order_id, awb) composite keys for a label page.
+    Two labels with same OID but different AWB are treated as distinct."""
+    oids = extract_order_ids(text)
+    awb  = extract_awb(text)
+    return [(oid, awb) for oid in oids]
 
 # ─────────────────────────────────────────────
 # TELEGRAM BOT
@@ -1783,8 +1817,8 @@ def preflight():
             pdf_paths.append(path)
 
         # Scan pages — extract account, order ID per page
-        account_counts  = defaultdict(int)          # account -> label count
-        account_oids    = defaultdict(set)           # account -> {order_ids}
+        account_counts  = defaultdict(int)           # account -> label count
+        account_oid_list = defaultdict(list)         # account -> [oid, ...] (allows dupes)
 
         for pdf_path in pdf_paths:
             reader = PdfReader(pdf_path)
@@ -1792,19 +1826,54 @@ def preflight():
                 text    = page.extract_text() or ''
                 account = detect_account(text)
                 account_counts[account] += 1
-                for oid in extract_order_ids(text):
-                    account_oids[account].add(oid)
+                for key in extract_label_keys(text):
+                    # key = (order_id, awb) — same OID + different AWB = distinct label
+                    account_oid_list[account].append(key)
             del reader
             gc.collect()
 
-        # Check duplicates against DB
-        db = _load_order_db()
-        duplicates = {}   # account -> [oid, ...] that are already in DB
-        for account, oids in account_oids.items():
-            existing = db.get(account, {})
-            dupes = [oid for oid in oids if oid in existing]
+        # Detect within-batch duplicates: same (OID, AWB) pair seen more than once
+        # Same OID but different AWB = different label = NOT a duplicate
+        batch_dupes = {}
+        for account, keys in account_oid_list.items():
+            seen = set(); dupes = set()
+            for key in keys:
+                if key in seen:
+                    dupes.add(key[0])   # report the OID (AWB implied same)
+                seen.add(key)
             if dupes:
-                duplicates[account] = sorted(dupes)
+                batch_dupes[account] = sorted(dupes)
+
+        # Unique (OID, AWB) keys per account — for DB check extract just OIDs
+        # but only flag as DB-dupe if the exact (OID, AWB) combo was sorted before
+        account_oids = {acc: set(k[0] for k in keys) for acc, keys in account_oid_list.items()}
+        account_keys = {acc: set(keys) for acc, keys in account_oid_list.items()}
+
+        # Check duplicates against 72h DB (stored as OID -> {awb: timestamp})
+        db = _load_order_db()
+        db_dupes = {}
+        for account, keys in account_keys.items():
+            existing = db.get(account, {})
+            dupes = []
+            for oid, awb in keys:
+                if oid in existing:
+                    # Check if this specific AWB was already sorted
+                    stored = existing[oid]
+                    if isinstance(stored, dict):
+                        if awb in stored:   # exact (OID, AWB) match
+                            dupes.append(oid)
+                    else:
+                        # Legacy format (timestamp only, no AWB stored) — flag by OID
+                        dupes.append(oid)
+            if dupes:
+                db_dupes[account] = sorted(set(dupes))
+
+        # Merge both duplicate sources — batch dupes take priority in the warning
+        duplicates = {}
+        all_dup_accounts = set(list(batch_dupes.keys()) + list(db_dupes.keys()))
+        for account in all_dup_accounts:
+            combined = sorted(set(batch_dupes.get(account, []) + db_dupes.get(account, [])))
+            duplicates[account] = combined
 
         # Build account summary in KNOWN_ACCOUNTS order, unknowns appended
         ordered_accounts = []
@@ -1824,9 +1893,10 @@ def preflight():
                 })
 
         return jsonify({
-            'accounts':   ordered_accounts,
-            'duplicates': duplicates,   # {} if none
-            'has_dupes':  bool(duplicates),
+            'accounts':    ordered_accounts,
+            'duplicates':  duplicates,
+            'batch_dupes': batch_dupes,
+            'has_dupes':   bool(duplicates),
         })
 
     except Exception as e:
@@ -1880,11 +1950,22 @@ def sort_labels():
                 text = page.extract_text() or ''
                 account = detect_account(text)
                 skus = extract_skus_from_page(text)
-                order_ids = extract_order_ids(text)
-                # Skip this page entirely if its order ID is in the exclude list
+                order_ids  = extract_order_ids(text)
+                page_awb   = extract_awb(text)
+                # Skip page if (OID, AWB) composite key is excluded
+                # Same OID + different AWB = different label = keep it
                 if exclude_oids and any(oid in exclude_oids for oid in order_ids):
-                    del text
-                    continue
+                    # Double-check: only skip if AWB also matches (or no AWB stored)
+                    skip = False
+                    for oid in order_ids:
+                        if oid in exclude_oids:
+                            excl_awbs = exclude_oids[oid] if isinstance(exclude_oids, dict) else None
+                            if excl_awbs is None or page_awb in excl_awbs or not page_awb:
+                                skip = True
+                                break
+                    if skip:
+                        del text
+                        continue
                 account_pages[account].append({
                     'orig_path': pdf_path,
                     'orig_idx': i,
@@ -2031,16 +2112,18 @@ def sort_labels():
                 json.dump(meta, mf)
 
         # ── Record sorted Order IDs into 72h DB ──────────────────────────────
-        account_sorted_oids = {}
+        account_sorted_keys = {}
         for account, pages in account_pages.items():
-            oids = set()
+            keys = set()
             for pg in pages:
-                oids.update(pg.get('order_ids', []))
-            if oids:
-                account_sorted_oids[account] = list(oids)
-        if account_sorted_oids:
+                awb = extract_awb(pg.get('text', '') or '')
+                for oid in pg.get('order_ids', []):
+                    keys.add((oid, awb))
+            if keys:
+                account_sorted_keys[account] = list(keys)
+        if account_sorted_keys:
             try:
-                _record_order_ids(account_sorted_oids)
+                _record_order_ids(account_sorted_keys)
             except Exception as db_err:
                 print(f'[OrderDB] Failed to record: {db_err}')
 
