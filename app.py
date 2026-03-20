@@ -1442,6 +1442,28 @@ def sales_upload(account):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/sales-debug/<account>', methods=['GET'])
+def sales_debug(account):
+    """Debug: show raw stored data summary for an account."""
+    account = account.upper().replace('-', ' ')
+    store = _load_sales_store(account)
+    all_rows = [r for k, v in store.items() if not k.startswith('__') for r in v]
+    RETURNED = {'RETURNED','RETURN_REQUESTED'}
+    product_returns = {}
+    for r in all_rows:
+        p = r.get('product','?')
+        if r.get('status') in RETURNED:
+            product_returns[p] = product_returns.get(p, 0) + r.get('qty', 1)
+    top = sorted(product_returns.items(), key=lambda x: -x[1])[:20]
+    return jsonify({
+        'account': account,
+        'total_rows': len(all_rows),
+        'date_range': [min((k for k in store if not k.startswith('__')), default=''), max((k for k in store if not k.startswith('__')), default='')],
+        'unique_dates': len([k for k in store if not k.startswith('__')]),
+        'top_returns_by_product': [{'product': p, 'returns': c} for p, c in top],
+        'meta': store.get('__meta__', {}),
+    })
+
 @app.route('/api/sales-clear/<account>', methods=['POST'])
 def sales_clear(account):
     """Delete stored sales data for an account so it can be re-uploaded cleanly."""
