@@ -2253,10 +2253,14 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 
             // Load master SKU map once
             const [masterSkuMap, setMasterSkuMap] = React.useState({});
+            const [masterProductNames, setMasterProductNames] = React.useState([]);
             React.useEffect(() => {
                 fetch('/api/master-sku-map')
                     .then(r => r.json())
-                    .then(d => { if (d.mapping) setMasterSkuMap(d.mapping); })
+                    .then(d => {
+                        if (d.mapping) setMasterSkuMap(d.mapping);
+                        if (d.productNames) setMasterProductNames(d.productNames);
+                    })
                     .catch(() => {});
             }, []);
 
@@ -2343,6 +2347,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                 initialDateRange={st.showDashboard ? st.dateRange : null}
                                 onClear={() => handleReset(activeAccount)}
                                 masterSkuMap={masterSkuMap}
+                                masterProductNames={masterProductNames}
                             />
                         )}
                 </div>
@@ -2350,7 +2355,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         }
 
 // Original App Component
-        function OriginalApp({ initialData, initialDateRange, onClear, masterSkuMap = {} }) {
+        function OriginalApp({ initialData, initialDateRange, onClear, masterSkuMap = {}, masterProductNames = [] }) {
             const [files, setFiles] = useState({});
             const [dragOver, setDragOver] = useState(false);
             const [loading, setLoading] = useState(false);
@@ -2511,6 +2516,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                 setActiveTab={setActiveTab}
                                 dateRange={dateRange}
                                 masterSkuMap={masterSkuMap}
+                                masterProductNames={masterProductNames}
                                 onReset={() => {
                                     setFiles({});
                                     setData({});
@@ -2624,7 +2630,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         }
 
         // Dashboard Component
-        function Dashboard({ data, activeTab, setActiveTab, dateRange, masterSkuMap = {}, onReset }) {
+        function Dashboard({ data, activeTab, setActiveTab, dateRange, masterSkuMap = {}, masterProductNames = [], onReset }) {
             const tabs = [
                 { id: 'overview', label: 'Overview', icon: '📊' },
                 { id: 'campaigns', label: 'Campaigns', icon: '🎯' },
@@ -2695,7 +2701,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                     </div>
 
                     <div className="tab-content">
-                        {activeTab === 'overview' && <OverviewTab data={data} masterSkuMap={masterSkuMap} />}
+                        {activeTab === 'overview' && <OverviewTab data={data} masterSkuMap={masterSkuMap} masterProductNames={masterProductNames} />}
                         {activeTab === 'campaigns' && <CampaignsTab data={data} />}
                         {activeTab === 'skus' && <SKUTab data={data} masterSkuMap={masterSkuMap} />}
                         {activeTab === 'keywords' && <KeywordsTab data={data} />}
@@ -2937,7 +2943,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         }
 
         // Overview Tab
-        function OverviewTab({ data, masterSkuMap = {} }) {
+        function OverviewTab({ data, masterSkuMap = {}, masterProductNames = [] }) {
             // Date range filter state
             const allDates = useMemo(() => {
                 if (!data.consolidated) return [];
@@ -2965,35 +2971,59 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 });
             }, [data.consolidated, fromDate, toDate]);
 
-            // Product tiles — top 10 by revenue in filtered range
-            // Uses consolidatedFSN report which has per-SKU rows with Product Name + ROI columns.
-            // Spend is not a direct column in FSN report — it's derived as revenue / ROI.
+            // Product tiles — top 10 by revenue in filtered range.
+            //
+            // Sources:
+            //   FSN report  (data.consolidatedFSN): revenue per Sku Id (= your internal SKU ID).
+            //               ROI only present on rows with conversions — unreliable for total spend.
+            //   Daily report (data.consolidated):   Ad Spend per campaign per day — the reliable spend total.
+            //
+            // Name resolution:
+            //   FSN "Sku Id" = your internal SKU ID (e.g. "Naosucura Herbal Knee Patch Pack 1").
+            //   masterSkuMap keys are also internal SKU IDs → ProductName 1.
+            //   Multiple SKU IDs map to the same ProductName → they get grouped together.
+            //
+            // Spend allocation:
+            //   Total spend from daily report is distributed to products proportionally by revenue share,
+            //   since the FSN report has no reliable per-SKU spend column.
             const productTiles = useMemo(() => {
-                const src = data.consolidatedFSN || [];
-                const prodMap = {};
-                src.forEach(row => {
+                const fsnRows   = data.consolidatedFSN || [];
+                const dailyRows = data.consolidated    || [];
+
+                // Step 1: sum revenue per canonical product name from FSN report
+                const prodRevenue = {};
+                fsnRows.forEach(row => {
                     const d = row['Date'] || row['Report Date'] || row['date'] || row['Day'] || '';
                     if ((fromDate && d < fromDate) || (toDate && d > toDate)) return;
-
-                    const rawName = row['SKU Name'] || row['Sku Name'] || row['Product Name'] || row['Sku Id'] || 'Unknown';
-                    // Resolve via masterSkuMap: try the raw name as a key first, then the Sku Id
-                    const skuId = row['Sku Id'] || '';
-                    const name = masterSkuMap[skuId] || masterSkuMap[rawName] || rawName;
-
+                    const skuId = (row['Sku Id'] || '').trim();
+                    if (!skuId) return;
+                    // Resolve to canonical product name; fall back to raw SKU ID
+                    const name = masterSkuMap[skuId] || skuId;
                     const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
-                    const roi     = parseFloat(row['ROI']) || 0; // ROI column = ROAS in FSN report
-                    const spend   = roi > 0 ? revenue / roi : 0;
-
-                    if (!prodMap[name]) prodMap[name] = { name, spend: 0, revenue: 0 };
-                    prodMap[name].spend   += spend;
-                    prodMap[name].revenue += revenue;
+                    prodRevenue[name] = (prodRevenue[name] || 0) + revenue;
                 });
-                return Object.values(prodMap)
-                    .filter(p => p.revenue > 0)
-                    .map(p => ({ ...p, roas: p.spend > 0 ? p.revenue / p.spend : 0 }))
+
+                // Step 2: total ad spend from daily report in date range
+                const totalSpend = dailyRows.reduce((sum, row) => {
+                    const d = row['Date'] || row['Report Date'] || row['date'] || row['Day'] || '';
+                    if ((fromDate && d < fromDate) || (toDate && d > toDate)) return sum;
+                    return sum + (parseFloat(row['Ad Spend']) || 0);
+                }, 0);
+
+                const totalRevenue = Object.values(prodRevenue).reduce((a, b) => a + b, 0);
+
+                // Step 3: build tiles — allocate spend proportionally by revenue share
+                return Object.entries(prodRevenue)
+                    .filter(([, rev]) => rev > 0)
+                    .map(([name, revenue]) => {
+                        const share = totalRevenue > 0 ? revenue / totalRevenue : 0;
+                        const spend = totalSpend * share;
+                        const roas  = spend > 0 ? revenue / spend : 0;
+                        return { name, revenue, spend, roas };
+                    })
                     .sort((a, b) => b.revenue - a.revenue)
                     .slice(0, 10);
-            }, [data.consolidatedFSN, fromDate, toDate, masterSkuMap]);
+            }, [data.consolidatedFSN, data.consolidated, fromDate, toDate, masterSkuMap]);
 
             const topCampaigns = useMemo(() => {
                 const campaignMap = {};
