@@ -1756,15 +1756,29 @@ function onPreviewConfirm(){
   if(pre.has_dupes){
     const body=document.getElementById('dupesBody');
     body.innerHTML='';
+    const batchDupes = pre.batch_dupes || {};
+    const hasBatch = Object.keys(batchDupes).some(a=>batchDupes[a].length>0);
+    // Update subtitle
+    const sub = document.getElementById('dupeModalSub');
+    if(sub){
+      if(hasBatch)
+        sub.textContent = 'Some PDFs appear to have been uploaded more than once in this batch (same Order IDs found). By default duplicates will be excluded.';
+      else
+        sub.textContent = 'The following Order IDs were already sorted in the last 72 hours. By default they will be excluded.';
+    }
     for(const [account,oids] of Object.entries(pre.duplicates)){
       const h=document.createElement('div');
       h.className='fk-dupe-account';
       h.textContent=account;
       body.appendChild(h);
+      const batchSet = new Set((batchDupes[account]||[]));
       for(const oid of oids){
         const d=document.createElement('div');
         d.className='fk-dupe-oid';
-        d.textContent=oid;
+        // Tag batch dupes with a badge
+        d.innerHTML = batchSet.has(oid)
+          ? `${oid} <span style="color:var(--warning);font-size:.72rem;margin-left:6px;">⚠ in this batch</span>`
+          : oid;
         body.appendChild(d);
       }
     }
@@ -4624,7 +4638,7 @@ function renderSkuCharts(d, product, from, to){
 <div id="modalDupes" class="fk-overlay" style="display:none;">
   <div class="fk-modal">
     <h3>&#9888;&#65039; Duplicate Order IDs Detected</h3>
-    <p class="sub">The following Order IDs were already sorted in the last 72 hours. By default they will be excluded. Choose how to proceed:</p>
+    <p class="sub" id="dupeModalSub">The following Order IDs were detected as duplicates. By default they will be excluded. Choose how to proceed:</p>
     <div id="dupesBody"></div>
     <div class="fk-modal-btns" style="margin-top:18px;">
       <button class="fk-btn-secondary" onclick="onDupeChoice(false)">No, Include Duplicates</button>
