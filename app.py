@@ -1201,21 +1201,32 @@ def _compute_analytics(store):
         for k, v in sorted(reason_counts.items(), key=lambda x: -x[1])[:12]
     ]
 
-    # ── Returns by product ──────────────────────────────────────────────────
-    prod_returns = defaultdict(int)   # product -> return count
-    prod_orders  = defaultdict(int)   # product -> total orders
-    for r in all_rows:
-        prod_orders[r['product']] += r['qty']
-        if r['status'] in RETURNED:
-            prod_returns[r['product']] += r['qty']
-    # Top 15 by return count, include rate
+    # ── Returns by product — daily granularity for accurate date filtering ────
+    prod_ret_daily    = defaultdict(lambda: defaultdict(int))  # product -> date -> qty
+    prod_cancel_daily = defaultdict(lambda: defaultdict(int))  # product -> date -> qty
+    prod_orders_daily = defaultdict(lambda: defaultdict(int))  # product -> date -> qty
+    for d, rows in store.items():
+        for r in rows:
+            prod_orders_daily[r['product']][d] += r['qty']
+            if r['status'] in RETURNED:
+                prod_ret_daily[r['product']][d] += r['qty']
+            if r['status'] in CANCELLED:
+                prod_cancel_daily[r['product']][d] += r['qty']
+
+    # Aggregate totals (full range) for sorting/ranking
+    prod_returns = {p: sum(v.values()) for p, v in prod_ret_daily.items()}
+    prod_orders  = {p: sum(v.values()) for p, v in prod_orders_daily.items()}
+    prod_cancels_total = {p: sum(v.values()) for p, v in prod_cancel_daily.items()}
+
     top_ret_prods = sorted(prod_returns.items(), key=lambda x: -x[1])[:15]
     returns_by_product = [
         {
-            'product':  p,
-            'returns':  cnt,
-            'total':    prod_orders[p],
-            'rate':     round(cnt / prod_orders[p] * 100, 1) if prod_orders[p] else 0,
+            'product':      p,
+            'returns':      cnt,
+            'total':        prod_orders.get(p, 0),
+            'rate':         round(cnt / prod_orders[p] * 100, 1) if prod_orders.get(p) else 0,
+            'daily_ret':    dict(prod_ret_daily[p]),
+            'daily_orders': dict(prod_orders_daily[p]),
         }
         for p, cnt in top_ret_prods
     ]
@@ -1236,8 +1247,6 @@ def _compute_analytics(store):
     daily_returns  = defaultdict(int)   # date -> return qty
     daily_orders   = defaultdict(int)   # date -> total qty
     daily_cancels  = defaultdict(int)   # date -> cancel qty
-    prod_cancels   = defaultdict(int)   # product -> cancel count
-    prod_cancel_orders = defaultdict(int)  # product -> total orders
     for d, rows in store.items():
         for r in rows:
             daily_orders[d] += r['qty']
@@ -1245,8 +1254,6 @@ def _compute_analytics(store):
                 daily_returns[d] += r['qty']
             if r['status'] in CANCELLED:
                 daily_cancels[d] += r['qty']
-                prod_cancels[r['product']] += r['qty']
-            prod_cancel_orders[r['product']] += r['qty']
 
     # ── Weekly return trend ───────────────────────────────────────────────────
     import datetime as _dt
@@ -1272,13 +1279,15 @@ def _compute_analytics(store):
     ]
 
     # ── Cancellations by product (top 15) ─────────────────────────────────────
-    top_cancel_prods = sorted(prod_cancels.items(), key=lambda x: -x[1])[:15]
+    top_cancel_prods = sorted(prod_cancels_total.items(), key=lambda x: -x[1])[:15]
     cancels_by_product = [
         {
-            'product': p,
-            'cancels': cnt,
-            'total':   prod_cancel_orders[p],
-            'rate':    round(cnt / prod_cancel_orders[p] * 100, 1) if prod_cancel_orders[p] else 0,
+            'product':         p,
+            'cancels':         cnt,
+            'total':           prod_orders.get(p, 0),
+            'rate':            round(cnt / prod_orders[p] * 100, 1) if prod_orders.get(p) else 0,
+            'daily_cancel':    dict(prod_cancel_daily[p]),
+            'daily_orders':    dict(prod_orders_daily[p]),
         }
         for p, cnt in top_cancel_prods
     ]
