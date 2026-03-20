@@ -1891,19 +1891,76 @@ def index():
 
 @app.route('/api/master-sku-map', methods=['GET'])
 def master_sku_map():
-    """Return SKU -> ProductName mapping from master SKU file."""
+    """Return SKU -> ProductName mapping from master SKU file.
+
+    Response:
+      mapping      : { SKU_ID: "ProductName 1", ... }   (your internal IDs)
+      productNames : ["ProductName 1", ...]              (all unique canonical names)
+
+    The frontend uses productNames for fuzzy-matching Flipkart listing titles
+    (from FSN reports) to canonical product names for grouping in tiles/charts.
+    """
     if not os.path.exists(MASTER_SKU_PATH):
         return jsonify({'error': 'Master SKU not uploaded'}), 404
     try:
-        import pandas as pd
-        df = pd.read_excel(MASTER_SKU_PATH)
-        mapping = {}
-        for _, row in df.iterrows():
-            sku = str(row.get('SKU', '')).strip()
-            p1  = str(row.get('ProductName 1', '')).strip() if pd.notna(row.get('ProductName 1')) else ''
-            if sku and p1 and sku != 'nan':
-                mapping[sku] = p1
-        return jsonify({'mapping': mapping})
+        wb = openpyxl.load_workbook(MASTER_SKU_PATH, data_only=True)
+        mapping = {}        # SKU ID → ProductName 1
+        product_names = set()
+
+        for sheet in wb.worksheets:
+            rows = list(sheet.iter_rows(values_only=True))
+            if not rows:
+                continue
+            # Find header row
+            header = None
+            data_start = 0
+            for i, row in enumerate(rows):
+                norm = [str(c).strip().lower() if c else '' for c in row]
+                if any(x in norm for x in ['sku', 'sku id', 'skuid']):
+                    header = norm
+                    data_start = i + 1
+                    break
+            if not header:
+                continue
+
+            def col_idx(names):
+                for n in names:
+                    for i, h in enumerate(header):
+                        if h == n or h.startswith(n):
+                            return i
+                return None
+
+            sku_col  = col_idx(['sku', 'sku id', 'skuid'])
+            p1_col   = col_idx(['productname 1', 'productname', 'product name', 'product'])
+            p2_col   = None
+            # ProductName 2 must come after p1_col
+            if p1_col is not None:
+                for n in ['productname 2', 'productname']:
+                    for i, h in enumerate(header):
+                        if i > p1_col and (h == n or h.startswith(n)):
+                            p2_col = i
+                            break
+                    if p2_col is not None:
+                        break
+
+            if sku_col is None:
+                continue
+
+            for row in rows[data_start:]:
+                sku = str(row[sku_col]).strip() if row[sku_col] else ''
+                p1  = str(row[p1_col]).strip()  if p1_col is not None and row[p1_col] else ''
+                p2  = str(row[p2_col]).strip()  if p2_col is not None and row[p2_col] else ''
+                if sku and sku.lower() not in ('none', 'nan', '') and p1:
+                    mapping[sku] = p1
+                if p1:
+                    product_names.add(p1)
+                if p2:
+                    product_names.add(p2)
+
+        return jsonify({
+            'mapping': mapping,
+            'productNames': sorted(product_names),
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
