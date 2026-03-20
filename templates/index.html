@@ -2795,45 +2795,43 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 };
 
                 chartInstance.current = new Chart(ctx, {
-                    type: 'line',
+                    type: 'bar',
                     data: {
                         labels,
                         datasets: [
                             {
                                 label: 'Revenue (₹)',
                                 data:  dailyData.map(d => d.revenue),
-                                borderColor: colors.revenue.line,
-                                backgroundColor: colors.revenue.fill,
-                                borderWidth: 2,
-                                pointRadius: dailyData.length > 30 ? 0 : 3,
-                                pointHoverRadius: 5,
-                                tension: 0.3,
-                                fill: true,
+                                backgroundColor: 'rgba(74,222,128,0.75)',
+                                borderColor:     '#4ade80',
+                                borderWidth: 1,
+                                borderRadius: 3,
                                 yAxisID: 'yMoney',
+                                order: 2,
                             },
                             {
                                 label: 'Ad Spend (₹)',
                                 data:  dailyData.map(d => d.spend),
-                                borderColor: colors.spend.line,
-                                backgroundColor: colors.spend.fill,
-                                borderWidth: 2,
-                                pointRadius: dailyData.length > 30 ? 0 : 3,
-                                pointHoverRadius: 5,
-                                tension: 0.3,
-                                fill: true,
+                                backgroundColor: 'rgba(34,211,238,0.75)',
+                                borderColor:     '#22d3ee',
+                                borderWidth: 1,
+                                borderRadius: 3,
                                 yAxisID: 'yMoney',
+                                order: 2,
                             },
                             {
                                 label: 'ROAS',
                                 data:  dailyData.map(d => d.roas),
-                                borderColor: colors.roas.line,
+                                type: 'line',
+                                borderColor: '#fbbf24',
                                 backgroundColor: 'transparent',
                                 borderWidth: 2.5,
-                                pointRadius: dailyData.length > 30 ? 0 : 3,
-                                pointHoverRadius: 5,
+                                pointRadius: 4,
+                                pointBackgroundColor: '#fbbf24',
+                                pointHoverRadius: 6,
                                 tension: 0.3,
-                                borderDash: [5, 3],
                                 yAxisID: 'yRoas',
+                                order: 1,
                             },
                         ]
                     },
@@ -2843,48 +2841,62 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         interaction: { mode: 'index', intersect: false },
                         plugins: {
                             legend: {
-                                labels: { color: 'var(--color-text-muted)', font: { size: 11 }, boxWidth: 14, padding: 16 }
+                                labels: {
+                                    color: '#e4e7eb',
+                                    font: { size: 12, family: "'IBM Plex Sans', sans-serif" },
+                                    boxWidth: 14,
+                                    padding: 20,
+                                }
                             },
                             tooltip: {
                                 backgroundColor: '#141b2d',
                                 borderColor: '#2a3650',
                                 borderWidth: 1,
-                                titleColor: 'var(--color-text)',
-                                bodyColor: 'var(--color-text-muted)',
-                                padding: 12,
+                                titleColor: '#e4e7eb',
+                                bodyColor: '#b0b8cc',
+                                padding: 14,
+                                titleFont: { size: 13 },
+                                bodyFont: { size: 12 },
                                 callbacks: {
                                     label: ctx => {
                                         if (ctx.dataset.label === 'ROAS')
-                                            return ` ROAS: ${ctx.raw}x`;
-                                        return ` ${ctx.dataset.label}: ₹${ctx.raw.toLocaleString('en-IN', {maximumFractionDigits:0})}`;
+                                            return `  ROAS: ${ctx.raw}x`;
+                                        return `  ${ctx.dataset.label}: ₹${Math.round(ctx.raw).toLocaleString('en-IN')}`;
                                     }
                                 }
                             }
                         },
                         scales: {
                             x: {
-                                ticks: { color: 'var(--color-text-muted)', font: { size: 10 }, maxTicksLimit: 18, maxRotation: 45 },
-                                grid:  { color: 'rgba(42,54,80,0.4)' }
+                                ticks: {
+                                    color: '#e4e7eb',
+                                    font: { size: 11, family: "'IBM Plex Sans', sans-serif" },
+                                    maxTicksLimit: 20,
+                                    maxRotation: 45,
+                                },
+                                grid: { color: 'rgba(42,54,80,0.4)' }
                             },
                             yMoney: {
                                 beginAtZero: true,
                                 position: 'left',
                                 ticks: {
-                                    color: 'var(--color-text-muted)', font: { size: 10 },
-                                    callback: v => '₹' + (v >= 1000 ? (v/1000).toFixed(0)+'k' : v)
+                                    color: '#e4e7eb',
+                                    font: { size: 11 },
+                                    callback: v => '₹' + (v >= 100000 ? (v/100000).toFixed(1)+'L' : v >= 1000 ? (v/1000).toFixed(0)+'k' : v)
                                 },
                                 grid: { color: 'rgba(42,54,80,0.4)' },
-                                title: { display: true, text: 'Revenue / Spend (₹)', color: 'var(--color-text-muted)', font: { size: 10 } }
+                                title: { display: true, text: 'Revenue / Spend (₹)', color: '#b0b8cc', font: { size: 11 } }
                             },
                             yRoas: {
                                 beginAtZero: true,
                                 position: 'right',
                                 ticks: {
-                                    color: '#fbbf24', font: { size: 10 },
+                                    color: '#fbbf24',
+                                    font: { size: 11 },
                                     callback: v => v + 'x'
                                 },
                                 grid: { display: false },
-                                title: { display: true, text: 'ROAS', color: '#fbbf24', font: { size: 10 } }
+                                title: { display: true, text: 'ROAS', color: '#fbbf24', font: { size: 11 } }
                             }
                         }
                     }
@@ -2906,7 +2918,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         <h3 className="section-title">📈 Daily Performance Trend</h3>
                         <p style={{color:'var(--color-text-muted)',fontSize:'0.85rem',margin:0}}>{dailyData.length} days · Revenue, Ad Spend &amp; ROAS</p>
                     </div>
-                    <div style={{position:'relative', height:'300px'}}>
+                    <div style={{position:'relative', height:'340px'}}>
                         <canvas ref={chartRef}></canvas>
                     </div>
                 </div>
