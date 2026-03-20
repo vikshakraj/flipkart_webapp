@@ -1189,21 +1189,31 @@ def _compute_analytics(store):
         'date_to':   date_to,
     }
 
-    # Product trend (active only) — top 15 by total units
-    prod_day = defaultdict(lambda: defaultdict(int))  # product -> date -> qty
-    prod_total = defaultdict(int)
+    # Product trend + returns/cancels — single pass for all per-product daily data
+    prod_day          = defaultdict(lambda: defaultdict(int))
+    prod_total        = defaultdict(int)
+    prod_ret_daily    = defaultdict(lambda: defaultdict(int))
+    prod_cancel_daily = defaultdict(lambda: defaultdict(int))
+    prod_orders_daily = defaultdict(lambda: defaultdict(int))
     for d, rows in store.items():
         for r in rows:
+            prod_orders_daily[r['product']][d] += r['qty']
             if r['status'] in ACTIVE:
-                prod_day[r['product']][d] += r['qty']
-                prod_total[r['product']]  += r['qty']
+                prod_day[r['product']][d]   += r['qty']
+                prod_total[r['product']]    += r['qty']
+            if _is_genuine_return(r, VALID_RETURN_REASONS):
+                prod_ret_daily[r['product']][d] += r['qty']
+            elif r['status'] in CANCELLED or r['status'] in RETURNED:
+                prod_cancel_daily[r['product']][d] += r['qty']
 
     top15 = [p for p, _ in sorted(prod_total.items(), key=lambda x: -x[1])[:15]]
     trend_series = []
     for prod in top15:
         trend_series.append({
-            'name': prod,
-            'data': {d: prod_day[prod].get(d, 0) for d in all_dates},
+            'name':        prod,
+            'data':        {d: prod_day[prod].get(d, 0) for d in all_dates},
+            'data_ret':    {d: prod_ret_daily[prod].get(d, 0) for d in all_dates},
+            'data_cancel': {d: prod_cancel_daily[prod].get(d, 0) for d in all_dates},
         })
 
     # Returns chart
@@ -1217,18 +1227,7 @@ def _compute_analytics(store):
         for k, v in sorted(reason_counts.items(), key=lambda x: -x[1])[:12]
     ]
 
-    # ── Returns by product — daily granularity for accurate date filtering ────
-    prod_ret_daily    = defaultdict(lambda: defaultdict(int))  # product -> date -> qty
-    prod_cancel_daily = defaultdict(lambda: defaultdict(int))  # product -> date -> qty
-    prod_orders_daily = defaultdict(lambda: defaultdict(int))  # product -> date -> qty
-    for d, rows in store.items():
-        for r in rows:
-            prod_orders_daily[r['product']][d] += r['qty']
-            if _is_genuine_return(r, VALID_RETURN_REASONS):
-                prod_ret_daily[r['product']][d] += r['qty']
-            elif r['status'] in CANCELLED or r['status'] in RETURNED:
-                # RETURNED with invalid reason → cancellation
-                prod_cancel_daily[r['product']][d] += r['qty']
+    # ── Returns by product — aggregates from already-computed daily data ─────
 
     # Aggregate totals (full range) for sorting/ranking
     prod_returns = {p: sum(v.values()) for p, v in prod_ret_daily.items()}
