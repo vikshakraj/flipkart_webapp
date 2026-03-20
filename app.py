@@ -1135,11 +1135,26 @@ def _df_to_store_rows(df):
         })
     return dict(store)
 
+def _is_genuine_return(row, valid_reasons):
+    """A RETURNED row is a genuine return only if its reason is in valid_reasons.
+    Otherwise it's treated as a cancellation (e.g. order_cancelled, shield_cancellation)."""
+    if row.get('status') != 'RETURNED':
+        return False
+    reason = (row.get('ret_reason') or '').strip().lower()
+    return reason in valid_reasons
+
 def _compute_analytics(store):
     """Compute KPIs + chart data from a {date_str: [row,...]} store dict."""
     ACTIVE    = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD'}
     RETURNED  = {'RETURNED'}
     CANCELLED = {'CANCELLED','RETURN_REQUESTED'}
+    # Only these return reasons count as genuine returns; all others → cancellation
+    VALID_RETURN_REASONS = {
+        'orc_validated with customer',
+        'quality_issue',
+        'missing_item',
+        'customer rejection',
+    }
 
     all_rows = [r for rows in store.values() for r in rows]
     if not all_rows:
@@ -1147,8 +1162,9 @@ def _compute_analytics(store):
 
     total_units    = sum(r['qty'] for r in all_rows)
     delivered      = sum(r['qty'] for r in all_rows if r['status'] == 'DELIVERED')
-    returned_cnt   = sum(r['qty'] for r in all_rows if r['status'] in RETURNED)
-    cancelled_cnt  = sum(r['qty'] for r in all_rows if r['status'] in CANCELLED)
+    returned_cnt   = sum(r['qty'] for r in all_rows if _is_genuine_return(r, VALID_RETURN_REASONS))
+    cancelled_cnt  = sum(r['qty'] for r in all_rows if r['status'] in CANCELLED
+                         or (r['status'] in RETURNED and not _is_genuine_return(r, VALID_RETURN_REASONS)))
     dispatch_breach = sum(1 for r in all_rows if r['disp_breach'] == 'Y')
     delivery_breach = sum(1 for r in all_rows if r['dlv_breach']  == 'Y')
     dispatched_tot  = sum(1 for r in all_rows if r['disp_breach'] in ('Y','N'))
@@ -1208,9 +1224,10 @@ def _compute_analytics(store):
     for d, rows in store.items():
         for r in rows:
             prod_orders_daily[r['product']][d] += r['qty']
-            if r['status'] in RETURNED:
+            if _is_genuine_return(r, VALID_RETURN_REASONS):
                 prod_ret_daily[r['product']][d] += r['qty']
-            if r['status'] in CANCELLED:
+            elif r['status'] in CANCELLED or r['status'] in RETURNED:
+                # RETURNED with invalid reason → cancellation
                 prod_cancel_daily[r['product']][d] += r['qty']
 
     # Aggregate totals (full range) for sorting/ranking
@@ -1234,7 +1251,7 @@ def _compute_analytics(store):
     # ── Return reason drill-down: reason -> {sub_reason: count} ─────────────
     reason_drill = defaultdict(lambda: defaultdict(int))
     for r in all_rows:
-        if r['status'] in RETURNED:
+        if _is_genuine_return(r, VALID_RETURN_REASONS):
             label = REASON_MAP.get(r['ret_reason'], r['ret_reason']) if r['ret_reason'] else 'Unknown'
             sub   = r.get('ret_sub', '') or r.get('ret_reason', '') or 'Unknown'
             reason_drill[label][sub] += 1
@@ -1250,9 +1267,9 @@ def _compute_analytics(store):
     for d, rows in store.items():
         for r in rows:
             daily_orders[d] += r['qty']
-            if r['status'] in RETURNED:
+            if _is_genuine_return(r, VALID_RETURN_REASONS):
                 daily_returns[d] += r['qty']
-            if r['status'] in CANCELLED:
+            elif r['status'] in CANCELLED or r['status'] in RETURNED:
                 daily_cancels[d] += r['qty']
 
     # ── Weekly return trend ───────────────────────────────────────────────────
