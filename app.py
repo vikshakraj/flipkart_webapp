@@ -1449,18 +1449,34 @@ def sales_debug(account):
     store = _load_sales_store(account)
     all_rows = [r for k, v in store.items() if not k.startswith('__') for r in v]
     RETURNED = {'RETURNED','RETURN_REQUESTED'}
+
+    # Per-product returns
     product_returns = {}
     for r in all_rows:
         p = r.get('product','?')
         if r.get('status') in RETURNED:
             product_returns[p] = product_returns.get(p, 0) + r.get('qty', 1)
     top = sorted(product_returns.items(), key=lambda x: -x[1])[:20]
+
+    # SKU-level breakdown for sp4 toothpaste diagnosis
+    sku_returns = {}
+    for r in all_rows:
+        if r.get('status') in RETURNED:
+            key = (r.get('sku','?'), r.get('product','?'))
+            sku_returns[key] = sku_returns.get(key, 0) + r.get('qty', 1)
+    # Filter to toothpaste-related
+    tooth_skus = {k: v for k, v in sku_returns.items()
+                  if any(x in k[0].lower() or x in k[1].lower()
+                         for x in ['tooth','sp4','sp 4','herbheal','manicure'])}
+    tooth_list = sorted(tooth_skus.items(), key=lambda x: -x[1])
+
     return jsonify({
         'account': account,
         'total_rows': len(all_rows),
         'date_range': [min((k for k in store if not k.startswith('__')), default=''), max((k for k in store if not k.startswith('__')), default='')],
         'unique_dates': len([k for k in store if not k.startswith('__')]),
         'top_returns_by_product': [{'product': p, 'returns': c} for p, c in top],
+        'tooth_sku_breakdown': [{'sku': k[0], 'product': k[1], 'returns': v} for k, v in tooth_list],
         'meta': store.get('__meta__', {}),
     })
 
