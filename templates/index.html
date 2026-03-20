@@ -2957,6 +2957,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                         <td>{formatNumber(campaign.conversions)}</td>
                                     </tr>
                                 ))}
+                                }
                             </tbody>
                         </table>
                     </div>
@@ -3011,8 +3012,14 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 
                 const skuMap = {};
                 
+                if (!data.campaignOrder || !data.campaignOrder.length) {
+                    document.getElementById('skuTableBody') && (document.getElementById('skuTableBody').innerHTML =
+                        '<tr><td colspan="8" style="text-align:center;color:var(--color-text-muted);padding:2rem;">Upload a Campaign Order report to see SKU analysis.</td></tr>');
+                    return skuRows;
+                }
+
                 data.campaignOrder.forEach(row => {
-                    const fsn = row['Sku Id'];
+                    const fsn = row['Sku Id'] || row['FSN'] || row['Advertised FSN ID'] || row['Product ID'];
                     if (!fsn) return;
 
                     if (!skuMap[fsn]) {
@@ -3162,7 +3169,11 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                 </tr>
                             </thead>
                             <tbody>
-                                {skus.slice(0, 50).map((sku, idx) => (
+                                {skus.length === 0 ? (
+                                    <tr><td colSpan="8" style={{textAlign:'center', padding:'2rem', color:'var(--color-text-muted)'}}>
+                                        No Campaign Order report uploaded. Please upload one to see SKU analysis.
+                                    </td></tr>
+                                ) : skus.slice(0, 50).map((sku, idx) => (
                                     <tr key={idx}>
                                         <td>{sku.fsn}</td>
                                         <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
