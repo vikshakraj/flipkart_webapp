@@ -1889,6 +1889,24 @@ def index():
     with open(os.path.join(os.path.dirname(__file__), 'templates', 'index.html'), 'r') as f:
         return Response(f.read(), mimetype='text/html')
 
+@app.route('/api/master-sku-map', methods=['GET'])
+def master_sku_map():
+    """Return SKU -> ProductName mapping from master SKU file."""
+    if not os.path.exists(MASTER_SKU_PATH):
+        return jsonify({'error': 'Master SKU not uploaded'}), 404
+    try:
+        import pandas as pd
+        df = pd.read_excel(MASTER_SKU_PATH)
+        mapping = {}
+        for _, row in df.iterrows():
+            sku = str(row.get('SKU', '')).strip()
+            p1  = str(row.get('ProductName 1', '')).strip() if pd.notna(row.get('ProductName 1')) else ''
+            if sku and p1 and sku != 'nan':
+                mapping[sku] = p1
+        return jsonify({'mapping': mapping})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/master-status')
 def master_status():
     """Check if a master SKU file is stored on the server."""
