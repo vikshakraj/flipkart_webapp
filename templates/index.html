@@ -2153,6 +2153,27 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         };
 
         const parseCSV = (file, reportType) => {
+            // Expected signature columns per report type.
+            // At least ONE of these must appear in the header for the upload to be accepted.
+            const REQUIRED_HEADERS = {
+                consolidatedFSN: ['Sku Id'],           // FSN report has internal SKU IDs + ROI
+                campaignOrder:   ['Advertised FSN ID', 'order_id'],  // Campaign Order has FSN codes + order IDs
+                consolidated:    ['Ad Spend'],          // Daily report has Ad Spend
+                keyword:         ['attributed_keyword', 'keyword_match_type'],
+                placement:       ['Placement Type'],
+                searchTerm:      ['Query'],
+                pla:             ['Campaign Status'],
+            };
+            const REPORT_LABELS = {
+                consolidatedFSN: 'Consolidated FSN Report',
+                campaignOrder:   'Campaign Order Report',
+                consolidated:    'Consolidated Daily Report',
+                keyword:         'Keyword Report',
+                placement:       'Placement Report',
+                searchTerm:      'Search Term Report',
+                pla:             'PLA Report',
+            };
+
             return new Promise((resolve, reject) => {
                 Papa.parse(file, {
                     skipEmptyLines: true,
@@ -2183,7 +2204,6 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                             headerRowIndex = 4;
                             dataStartIndex = 5;
                         }
-                        // consolidatedFSN has same structure as other reports (2 metadata rows)
                         
                         if (rows.length <= dataStartIndex) {
                             resolve({ data: [], startTime, endTime });
@@ -2192,6 +2212,30 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         
                         // Get headers
                         const headers = rows[headerRowIndex].map(h => h ? h.trim() : '');
+
+                        // ── File type validation ──────────────────────────────────────
+                        const required = REQUIRED_HEADERS[reportType];
+                        if (required) {
+                            const headerSet = new Set(headers);
+                            const matched = required.some(col => headerSet.has(col));
+                            if (!matched) {
+                                // Try to detect what report this actually IS
+                                let detectedAs = null;
+                                for (const [type, cols] of Object.entries(REQUIRED_HEADERS)) {
+                                    if (type !== reportType && cols.some(c => headerSet.has(c))) {
+                                        detectedAs = REPORT_LABELS[type] || type;
+                                        break;
+                                    }
+                                }
+                                const expected = REPORT_LABELS[reportType] || reportType;
+                                const hint = detectedAs
+                                    ? `This looks like a "${detectedAs}" — wrong slot?`
+                                    : 'Check that you exported the correct report type.';
+                                reject(new Error(`Wrong file uploaded to "${expected}" slot. ${hint}`));
+                                return;
+                            }
+                        }
+                        // ─────────────────────────────────────────────────────────────
                         
                         // Parse data rows
                         const data = [];
@@ -2391,7 +2435,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         }));
                     } catch (error) {
                         console.error('Error parsing file:', error);
-                        alert('Error parsing file. Please check the format.');
+                        alert('⚠️ ' + (error.message || 'Error parsing file. Please check the format.'));
                     } finally {
                         setLoading(false);
                     }
@@ -3261,6 +3305,28 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             const [sortBy, setSortBy] = useState('revenue');
             const [selectedSKU, setSelectedSKU] = useState(null);
 
+            // Hoist these to component scope — used both inside useMemo and in JSX render
+            const isFsnCode = s => s && /^[A-Z0-9]{10,}$/.test(s.trim());
+            const fsnToSkuName = React.useMemo(() => {
+                const map = {};
+                if (data.consolidatedFSN) {
+                    data.consolidatedFSN.forEach(row => {
+                        const fsn = row['FSN'] || row['Sku Id'] || row['Product ID'] || '';
+                        const skuName = row['SKU Name'] || row['Sku Name'] || row['Product Name'] || '';
+                        if (fsn && skuName) map[fsn] = skuName;
+                    });
+                }
+                if (data.consolidated) {
+                    data.consolidated.forEach(row => {
+                        const fsn = row['FSN'] || row['Product ID'] || '';
+                        const skuName = row['SKU Name'] || row['Product Name'] || '';
+                        if (fsn && skuName && !map[fsn]) map[fsn] = skuName;
+                    });
+                }
+                return map;
+            }, [data.consolidatedFSN, data.consolidated]);
+            const resolveSkuName = fsn => fsnToSkuName[fsn] || fsn;
+
             const skus = useMemo(() => {
                 if (!data.campaignOrder) return [];
 
@@ -3300,28 +3366,6 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         }
                     });
                 }
-
-                // Build FSN → SKU name lookup from consolidatedFSN report
-                // Some Campaign Order rows use FSN codes instead of SKU names
-                const fsnToSkuName = {};
-                if (data.consolidatedFSN) {
-                    data.consolidatedFSN.forEach(row => {
-                        const fsn = row['FSN'] || row['Sku Id'] || row['Product ID'] || '';
-                        const skuName = row['SKU Name'] || row['Sku Name'] || row['Product Name'] || '';
-                        if (fsn && skuName) fsnToSkuName[fsn] = skuName;
-                    });
-                }
-                // Also check consolidated report for FSN→name mapping
-                if (data.consolidated) {
-                    data.consolidated.forEach(row => {
-                        const fsn = row['FSN'] || row['Product ID'] || '';
-                        const skuName = row['SKU Name'] || row['Product Name'] || '';
-                        if (fsn && skuName && !fsnToSkuName[fsn]) fsnToSkuName[fsn] = skuName;
-                    });
-                }
-
-                const isFsnCode = s => s && /^[A-Z0-9]{10,}$/.test(s.trim());
-                const resolveSkuName = fsn => fsnToSkuName[fsn] || fsn;
 
                 const skuMap = {};
                 
