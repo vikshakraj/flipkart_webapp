@@ -1932,9 +1932,10 @@ def sort_labels():
         except Exception:
             batch_exclude_map = {}
 
-        # Merge both into one flat exclude set — batch dupes always excluded
+        # Only exclude historical dupes chosen by user — within-batch dedup is per-page below
         exclude_oids = set(oid for oids in exclude_map.values() for oid in oids)
-        exclude_oids |= set(oid for oids in batch_exclude_map.values() for oid in oids)
+
+        _seen_batch_keys = set()  # tracks (oid_tuple, awb) to keep first occurrence, skip repeats
 
         # ── Load master SKU (small xlsx, fine in RAM) ──────────────────────────
         with open(MASTER_SKU_PATH, 'rb') as f:
@@ -1961,12 +1962,16 @@ def sort_labels():
                 skus = extract_skus_from_page(text)
                 order_ids  = extract_order_ids(text)
                 page_awb   = extract_awb(text)
-                # Skip page if its OID is in the exclude set
-                # Note: preflight already accounts for AWB differentiation when
-                # building the duplicate list shown to the user
+                # Skip page if its OID is in the historical exclude set (user chose to remove)
                 if exclude_oids and any(oid in exclude_oids for oid in order_ids):
                     del text
                     continue
+                # Within-batch dedup: keep first occurrence of each (oid, awb), skip repeats
+                page_key = (tuple(sorted(order_ids)), page_awb)
+                if page_key in _seen_batch_keys:
+                    del text
+                    continue
+                _seen_batch_keys.add(page_key)
                 account_pages[account].append({
                     'orig_path': pdf_path,
                     'orig_idx': i,
@@ -1984,7 +1989,7 @@ def sort_labels():
 
         total_pages = sum(len(v) for v in account_pages.values())
         if not account_pages or total_pages == 0:
-            return jsonify({'error': 'All labels were identified as duplicates and excluded. Nothing to sort.'}), 400
+            return jsonify({'error': 'All labels were excluded as duplicates. This usually means the uploaded PDFs are identical to each other (same-batch duplicates). Nothing to sort.'}), 400
 
         for account, pages in account_pages.items():
             account_sku_map = get_account_master(master, account)
