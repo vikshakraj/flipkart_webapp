@@ -2924,18 +2924,63 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         }
 
         // Daily Performance Trend Chart
-        function DailyTrendChart({ data }) {
+        function DailyTrendChart({ data, masterSkuMap = {} }) {
             const chartRef = React.useRef(null);
             const chartInstance = React.useRef(null);
+            const [selectedProduct, setSelectedProduct] = React.useState('__all__');
 
+            // Build campaignId → canonical product name set, and product list
+            // Using campaignOrder (has Campaign ID + Product Name per order)
+            const { campaignToProducts, productList } = useMemo(() => {
+                const orderRows = data.campaignOrder || [];
+                const fsnRows   = data.consolidatedFSN || [];
+
+                // Build Flipkart title → canonical name from FSN rows
+                const titleToName = {};
+                fsnRows.forEach(row => {
+                    const skuId = (row['Sku Id'] || '').trim();
+                    const title = (row['Product Name'] || '').trim();
+                    const name  = masterSkuMap[skuId] || skuId;
+                    if (title) titleToName[title] = name;
+                    if (skuId) titleToName[skuId]  = name;
+                });
+                const resolveName = t => titleToName[t] || masterSkuMap[t] || t;
+
+                // Map each Campaign ID to the set of canonical product names it served
+                const campaignToProducts = {};
+                orderRows.forEach(row => {
+                    const cid   = row['Campaign ID'];
+                    const title = (row['Product Name'] || '').trim();
+                    if (!cid || !title) return;
+                    const name = resolveName(title);
+                    if (!campaignToProducts[cid]) campaignToProducts[cid] = new Set();
+                    campaignToProducts[cid].add(name);
+                });
+
+                // Collect all unique product names, sorted
+                const allNames = new Set();
+                Object.values(campaignToProducts).forEach(s => s.forEach(n => allNames.add(n)));
+                const productList = [...allNames].sort();
+
+                return { campaignToProducts, productList };
+            }, [data.campaignOrder, data.consolidatedFSN, masterSkuMap]);
+
+            // Aggregate daily data, optionally filtered to campaigns that ran the selected product
             const dailyData = useMemo(() => {
                 if (!data.consolidated || !data.consolidated.length) return [];
 
-                // Aggregate by date — try common Flipkart date column names
                 const dateMap = {};
                 data.consolidated.forEach(row => {
                     const date = row['Date'] || row['Report Date'] || row['date'] || row['Day'] || '';
                     if (!date) return;
+
+                    // Product filter: only include rows where the campaign ran the selected product
+                    if (selectedProduct !== '__all__') {
+                        const cid = row['Campaign ID'];
+                        const products = campaignToProducts[cid];
+                        if (!products || !products.has(selectedProduct)) return;
+                    }
+
                     const spend   = parseFloat(row['Ad Spend']) || 0;
                     const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
                     const clicks  = parseInt(row['Clicks']) || 0;
@@ -2954,7 +2999,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         roas:    v.spend > 0 ? parseFloat((v.revenue / v.spend).toFixed(2)) : 0,
                     }))
                     .filter(d => d.spend > 0 || d.revenue > 0);
-            }, [data.consolidated]);
+            }, [data.consolidated, selectedProduct, campaignToProducts]);
 
             React.useEffect(() => {
                 if (!chartRef.current || !dailyData.length) return;
@@ -3088,9 +3133,22 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 
             return (
                 <div className="section">
-                    <div className="section-header">
+                    <div className="section-header" style={{flexWrap:'wrap',gap:'10px'}}>
                         <h3 className="section-title">📈 Daily Performance Trend</h3>
-                        <p style={{color:'var(--color-text-muted)',fontSize:'0.85rem',margin:0}}>{dailyData.length} days · Revenue, Ad Spend &amp; ROAS</p>
+                        <div style={{display:'flex',alignItems:'center',gap:'10px',marginLeft:'auto',flexWrap:'wrap'}}>
+                            {productList.length > 0 && (
+                                <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)}
+                                    style={{background:'var(--color-surface2)',border:'1px solid var(--color-border)',
+                                        borderRadius:'6px',padding:'5px 10px',color:'var(--color-text)',
+                                        fontSize:'0.82rem',cursor:'pointer',fontFamily:'inherit',maxWidth:'220px'}}>
+                                    <option value="__all__">All Products</option>
+                                    {productList.map(p => <option key={p} value={p}>{p}</option>)}
+                                </select>
+                            )}
+                            <p style={{color:'var(--color-text-muted)',fontSize:'0.85rem',margin:0}}>
+                                {dailyData.length} days · {selectedProduct === '__all__' ? 'All products' : selectedProduct}
+                            </p>
+                        </div>
                     </div>
                     <div style={{position:'relative', height:'340px'}}>
                         <canvas ref={chartRef}></canvas>
@@ -3157,7 +3215,8 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 const prodMap = {};
 
                 if (isFiltered && orderRows.length > 0) {
-                    // Use campaignOrder for date-filtered revenue (has Date per order)
+                    // Use campaignOrder for date-filtered revenue (has Date per order).
+                    // Expected ROI column = ROAS → spend = revenue / Expected ROI per order row.
                     orderRows.forEach(row => {
                         const d = (row['Date'] || '').toString().slice(0, 10);
                         if ((fromDate && d < fromDate) || (toDate && d > toDate)) return;
@@ -3165,19 +3224,11 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         if (!rawTitle) return;
                         const name    = resolveName(rawTitle);
                         const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
+                        const roi     = parseFloat(row['Expected ROI']) || 0;
+                        const spend   = (revenue > 0 && roi > 0) ? revenue / roi : 0;
                         if (!prodMap[name]) prodMap[name] = { name, revenue: 0, spend: 0 };
                         prodMap[name].revenue += revenue;
-                    });
-
-                    // Allocate filtered daily spend proportionally by revenue share
-                    const filteredSpend = dailyRows.reduce((sum, row) => {
-                        const d = (row['Date'] || '').toString().slice(0, 10);
-                        if ((fromDate && d < fromDate) || (toDate && d > toDate)) return sum;
-                        return sum + (parseFloat(row['Ad Spend']) || 0);
-                    }, 0);
-                    const totalRev = Object.values(prodMap).reduce((s, p) => s + p.revenue, 0);
-                    Object.values(prodMap).forEach(p => {
-                        p.spend = totalRev > 0 ? filteredSpend * (p.revenue / totalRev) : 0;
+                        prodMap[name].spend   += spend;
                     });
 
                 } else {
@@ -3226,7 +3277,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 
             return (
                 <div>
-                    <DailyTrendChart data={data} />
+                    <DailyTrendChart data={data} masterSkuMap={masterSkuMap} />
 
                     {/* Date filter row */}
                     <div style={{display:'flex',alignItems:'center',gap:'12px',margin:'16px 0',flexWrap:'wrap'}}>
