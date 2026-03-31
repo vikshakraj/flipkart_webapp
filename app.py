@@ -1719,11 +1719,16 @@ def ads_upload(account):
             store[bucket_key][key] = rows
 
         # Also keep track of overall date range in meta
+        # date_from = min across all buckets; date_to = max seen so far
+        all_buckets = [k for k in store if re.match(r'^\d{4}-\d{2}-\d{2}$', k)]
+        meta_date_from = min(all_buckets) if all_buckets else date_from
+        prev_date_to   = store.get('__meta__', {}).get('date_to', '') or ''
+        meta_date_to   = max(filter(None, [date_to, prev_date_to])) if any([date_to, prev_date_to]) else ''
         store['__meta__'] = {
             'updated_at': datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST'),
             'account':    account,
-            'date_from':  date_from,
-            'date_to':    date_to,
+            'date_from':  meta_date_from,
+            'date_to':    meta_date_to,
         }
 
         _save_ads_store(account, store)
@@ -1853,11 +1858,14 @@ def _build_ads_response(store):
 
     # Merge rows across all date buckets
     merged = {}   # report_key -> [rows]
+    bucket_dates = []
     for bucket, reports in store.items():
         if bucket.startswith('__'):
             continue
         if not isinstance(reports, dict):
             continue
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', bucket):
+            bucket_dates.append(bucket)
         for key, rows in reports.items():
             if key not in merged:
                 merged[key] = []
@@ -1873,11 +1881,17 @@ def _build_ads_response(store):
     if not _has_spend(consol) and _has_spend(consol_fsn):
         merged['consolidated'], merged['consolidatedFSN'] = consol_fsn, consol
 
+    # Compute true full date range across all buckets
+    # date_from = earliest bucket start, date_to = latest from meta or bucket keys
+    date_from = min(bucket_dates) if bucket_dates else meta.get('date_from', '')
+    date_to   = meta.get('date_to', '') or (max(bucket_dates) if bucket_dates else '')
+
     return {
         'data':       merged,
         'updated_at': meta.get('updated_at', ''),
-        'date_from':  meta.get('date_from', ''),
-        'date_to':    meta.get('date_to', ''),
+        'date_from':  date_from,
+        'date_to':    date_to,
+        'buckets':    sorted(bucket_dates),   # so frontend can show "X date ranges loaded"
     }
 
 # ─────────────────────────────────────────────
