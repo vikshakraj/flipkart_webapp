@@ -2979,30 +2979,61 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 return { campaignToProducts, productList };
             }, [data.campaignOrder, data.consolidatedFSN, masterSkuMap, masterProductNames]);
 
-            // Aggregate daily data, optionally filtered to campaigns that ran the selected product
+            // Aggregate daily data correctly per product.
+            //
+            // Revenue source: campaignOrder (one row per order, Date + Product Name + Revenue).
+            //   → Exact per-product per-day revenue, no double-counting across products.
+            //   → For "All Products", sum all orders. For a specific product, sum only its orders.
+            // Spend source:
+            //   → "All Products": consolidated daily report (campaign-level, accurate total spend).
+            //   → Per-product: derived from campaignOrder rows via revenue / Expected ROI per order.
+            //     (Expected ROI = AdGroup CPC = bid-level ROAS, not perfect but the only per-order spend signal)
+            // ROAS = revenue / spend per day.
             const dailyData = useMemo(() => {
-                if (!data.consolidated || !data.consolidated.length) return [];
+                const orderRows = data.campaignOrder || [];
+                const dailyRows = data.consolidated  || [];
+                if (!orderRows.length && !dailyRows.length) return [];
 
-                const dateMap = {};
-                data.consolidated.forEach(row => {
-                    const date = row['Date'] || row['Report Date'] || row['date'] || row['Day'] || '';
-                    if (!date) return;
+                const dateMap = {}; // date → { revenue, spend }
 
-                    // Product filter: only include rows where the campaign ran the selected product
-                    if (selectedProduct !== '__all__') {
-                        const cid = row['Campaign ID'];
-                        const products = campaignToProducts[cid];
+                if (selectedProduct === '__all__') {
+                    // Revenue: sum all orders
+                    orderRows.forEach(row => {
+                        const date = (row['Date'] || '').toString().slice(0, 10);
+                        if (!date) return;
+                        const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
+                        if (!dateMap[date]) dateMap[date] = { revenue: 0, spend: 0 };
+                        dateMap[date].revenue += revenue;
+                    });
+                    // Spend: from consolidated daily (accurate total)
+                    dailyRows.forEach(row => {
+                        const date = (row['Date'] || row['Report Date'] || row['date'] || row['Day'] || '').toString().slice(0, 10);
+                        if (!date) return;
+                        const spend = parseFloat(row['Ad Spend']) || 0;
+                        if (!dateMap[date]) dateMap[date] = { revenue: 0, spend: 0 };
+                        dateMap[date].spend += spend;
+                    });
+                } else {
+                    // Revenue + spend: from campaignOrder rows for selected product only
+                    orderRows.forEach(row => {
+                        const date  = (row['Date'] || '').toString().slice(0, 10);
+                        const title = (row['Product Name'] || '').trim();
+                        if (!date || !title) return;
+
+                        // Resolve title → canonical name using the same titleToName map
+                        const cid       = row['Campaign ID'];
+                        const products  = campaignToProducts[cid];
                         if (!products || !products.has(selectedProduct)) return;
-                    }
 
-                    const spend   = parseFloat(row['Ad Spend']) || 0;
-                    const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
-                    const clicks  = parseInt(row['Clicks']) || 0;
-                    if (!dateMap[date]) dateMap[date] = { spend: 0, revenue: 0, clicks: 0 };
-                    dateMap[date].spend   += spend;
-                    dateMap[date].revenue += revenue;
-                    dateMap[date].clicks  += clicks;
-                });
+                        const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
+                        const roi     = parseFloat(row['Expected ROI']) || 0;
+                        const spend   = (revenue > 0 && roi > 0) ? revenue / roi : 0;
+
+                        if (!dateMap[date]) dateMap[date] = { revenue: 0, spend: 0 };
+                        dateMap[date].revenue += revenue;
+                        dateMap[date].spend   += spend;
+                    });
+                }
 
                 return Object.entries(dateMap)
                     .sort(([a], [b]) => a.localeCompare(b))
@@ -3012,8 +3043,8 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         revenue: v.revenue,
                         roas:    v.spend > 0 ? parseFloat((v.revenue / v.spend).toFixed(2)) : 0,
                     }))
-                    .filter(d => d.spend > 0 || d.revenue > 0);
-            }, [data.consolidated, selectedProduct, campaignToProducts]);
+                    .filter(d => d.revenue > 0 || d.spend > 0);
+            }, [data.campaignOrder, data.consolidated, selectedProduct, campaignToProducts]);
 
             React.useEffect(() => {
                 if (!chartRef.current || !dailyData.length) return;
