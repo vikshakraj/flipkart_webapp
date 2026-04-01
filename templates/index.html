@@ -2924,46 +2924,60 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         }
 
         // Daily Performance Trend Chart
-        function DailyTrendChart({ data, masterSkuMap = {} }) {
+        function DailyTrendChart({ data, masterSkuMap = {}, masterProductNames = [] }) {
             const chartRef = React.useRef(null);
             const chartInstance = React.useRef(null);
             const [selectedProduct, setSelectedProduct] = React.useState('__all__');
 
-            // Build campaignId → canonical product name set, and product list
-            // Using campaignOrder (has Campaign ID + Product Name per order)
+            // Build campaignId → Set<canonicalProductName>.
+            // Only canonical names (masterSkuMap values) appear in the dropdown —
+            // unresolved SKU IDs are silently excluded.
             const { campaignToProducts, productList } = useMemo(() => {
-                const orderRows = data.campaignOrder || [];
+                const orderRows = data.campaignOrder   || [];
                 const fsnRows   = data.consolidatedFSN || [];
 
-                // Build Flipkart title → canonical name from FSN rows
+                // Build Flipkart listing title → canonical name from FSN rows
                 const titleToName = {};
                 fsnRows.forEach(row => {
-                    const skuId = (row['Sku Id'] || '').trim();
-                    const title = (row['Product Name'] || '').trim();
-                    const name  = masterSkuMap[skuId] || skuId;
-                    if (title) titleToName[title] = name;
-                    if (skuId) titleToName[skuId]  = name;
+                    const skuId    = (row['Sku Id'] || '').trim();
+                    const title    = (row['Product Name'] || '').trim();
+                    const canonical = masterSkuMap[skuId];
+                    if (canonical) {
+                        if (title) titleToName[title] = canonical;
+                        titleToName[skuId] = canonical;
+                    }
                 });
-                const resolveName = t => titleToName[t] || masterSkuMap[t] || t;
 
-                // Map each Campaign ID to the set of canonical product names it served
+                // Resolve a Flipkart title or SKU ID → canonical name, or null if unknown
+                const resolveCanonical = t => {
+                    if (!t) return null;
+                    if (masterSkuMap[t]) return masterSkuMap[t];
+                    if (titleToName[t])  return titleToName[t];
+                    return null;
+                };
+
+                // Map each Campaign ID → Set of canonical product names it served
                 const campaignToProducts = {};
                 orderRows.forEach(row => {
                     const cid   = row['Campaign ID'];
                     const title = (row['Product Name'] || '').trim();
                     if (!cid || !title) return;
-                    const name = resolveName(title);
+                    const name = resolveCanonical(title);
+                    if (!name) return;
                     if (!campaignToProducts[cid]) campaignToProducts[cid] = new Set();
                     campaignToProducts[cid].add(name);
                 });
 
-                // Collect all unique product names, sorted
-                const allNames = new Set();
-                Object.values(campaignToProducts).forEach(s => s.forEach(n => allNames.add(n)));
-                const productList = [...allNames].sort();
+                // Dropdown: only canonical names that appear in at least one campaign
+                const seen = new Set();
+                Object.values(campaignToProducts).forEach(s => s.forEach(n => seen.add(n)));
+                // Use masterProductNames order if available, else sort alphabetically
+                const productList = masterProductNames.length
+                    ? masterProductNames.filter(n => seen.has(n))
+                    : [...seen].sort();
 
                 return { campaignToProducts, productList };
-            }, [data.campaignOrder, data.consolidatedFSN, masterSkuMap]);
+            }, [data.campaignOrder, data.consolidatedFSN, masterSkuMap, masterProductNames]);
 
             // Aggregate daily data, optionally filtered to campaigns that ran the selected product
             const dailyData = useMemo(() => {
@@ -3277,7 +3291,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 
             return (
                 <div>
-                    <DailyTrendChart data={data} masterSkuMap={masterSkuMap} />
+                    <DailyTrendChart data={data} masterSkuMap={masterSkuMap} masterProductNames={masterProductNames} />
 
                     {/* Date filter row */}
                     <div style={{display:'flex',alignItems:'center',gap:'12px',margin:'16px 0',flexWrap:'wrap'}}>
