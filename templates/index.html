@@ -2929,51 +2929,52 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             const chartInstance = React.useRef(null);
             const [selectedProduct, setSelectedProduct] = React.useState('__all__');
 
-            // Build campaignId → Set<canonicalProductName>.
-            // Only canonical names (masterSkuMap values) appear in the dropdown —
-            // unresolved SKU IDs are silently excluded.
+            // Build the resolution maps and campaignToProducts.
+            //
+            // Key insight from data analysis:
+            //   - FSN report: Sku Id (internal ID) ↔ Product Name (Flipkart listing title)
+            //   - Campaign order: Product Name = same Flipkart listing title as FSN Product Name (188/188 match)
+            //   - masterSkuMap: internal Sku Id → canonical product name (may not cover all accounts)
+            //
+            // Resolution chain (no masterSkuMap dependency for the join itself):
+            //   1. Build FSN title → group name:
+            //      group name = masterSkuMap[Sku Id] if available, else Sku Id (clean internal name)
+            //   2. Campaign order Product Name → FSN title → group name
+            //   3. Dropdown shows group names (canonical if master resolves, else internal Sku Id)
             const { campaignToProducts, productList } = useMemo(() => {
                 const orderRows = data.campaignOrder   || [];
                 const fsnRows   = data.consolidatedFSN || [];
 
-                // Build Flipkart listing title → canonical name from FSN rows
-                const titleToName = {};
+                // FSN title → group name (canonical from masterSkuMap, or internal Sku Id)
+                const titleToGroup = {};
                 fsnRows.forEach(row => {
-                    const skuId    = (row['Sku Id'] || '').trim();
-                    const title    = (row['Product Name'] || '').trim();
-                    const canonical = masterSkuMap[skuId];
-                    if (canonical) {
-                        if (title) titleToName[title] = canonical;
-                        titleToName[skuId] = canonical;
-                    }
+                    const skuId = (row['Sku Id']       || '').trim();
+                    const title = (row['Product Name'] || '').trim();
+                    if (!skuId || !title) return;
+                    // Use canonical name if master resolves it, otherwise use the Sku Id itself
+                    const group = masterSkuMap[skuId] || skuId;
+                    titleToGroup[title] = group;
                 });
 
-                // Resolve a Flipkart title or SKU ID → canonical name, or null if unknown
-                const resolveCanonical = t => {
-                    if (!t) return null;
-                    if (masterSkuMap[t]) return masterSkuMap[t];
-                    if (titleToName[t])  return titleToName[t];
-                    return null;
-                };
-
-                // Map each Campaign ID → Set of canonical product names it served
+                // Campaign ID → Set of group names it served
                 const campaignToProducts = {};
                 orderRows.forEach(row => {
                     const cid   = row['Campaign ID'];
                     const title = (row['Product Name'] || '').trim();
                     if (!cid || !title) return;
-                    const name = resolveCanonical(title);
-                    if (!name) return;
+                    const group = titleToGroup[title];
+                    if (!group) return; // title not in FSN report — skip
                     if (!campaignToProducts[cid]) campaignToProducts[cid] = new Set();
-                    campaignToProducts[cid].add(name);
+                    campaignToProducts[cid].add(group);
                 });
 
-                // Dropdown: only canonical names that appear in at least one campaign
+                // Dropdown: all group names that appear in at least one campaign
                 const seen = new Set();
                 Object.values(campaignToProducts).forEach(s => s.forEach(n => seen.add(n)));
-                // Use masterProductNames order if available, else sort alphabetically
+                // Prefer masterProductNames order (canonical), else sort alphabetically
                 const productList = masterProductNames.length
-                    ? masterProductNames.filter(n => seen.has(n))
+                    ? [...masterProductNames.filter(n => seen.has(n)),
+                       ...[...seen].filter(n => !masterProductNames.includes(n)).sort()]
                     : [...seen].sort();
 
                 return { campaignToProducts, productList };
@@ -3014,16 +3015,27 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         dateMap[date].spend += spend;
                     });
                 } else {
-                    // Revenue + spend: from campaignOrder rows for selected product only
+                    // Revenue + spend: from campaignOrder, filtered at the ORDER level.
+                    // Each order row has its own Product Name → resolve to group name via titleToGroup.
+                    // Only include rows where that specific order's product resolves to selectedProduct.
+                    // This avoids double-counting: a campaign serving multiple products only contributes
+                    // revenue to the product that specific order was for.
+                    const fsnRows = data.consolidatedFSN || [];
+                    const titleToGroup = {};
+                    fsnRows.forEach(row => {
+                        const skuId = (row['Sku Id']       || '').trim();
+                        const title = (row['Product Name'] || '').trim();
+                        if (skuId && title) titleToGroup[title] = masterSkuMap[skuId] || skuId;
+                    });
+
                     orderRows.forEach(row => {
                         const date  = (row['Date'] || '').toString().slice(0, 10);
                         const title = (row['Product Name'] || '').trim();
                         if (!date || !title) return;
 
-                        // Resolve title → canonical name using the same titleToName map
-                        const cid       = row['Campaign ID'];
-                        const products  = campaignToProducts[cid];
-                        if (!products || !products.has(selectedProduct)) return;
+                        // Filter at order level — does THIS order's product match?
+                        const group = titleToGroup[title];
+                        if (group !== selectedProduct) return;
 
                         const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
                         const roi     = parseFloat(row['Expected ROI']) || 0;
