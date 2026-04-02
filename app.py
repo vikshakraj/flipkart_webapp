@@ -10,7 +10,7 @@ Run:  python3 app.py
 Open: http://localhost:5050
 """
 
-import os, re, io, json, tempfile, traceback, shutil, datetime, gc
+import os, re, io, json, tempfile, traceback, shutil, datetime, gc, requests
 from collections import defaultdict
 from pathlib import Path
 
@@ -27,6 +27,7 @@ from reportlab.lib.units import mm
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'flipkart-ops-secret-2026')
 app.config['MAX_CONTENT_LENGTH'] = 80 * 1024 * 1024  # 80 MB upload cap — protects against OOM on Railway free tier
 
 # Persistent master SKU file — stored in /data (Railway Volume) so it survives restarts
@@ -2541,6 +2542,62 @@ def _register_telegram_webhook():
         print(f'[Telegram] Webhook set to {webhook_url}: {result}')
     except Exception as e:
         print(f'[Telegram] Failed to set webhook: {e}')
+
+
+# ── Flipkart OAuth ──────────────────────────────────────────
+FLIPKART_ACCOUNTS = {
+    "eonspark": {
+        "client_id": "6812a123b7761031314940421500202b7b01",
+        "client_secret": "P248bb7e29a3947131a04c8f10a7e9c0b6",
+    },
+}
+
+@app.route('/flipkart/connect/<account>')
+def flipkart_connect(account):
+    from flask import redirect, session
+    creds = FLIPKART_ACCOUNTS.get(account)
+    if not creds:
+        return f"Unknown account: {account}", 404
+    session['fk_account'] = account
+    auth_url = (
+        "https://api.flipkart.net/oauth-service/oauth/authorize"
+        f"?client_id={creds['client_id']}"
+        "&response_type=code"
+        "&redirect_uri=https://wynx.up.railway.app/flipkart/callback"
+    )
+    return redirect(auth_url)
+
+@app.route('/flipkart/callback')
+def flipkart_callback():
+    from flask import session
+    code = request.args.get('code')
+    error = request.args.get('error')
+    if error:
+        return jsonify({'error': error}), 400
+    account = session.get('fk_account', 'eonspark')
+    creds = FLIPKART_ACCOUNTS.get(account)
+    resp = requests.post(
+        "https://api.flipkart.net/oauth-service/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": creds['client_id'],
+            "client_secret": creds['client_secret'],
+            "redirect_uri": "https://wynx.up.railway.app/flipkart/callback",
+        }
+    )
+    token_data = resp.json()
+    with open(f"/tmp/fk_token_{account}.json", 'w') as f:
+        json.dump(token_data, f)
+    return jsonify({'status': 'success', 'account': account, 'token': token_data})
+
+@app.route('/flipkart/status')
+def flipkart_status():
+    statuses = {}
+    for account in FLIPKART_ACCOUNTS:
+        token_path = f"/tmp/fk_token_{account}.json"
+        statuses[account] = "connected" if os.path.exists(token_path) else "not connected"
+    return jsonify(statuses)
 
 if __name__ == '__main__':
     import os
