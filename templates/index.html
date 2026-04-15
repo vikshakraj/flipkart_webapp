@@ -1560,6 +1560,67 @@
             </div>
           </div>
 
+          <!-- ── SKU Analysis: Sales + Ads Combined ── -->
+          <div class="sa-sku-section" id="saSkuAnalysisSection" style="display:none;">
+            <div class="sa-sku-header">
+              <div class="sa-sku-title">🔗 SKU Analysis — Sales vs Ads</div>
+              <div class="sa-sku-controls">
+                <label style="font-size:.78rem;color:var(--muted);">Sort by</label>
+                <select class="sa-sku-select" id="saSkuAnalysisSort" onchange="renderSaSkuAnalysisTable()" style="max-width:160px;">
+                  <option value="total_units">Total Units</option>
+                  <option value="total_revenue">Total Revenue</option>
+                  <option value="ads_units">Ads Units</option>
+                  <option value="ads_revenue">Ads Revenue</option>
+                  <option value="ads_pct">Ads %</option>
+                  <option value="roas">ROAS</option>
+                </select>
+                <span id="saSkuAnalysisAdsStatus" style="font-size:.75rem;color:var(--muted);"></span>
+              </div>
+            </div>
+            <div style="overflow-x:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                <thead>
+                  <tr style="border-bottom:1px solid var(--border);">
+                    <th style="text-align:left;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">SKU ID</th>
+                    <th style="text-align:left;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Product</th>
+                    <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Total Units</th>
+                    <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Total Revenue</th>
+                    <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Ads Units</th>
+                    <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Ads Revenue</th>
+                    <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Ads %</th>
+                    <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">ROAS</th>
+                    <th style="text-align:center;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Campaigns</th>
+                    <th style="text-align:center;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Sales Chart</th>
+                  </tr>
+                </thead>
+                <tbody id="saSkuAnalysisTbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Sales Chart Modal (Sales Analytics SKU Analysis) -->
+          <div id="saSkuChartModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;width:min(700px,94vw);padding:24px;position:relative;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 id="saSkuChartTitle" style="font-size:.95rem;font-weight:700;color:var(--text);"></h3>
+                <button onclick="closeSaSkuChart()" style="background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;line-height:1;">×</button>
+              </div>
+              <div id="saSkuChartMeta" style="font-size:.78rem;color:var(--muted);margin-bottom:14px;display:flex;gap:20px;flex-wrap:wrap;"></div>
+              <div style="position:relative;height:280px;"><canvas id="saSkuChartCanvas"></canvas></div>
+            </div>
+          </div>
+
+          <!-- Campaigns Modal (Sales Analytics SKU Analysis) -->
+          <div id="saSkuCampaignsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;width:min(600px,94vw);max-height:80vh;overflow-y:auto;padding:24px;position:relative;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 id="saSkuCampaignsTitle" style="font-size:.95rem;font-weight:700;color:var(--text);"></h3>
+                <button onclick="closeSaSkuCampaigns()" style="background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;line-height:1;">×</button>
+              </div>
+              <div id="saSkuCampaignsBody"></div>
+            </div>
+          </div>
+
       </div><!-- /sa-content -->
     </div><!-- /sa-wrap -->
   </div>
@@ -4556,6 +4617,8 @@ const SA_COLORS = [
 
 function switchSaAccount(account, btn){
   _saAccount = account;
+  _saSkuAnalysisData = null;
+  document.getElementById('saSkuAnalysisSection').style.display = 'none';
   document.querySelectorAll('.sa-acct-tab').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   // Reset UI state
@@ -4702,6 +4765,7 @@ function renderSaDashboard(d){
   renderReturnChart(d.returns_chart);
   renderReturnsSection(d);
   renderSkuSection(d);
+  renderSaSkuAnalysis(d);
 }
 
 function renderTrendChart(){
@@ -5342,6 +5406,204 @@ function renderSkuCharts(d, product, from, to){
       }
     }
   });
+}
+
+/* ═══════════════════════════════════════
+   SKU ANALYSIS — SALES vs ADS
+═══════════════════════════════════════ */
+let _saSkuAnalysisData  = null;
+let _saSkuChartInstance = null;
+
+function renderSaSkuAnalysis(d) {
+  if (!d || !d.sku_by_product) return;
+  _saSkuAnalysisData = null;
+  document.getElementById('saSkuAnalysisSection').style.display = 'block';
+
+  // Flatten sku_by_product: skuId → { total, daily, product }
+  const salesMap = {};
+  Object.entries(d.sku_by_product).forEach(([product, series]) => {
+    series.forEach(s => {
+      if (s.sku === 'Others') return;
+      salesMap[s.sku] = { total: s.total, daily: s.daily, product };
+    });
+  });
+
+  const apiAcct = _saAccount.replace(/ /g, '-');
+  document.getElementById('saSkuAnalysisAdsStatus').textContent = 'Loading ads data…';
+
+  fetch('/api/ads-data/' + apiAcct)
+    .then(r => r.json())
+    .then(adsResult => {
+      let adsMap = {};
+      if (!adsResult.empty && !adsResult.error && adsResult.data) {
+        const ad = adsResult.data;
+        // Flipkart title → internal Sku Id (from FSN report)
+        const titleToSkuId = {};
+        (ad.consolidatedFSN || []).forEach(row => {
+          const skuId = (row['Sku Id'] || '').trim();
+          const title = (row['Product Name'] || '').trim();
+          if (skuId && title) titleToSkuId[title] = skuId;
+        });
+        // Campaign name lookup
+        const campNames = {};
+        (ad.consolidated || []).forEach(r => { if (r['Campaign ID'] && r['Campaign Name']) campNames[r['Campaign ID']] = r['Campaign Name']; });
+        (ad.pla || []).forEach(r => { if (r['Campaign ID'] && r['Campaign Name']) campNames[r['Campaign ID']] = r['Campaign Name']; });
+
+        // Aggregate from campaign order
+        (ad.campaignOrder || []).forEach(row => {
+          const skuId = titleToSkuId[(row['Product Name'] || '').trim()];
+          if (!skuId) return;
+          const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
+          const units   = (parseInt(row['Direct Units Sold']) || 0) + (parseInt(row['Indirect Units Sold']) || 0);
+          const cid     = row['Campaign ID'];
+          const roi     = parseFloat(row['Expected ROI']) || 0;
+          const spend   = (revenue > 0 && roi > 0) ? revenue / roi : 0;
+          if (!adsMap[skuId]) adsMap[skuId] = { ads_units:0, ads_revenue:0, ads_spend:0, campaignSet:{} };
+          adsMap[skuId].ads_units   += units;
+          adsMap[skuId].ads_revenue += revenue;
+          adsMap[skuId].ads_spend   += spend;
+          if (!adsMap[skuId].campaignSet[cid]) adsMap[skuId].campaignSet[cid] = { name: campNames[cid]||cid||'Unknown', revenue:0, spend:0 };
+          adsMap[skuId].campaignSet[cid].revenue += revenue;
+          adsMap[skuId].campaignSet[cid].spend   += spend;
+        });
+        // Override spend with FSN-derived (revenue/ROI) — more accurate
+        (ad.consolidatedFSN || []).forEach(row => {
+          const skuId = (row['Sku Id'] || '').trim();
+          const rev   = parseFloat(row['Total Revenue (Rs.)']) || 0;
+          const roi   = parseFloat(row['ROI']) || 0;
+          if (skuId && adsMap[skuId] && rev > 0 && roi > 0) {
+            adsMap[skuId].ads_spend = (adsMap[skuId]._fsnSpend || 0) + rev / roi;
+            adsMap[skuId]._fsnSpend = adsMap[skuId].ads_spend;
+          }
+        });
+        document.getElementById('saSkuAnalysisAdsStatus').textContent = 'Ads data loaded ✓';
+      } else {
+        document.getElementById('saSkuAnalysisAdsStatus').textContent = 'No ads data — showing sales only';
+      }
+
+      _saSkuAnalysisData = Object.entries(salesMap).map(([skuId, sales]) => {
+        const ads = adsMap[skuId] || null;
+        const ads_revenue = ads ? ads.ads_revenue : 0;
+        const ads_units   = ads ? ads.ads_units   : 0;
+        const ads_spend   = ads ? ads.ads_spend   : 0;
+        const roas        = ads_spend > 0 ? ads_revenue / ads_spend : 0;
+        const ads_pct     = sales.total > 0 ? (ads_units / sales.total) * 100 : 0;
+        const campaigns   = ads ? Object.values(ads.campaignSet).map(c => ({...c, roas: c.spend>0 ? c.revenue/c.spend : 0})) : [];
+        const total_revenue = Object.values(sales.daily).reduce((a,b)=>a+b,0);
+        return { skuId, product: sales.product, total_units: sales.total, total_revenue,
+                 daily: sales.daily, dates: d.trend_dates,
+                 ads_units, ads_revenue, ads_spend, ads_pct, roas, campaigns, has_ads: !!ads };
+      });
+      renderSaSkuAnalysisTable();
+    })
+    .catch(() => {
+      document.getElementById('saSkuAnalysisAdsStatus').textContent = 'Could not load ads data';
+      _saSkuAnalysisData = Object.entries(salesMap).map(([skuId, sales]) => ({
+        skuId, product: sales.product, total_units: sales.total,
+        total_revenue: Object.values(sales.daily).reduce((a,b)=>a+b,0),
+        daily: sales.daily, dates: d.trend_dates,
+        ads_units:0, ads_revenue:0, ads_spend:0, ads_pct:0, roas:0, campaigns:[], has_ads:false,
+      }));
+      renderSaSkuAnalysisTable();
+    });
+}
+
+function renderSaSkuAnalysisTable() {
+  if (!_saSkuAnalysisData) return;
+  const sortBy = document.getElementById('saSkuAnalysisSort').value;
+  const rows   = [..._saSkuAnalysisData].sort((a,b) => b[sortBy] - a[sortBy]);
+  const fmtRev = v => '₹' + Math.round(v).toLocaleString('en-IN');
+
+  document.getElementById('saSkuAnalysisTbody').innerHTML = rows.map((r, i) => {
+    const adsPct = r.has_ads && r.ads_pct > 0
+      ? `<div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px;">
+           <div style="width:${Math.min(r.ads_pct,100).toFixed(1)}%;height:100%;background:var(--accent);border-radius:2px;"></div>
+         </div>`
+      : '';
+    const noAds = !r.has_ads
+      ? `<span style="font-size:.68rem;color:var(--muted);opacity:.55;border:1px solid var(--border);border-radius:4px;padding:1px 5px;">organic</span>`
+      : '';
+    const roasColor = r.roas >= 5 ? '#00ff88' : r.roas >= 2 ? '#fbbf24' : r.roas > 0 ? '#ff3366' : 'var(--muted)';
+    return `<tr style="border-bottom:1px solid rgba(42,54,80,.4);"
+                onmouseover="this.style.background='rgba(255,255,255,.03)'"
+                onmouseout="this.style.background=''">
+      <td style="padding:9px 10px;font-family:'JetBrains Mono',monospace;font-size:.73rem;color:var(--muted);white-space:nowrap;">${r.skuId}</td>
+      <td style="padding:9px 10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem;" title="${r.product}">${r.product}</td>
+      <td style="padding:9px 10px;text-align:right;font-weight:600;color:var(--text);">${r.total_units.toLocaleString()}</td>
+      <td style="padding:9px 10px;text-align:right;color:#00ff88;">${fmtRev(r.total_revenue)}</td>
+      <td style="padding:9px 10px;text-align:right;color:var(--accent);">${r.has_ads ? r.ads_units.toLocaleString() : '—'}</td>
+      <td style="padding:9px 10px;text-align:right;color:var(--accent);">${r.has_ads ? fmtRev(r.ads_revenue) : '—'}</td>
+      <td style="padding:9px 10px;text-align:right;">
+        <span style="color:${r.has_ads?'var(--accent)':'var(--muted)'};">${r.ads_pct>0 ? r.ads_pct.toFixed(1)+'%' : '—'}</span>
+        ${adsPct}${noAds}
+      </td>
+      <td style="padding:9px 10px;text-align:right;font-weight:700;color:${roasColor};">${r.roas>0 ? r.roas.toFixed(2)+'x' : '—'}</td>
+      <td style="padding:9px 10px;text-align:center;">
+        ${r.campaigns.length>0
+          ? `<button onclick="openSaSkuCampaigns(${i})" style="padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.75rem;cursor:pointer;font-family:inherit;">👁 ${r.campaigns.length}</button>`
+          : `<span style="color:var(--muted);font-size:.75rem;">—</span>`}
+      </td>
+      <td style="padding:9px 10px;text-align:center;">
+        <button onclick="openSaSkuChart(${i})" style="padding:3px 10px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:.75rem;cursor:pointer;font-family:inherit;">📈</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openSaSkuChart(idx) {
+  const sortBy = document.getElementById('saSkuAnalysisSort').value;
+  const r = _saSkuAnalysisData ? [..._saSkuAnalysisData].sort((a,b)=>b[sortBy]-a[sortBy])[idx] : null;
+  if (!r) return;
+  document.getElementById('saSkuChartTitle').textContent = 'Total Sales — ' + r.skuId;
+  document.getElementById('saSkuChartMeta').innerHTML =
+    `<span>Product: <b style="color:var(--text)">${r.product}</b></span>` +
+    `<span>Total units: <b style="color:var(--accent)">${r.total_units}</b></span>` +
+    (r.has_ads ? `<span>Ads units: <b style="color:var(--accent)">${r.ads_units}</b></span>` : '');
+  document.getElementById('saSkuChartModal').style.display = 'flex';
+  const dates = (r.dates||[]).filter(d => r.daily[d] !== undefined);
+  if (_saSkuChartInstance) { _saSkuChartInstance.destroy(); _saSkuChartInstance = null; }
+  _saSkuChartInstance = new Chart(document.getElementById('saSkuChartCanvas'), {
+    type:'bar',
+    data:{ labels:dates, datasets:[{ label:'Units Sold', data:dates.map(d=>r.daily[d]||0),
+      backgroundColor:'rgba(0,212,255,0.7)', borderColor:'#00d4ff', borderWidth:1, borderRadius:3 }] },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#141b2d', borderColor:'#2a3650', borderWidth:1,
+        titleColor:'#e4e7eb', bodyColor:'#b0b8cc', callbacks:{label:ctx=>`  ${ctx.raw} units`} } },
+      scales:{
+        x:{ ticks:{color:'#8b92a8',font:{size:10},maxRotation:45,maxTicksLimit:20}, grid:{color:'rgba(42,54,80,.4)'} },
+        y:{ beginAtZero:true, ticks:{color:'#8b92a8',font:{size:10},stepSize:1}, grid:{color:'rgba(42,54,80,.4)'} }
+      }
+    }
+  });
+}
+
+function closeSaSkuChart() {
+  document.getElementById('saSkuChartModal').style.display = 'none';
+  if (_saSkuChartInstance) { _saSkuChartInstance.destroy(); _saSkuChartInstance = null; }
+}
+
+function openSaSkuCampaigns(idx) {
+  const sortBy = document.getElementById('saSkuAnalysisSort').value;
+  const r = _saSkuAnalysisData ? [..._saSkuAnalysisData].sort((a,b)=>b[sortBy]-a[sortBy])[idx] : null;
+  if (!r) return;
+  document.getElementById('saSkuCampaignsTitle').textContent = 'Campaigns — ' + r.skuId;
+  const fmtRev = v => '₹' + Math.round(v).toLocaleString('en-IN');
+  document.getElementById('saSkuCampaignsBody').innerHTML = r.campaigns.length === 0
+    ? '<p style="color:var(--muted);font-size:.85rem;">No campaign data.</p>'
+    : r.campaigns.map(c=>`
+        <div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+          <div style="font-weight:600;font-size:.85rem;color:var(--text);margin-bottom:6px;">${c.name}</div>
+          <div style="display:flex;gap:20px;font-size:.78rem;color:var(--muted);flex-wrap:wrap;">
+            <span>Revenue: <b style="color:#00ff88;">${fmtRev(c.revenue)}</b></span>
+            <span>Spend: <b style="color:var(--text);">${fmtRev(c.spend)}</b></span>
+            <span>ROAS: <b style="color:${c.roas>=5?'#00ff88':c.roas>=2?'#fbbf24':'#ff3366'};">${c.roas.toFixed(2)}x</b></span>
+          </div>
+        </div>`).join('');
+  document.getElementById('saSkuCampaignsModal').style.display = 'flex';
+}
+
+function closeSaSkuCampaigns() {
+  document.getElementById('saSkuCampaignsModal').style.display = 'none';
 }
 </script>
 
