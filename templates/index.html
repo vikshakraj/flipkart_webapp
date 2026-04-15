@@ -3255,6 +3255,28 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                     .finally(() => setSalesLoading(false));
             }, [account]);
 
+            // Hoisted to component scope — used both inside useMemo and in JSX render
+            const isFsnCode = s => s && /^[A-Z0-9]{10,}$/.test(s.trim());
+            const fsnToSkuName = React.useMemo(() => {
+                const map = {};
+                if (data.consolidatedFSN) {
+                    data.consolidatedFSN.forEach(row => {
+                        const fsn = row['FSN'] || row['Sku Id'] || row['Product ID'] || '';
+                        const skuName = row['SKU Name'] || row['Sku Name'] || row['Product Name'] || '';
+                        if (fsn && skuName) map[fsn] = skuName;
+                    });
+                }
+                if (data.consolidated) {
+                    data.consolidated.forEach(row => {
+                        const fsn = row['FSN'] || row['Product ID'] || '';
+                        const skuName = row['SKU Name'] || row['Product Name'] || '';
+                        if (fsn && skuName && !map[fsn]) map[fsn] = skuName;
+                    });
+                }
+                return map;
+            }, [data.consolidatedFSN, data.consolidated]);
+            const resolveSkuName = fsn => fsnToSkuName[fsn] || fsn;
+
             const skus = useMemo(() => {
                 if (!data.campaignOrder) return [];
 
@@ -3295,27 +3317,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                     });
                 }
 
-                // Build FSN → SKU name lookup from consolidatedFSN report
-                // Some Campaign Order rows use FSN codes instead of SKU names
-                const fsnToSkuName = {};
-                if (data.consolidatedFSN) {
-                    data.consolidatedFSN.forEach(row => {
-                        const fsn = row['FSN'] || row['Sku Id'] || row['Product ID'] || '';
-                        const skuName = row['SKU Name'] || row['Sku Name'] || row['Product Name'] || '';
-                        if (fsn && skuName) fsnToSkuName[fsn] = skuName;
-                    });
-                }
-                // Also check consolidated report for FSN→name mapping
-                if (data.consolidated) {
-                    data.consolidated.forEach(row => {
-                        const fsn = row['FSN'] || row['Product ID'] || '';
-                        const skuName = row['SKU Name'] || row['Product Name'] || '';
-                        if (fsn && skuName && !fsnToSkuName[fsn]) fsnToSkuName[fsn] = skuName;
-                    });
-                }
-
-                const isFsnCode = s => s && /^[A-Z0-9]{10,}$/.test(s.trim());
-                const resolveSkuName = fsn => fsnToSkuName[fsn] || fsn;
+                // Build FSN → SKU name lookup is now hoisted to component level (fsnToSkuName)
 
                 const skuMap = {};
                 
