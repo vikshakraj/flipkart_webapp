@@ -3445,54 +3445,38 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                     });
             }, [data.campaignOrder, data.consolidated, data.consolidatedFSN, data.pla, sortBy]);
 
-            // Full resolution: FSN code → canonical product name
-            // sku.fsn may be a Flipkart FSN code (from campaign order Advertised FSN ID)
-            // or an internal SKU ID (from FSN report Sku Id).
-            // Chain: try direct masterSkuMap lookup first, then go via fsnToSkuName
-            // (which maps internal Sku Id → Flipkart title), then build reverse title→canonical.
-            const resolveCanonical = React.useMemo(() => {
-                // Build: Flipkart title → canonical name
-                // fsnToSkuName keys are internal Sku Ids or FSN codes → Flipkart titles
-                // We want: for each internal Sku Id that resolves in masterSkuMap,
-                // map its Flipkart title back to the canonical name
-                const titleToCanonical = {};
+            // Bridge: Flipkart listing title → internal Sku Id → canonical name
+            // Campaign order has: Advertised FSN ID (col 5) + Product Name (Flipkart title)
+            // FSN report has: Sku Id (internal) + Product Name (same Flipkart title)
+            // masterSkuMap: internal Sku Id → canonical product name
+            // So: sku.productName → FSN report lookup → internalSkuId → masterSkuMap → canonical
+            const { resolveCanonical, titleToInternalSku } = React.useMemo(() => {
+                // Build: Flipkart title → internal Sku Id (from FSN report)
+                const titleToInternalSku = {};
                 if (data.consolidatedFSN) {
                     data.consolidatedFSN.forEach(row => {
                         const skuId = (row['Sku Id'] || '').trim();
                         const title = (row['Product Name'] || '').trim();
-                        const canonical = masterSkuMap[skuId];
-                        if (canonical && title) titleToCanonical[title] = canonical;
+                        if (skuId && title) titleToInternalSku[title] = skuId;
                     });
                 }
-                // Also build FSN code → canonical directly via FSN report
-                // FSN report: Advertised FSN ID col may exist
-                const fsnCodeToCanonical = {};
-                if (data.consolidatedFSN) {
-                    data.consolidatedFSN.forEach(row => {
-                        const skuId    = (row['Sku Id'] || '').trim();
-                        const fsnCode  = (row['FSN'] || row['Advertised FSN ID'] || '').trim();
-                        const canonical = masterSkuMap[skuId];
-                        if (canonical && fsnCode) fsnCodeToCanonical[fsnCode] = canonical;
-                    });
-                }
-                return (fsn) => {
-                    if (!fsn) return null;
-                    // 1. Direct internal SKU ID match
-                    if (masterSkuMap[fsn]) return masterSkuMap[fsn];
-                    // 2. FSN code → canonical (via FSN report cross-reference)
-                    if (fsnCodeToCanonical[fsn]) return fsnCodeToCanonical[fsn];
-                    // 3. FSN code → Flipkart title → canonical
-                    const title = fsnToSkuName[fsn];
-                    if (title && titleToCanonical[title]) return titleToCanonical[title];
+                const resolveCanonical = (flipkartTitle) => {
+                    if (!flipkartTitle) return null;
+                    // Direct match: title → internal Sku Id → canonical
+                    const internalId = titleToInternalSku[flipkartTitle];
+                    if (internalId && masterSkuMap[internalId]) return masterSkuMap[internalId];
+                    // Fallback: try masterSkuMap directly (in case it's already an internal ID)
+                    if (masterSkuMap[flipkartTitle]) return masterSkuMap[flipkartTitle];
                     return null;
                 };
-            }, [data.consolidatedFSN, masterSkuMap, fsnToSkuName]);
+                return { resolveCanonical, titleToInternalSku };
+            }, [data.consolidatedFSN, masterSkuMap]);
 
-            // Product list for filter dropdown — canonical names resolved from all SKUs
+            // Product list for filter dropdown — resolve via Flipkart listing title
             const productList = useMemo(() => {
                 const seen = new Set();
                 skus.forEach(sku => {
-                    const canonical = resolveCanonical(sku.fsn);
+                    const canonical = resolveCanonical(sku.productName);
                     if (canonical) seen.add(canonical);
                 });
                 return [...seen].sort();
@@ -3501,7 +3485,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             // Apply product filter
             const filteredSkus = useMemo(() => {
                 if (filterProduct === '__all__') return skus;
-                return skus.filter(sku => resolveCanonical(sku.fsn) === filterProduct);
+                return skus.filter(sku => resolveCanonical(sku.productName) === filterProduct);
             }, [skus, filterProduct, resolveCanonical]);
 
             return (
@@ -3582,7 +3566,11 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                         </td>
                                         <td>
                                             <button
-                                                onClick={() => setSalesSkuModal({ skuId: sku.fsn, skuLabel: resolveCanonical(sku.fsn) || sku.fsn })}
+                                                onClick={() => {
+                                                    const internalId = titleToInternalSku[sku.productName] || sku.fsn;
+                                                    const label = resolveCanonical(sku.productName) || sku.productName || sku.fsn;
+                                                    setSalesSkuModal({ skuId: internalId, skuLabel: label });
+                                                }}
                                                 disabled={!salesData || salesLoading || account === 'CONSOLIDATED'}
                                                 style={{padding:'4px 10px',borderRadius:'6px',border:'1px solid var(--color-accent)',
                                                     background:'transparent',color:'var(--color-accent)',fontSize:'0.75rem',
