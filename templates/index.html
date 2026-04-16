@@ -2581,13 +2581,22 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                 dateRange={dateRange}
                                 masterSkuMap={masterSkuMap}
                                 account={account}
-                                onReset={() => {
-                                    setFiles({});
-                                    setData({});
-                                    setDateRanges({});
-                                    setDateRange({ start: null, end: null });
-                                    setShowDashboard(false);
-                                    if (onClear) onClear();
+                                onReset={(mergedResult) => {
+                                    if (mergedResult && mergedResult.data) {
+                                        // Merge upload succeeded — refresh dashboard with new data
+                                        setData(mergedResult.data);
+                                        setDateRange({ start: mergedResult.date_from, end: mergedResult.date_to });
+                                        // Also notify parent shell to update its cache
+                                        if (onClear) onClear(mergedResult);
+                                    } else {
+                                        // Full reset
+                                        setFiles({});
+                                        setData({});
+                                        setDateRanges({});
+                                        setDateRange({ start: null, end: null });
+                                        setShowDashboard(false);
+                                        if (onClear) onClear();
+                                    }
                                 }}
                             />
                         )}
@@ -2694,6 +2703,16 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         }
 
         // Dashboard Component
+        const ADS_FILE_TYPES = [
+            { key: 'campaignOrder',   label: 'Campaign Order Report',    icon: '📦' },
+            { key: 'consolidated',    label: 'Consolidated Daily Report', icon: '📊' },
+            { key: 'consolidatedFSN', label: 'Consolidated FSN Report',   icon: '🎯' },
+            { key: 'keyword',         label: 'Keyword Report',            icon: '🔑' },
+            { key: 'pla',             label: 'PLA Report',                icon: '📋' },
+            { key: 'placement',       label: 'Placement Performance',     icon: '📍' },
+            { key: 'searchTerm',      label: 'Search Term Report',        icon: '🔍' },
+        ];
+
         function Dashboard({ data, activeTab, setActiveTab, dateRange, masterSkuMap = {}, account = '', onReset }) {
             const tabs = [
                 { id: 'overview', label: 'Overview', icon: '📊' },
@@ -2705,49 +2724,132 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 { id: 'insights', label: 'AI Insights', icon: '🧠' }
             ];
 
+            // ── Merge panel state ─────────────────────────────────────────
+            const [showMerge, setShowMerge]       = React.useState(false);
+            const [mergeFiles, setMergeFiles]     = React.useState({});
+            const [mergeLoading, setMergeLoading] = React.useState(false);
+
+            const handleMergeFile = async (e, key) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                try {
+                    await parseCSV(file, key);
+                    setMergeFiles(prev => ({ ...prev, [key]: file }));
+                } catch(err) {
+                    alert('⚠️ ' + (err.message || 'Error parsing file.'));
+                }
+            };
+
+            const handleMergeUpload = async () => {
+                if (!Object.keys(mergeFiles).length) return;
+                setMergeLoading(true);
+                try {
+                    const acctMap = {'REFRESHWAVE':'REFRESHWAVE','EONSPARK':'EONSPARK','HELLOHI':'HELLOHI','CUTEST CLUB':'CUTEST-CLUB'};
+                    const apiAcct = (acctMap[account] || account).replace(/ /g,'-');
+                    const fd = new FormData();
+                    Object.entries(mergeFiles).forEach(([k, f]) => fd.append(k, f));
+                    const resp = await fetch('/api/ads-upload/' + apiAcct, { method: 'POST', body: fd });
+                    if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || 'HTTP '+resp.status); }
+                    const result = await resp.json();
+                    // Reload with merged data
+                    if (onReset) onReset(result);
+                    setMergeFiles({});
+                    setShowMerge(false);
+                } catch(e) {
+                    alert('Merge failed: ' + e.message);
+                } finally {
+                    setMergeLoading(false);
+                }
+            };
+            // ─────────────────────────────────────────────────────────────
+
             const formatDateRange = () => {
                 if (!dateRange.start || !dateRange.end) return 'Data loaded successfully';
-                
                 const start = new Date(dateRange.start);
-                const end = new Date(dateRange.end);
-                
-                const formatDate = (date) => {
-                    return date.toLocaleDateString('en-IN', { 
-                        day: '2-digit', 
-                        month: 'short', 
-                        year: 'numeric' 
-                    });
-                };
-                
-                return `${formatDate(start)} - ${formatDate(end)}`;
+                const end   = new Date(dateRange.end);
+                const fmt   = d => d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+                return `${fmt(start)} - ${fmt(end)}`;
             };
 
             return (
                 <div className="dashboard">
                     <div className="dashboard-header">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap:'wrap', gap:'8px' }}>
                             <div>
                                 <h2>Analytics Dashboard</h2>
-                                <p className="date-range">
-                                    {formatDateRange()}
-                                </p>
+                                <p className="date-range">{formatDateRange()}</p>
                             </div>
-                            <button className="btn btn-secondary" onClick={async () => {
-                                    const activeBtn = document.querySelector('.ads-acct-tab.active');
-                                    const acctLabel = activeBtn ? activeBtn.textContent.trim() : '';
-                                    const acctMap = {'Refreshwave':'REFRESHWAVE','Eonspark':'EONSPARK','Hellohi':'HELLOHI','Cutest Club':'CUTEST-CLUB','⚡ Consolidated':'CONSOLIDATED'};
-                                    const apiAcct = acctMap[acctLabel] || acctLabel.toUpperCase().replace(/ /g,'-');
-                                    if (confirm('Clear stored data for ' + (acctLabel || 'this account') + '?')) {
-                                        await fetch('/api/ads-clear/' + apiAcct, { method: 'POST' });
-                                        onReset();
-                                    }
-                                }} style={{marginRight:'8px', fontSize:'.8rem', opacity:'.7'}}>
-                                🗑 Clear & Re-upload
-                            </button>
-                            <button className="btn btn-secondary" onClick={onReset}>
-                                🔄 Reset Data
-                            </button>
+                            <div style={{display:'flex', gap:'8px', alignItems:'center', flexWrap:'wrap'}}>
+                                {/* ── Add New Date Range button ── */}
+                                <button className="btn btn-secondary"
+                                    onClick={() => setShowMerge(p => !p)}
+                                    style={{fontSize:'.8rem', background: showMerge ? 'rgba(0,212,255,.15)' : '', borderColor: showMerge ? 'var(--color-accent)' : '', color: showMerge ? 'var(--color-accent)' : ''}}>
+                                    ➕ Add New Date Range
+                                </button>
+                                <button className="btn btn-secondary" onClick={async () => {
+                                        const activeBtn = document.querySelector('.ads-acct-tab.active');
+                                        const acctLabel = activeBtn ? activeBtn.textContent.trim() : '';
+                                        const acctMap = {'Refreshwave':'REFRESHWAVE','Eonspark':'EONSPARK','Hellohi':'HELLOHI','Cutest Club':'CUTEST-CLUB','⚡ Consolidated':'CONSOLIDATED'};
+                                        const apiAcct = acctMap[acctLabel] || acctLabel.toUpperCase().replace(/ /g,'-');
+                                        if (confirm('Clear stored data for ' + (acctLabel || 'this account') + '?')) {
+                                            await fetch('/api/ads-clear/' + apiAcct, { method: 'POST' });
+                                            onReset();
+                                        }
+                                    }} style={{fontSize:'.8rem', opacity:'.7'}}>
+                                    🗑 Clear & Re-upload
+                                </button>
+                                <button className="btn btn-secondary" onClick={onReset} style={{fontSize:'.8rem', opacity:'.7'}}>
+                                    🔄 Reset Data
+                                </button>
+                            </div>
                         </div>
+
+                        {/* ── Merge panel (inline, expands below header) ── */}
+                        {showMerge && (
+                            <div style={{marginTop:'14px', padding:'16px', background:'rgba(0,212,255,.04)',
+                                border:'1px solid var(--color-border)', borderRadius:'10px'}}>
+                                <p style={{fontSize:'.82rem', color:'var(--color-text-muted)', marginBottom:'12px'}}>
+                                    Upload reports for a new date range — they'll be <b>merged</b> with existing data. Upload only the files covering the new dates.
+                                </p>
+                                <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(195px,1fr))', gap:'8px', marginBottom:'12px'}}>
+                                    {ADS_FILE_TYPES.map(({ key, label, icon }) => (
+                                        <label key={key} style={{display:'flex', alignItems:'center', gap:'7px',
+                                            padding:'7px 11px', borderRadius:'7px', cursor:'pointer', fontSize:'.78rem',
+                                            border: '1px dashed ' + (mergeFiles[key] ? 'var(--color-accent)' : 'var(--color-border)'),
+                                            background: mergeFiles[key] ? 'rgba(0,212,255,.06)' : 'var(--color-surface2)',
+                                            color: mergeFiles[key] ? 'var(--color-accent)' : 'var(--color-text-muted)'}}>
+                                            <input type="file" accept=".csv" onChange={e => handleMergeFile(e, key)} style={{display:'none'}}/>
+                                            <span>{icon}</span>
+                                            <span style={{overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                                                {mergeFiles[key] ? '✓ ' + mergeFiles[key].name : label}
+                                            </span>
+                                        </label>
+                                    ))}
+                                </div>
+                                <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
+                                    <button onClick={handleMergeUpload}
+                                        disabled={mergeLoading || !Object.keys(mergeFiles).length}
+                                        style={{padding:'8px 20px', borderRadius:'8px', border:'none',
+                                            background:'linear-gradient(135deg,var(--color-accent),var(--color-accent-dim))',
+                                            color:'#0a0e1a', fontWeight:700, fontSize:'.85rem', fontFamily:'inherit',
+                                            cursor: (mergeLoading || !Object.keys(mergeFiles).length) ? 'not-allowed' : 'pointer',
+                                            opacity: (mergeLoading || !Object.keys(mergeFiles).length) ? 0.5 : 1}}>
+                                        {mergeLoading ? '⏳ Merging…' : '⬆️ Merge & Update'}
+                                    </button>
+                                    <button onClick={() => { setMergeFiles({}); setShowMerge(false); }}
+                                        style={{padding:'8px 14px', borderRadius:'8px', border:'1px solid var(--color-border)',
+                                            background:'transparent', color:'var(--color-text-muted)', fontSize:'.82rem',
+                                            cursor:'pointer', fontFamily:'inherit'}}>
+                                        Cancel
+                                    </button>
+                                    {Object.keys(mergeFiles).length > 0 && (
+                                        <span style={{fontSize:'.78rem', color:'var(--color-text-muted)'}}>
+                                            {Object.keys(mergeFiles).length} file{Object.keys(mergeFiles).length > 1 ? 's' : ''} selected
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <OverviewStats data={data} />
