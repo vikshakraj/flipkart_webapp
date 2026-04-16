@@ -5442,10 +5442,35 @@ function renderSaSkuAnalysis(d) {
   });
 
   // Populate product dropdown
+  // Order: identified canonical products first (trend_series order = total units desc),
+  // then unidentified SKU names in an optgroup below.
   const productSel = document.getElementById('saSkuAnalysisProduct');
-  const allProducts = [...new Set(Object.values(salesMap).map(s => s.product))].sort();
-  productSel.innerHTML = '<option value="__all__">All Products</option>' +
-    allProducts.map(p => `<option value="${p}">${p}</option>`).join('');
+  const allProductNames = [...new Set(Object.values(salesMap).map(s => s.product))];
+
+  // Identified = names that appear in trend_series (canonical, sorted by volume)
+  const trendOrder = (d.trend_series || []).map(s => s.name);
+  const identified = trendOrder.filter(p => allProductNames.includes(p));
+  // Any product not in trend_series top15 but still canonical — add alphabetically
+  const trendSet = new Set(trendOrder);
+  const otherIdentified = allProductNames
+    .filter(p => !trendSet.has(p) && p.length < 40 && !/Pack \d|PCK|\d+PCK/i.test(p))
+    .sort();
+  // Unidentified = look like raw SKU IDs (contain pack suffixes or are long codes)
+  const unidentified = allProductNames
+    .filter(p => !trendSet.has(p) && !otherIdentified.includes(p))
+    .sort();
+
+  const allIdentified = [...identified, ...otherIdentified];
+  productSel.innerHTML =
+    '<option value="__all__">All Products</option>' +
+    (allIdentified.length
+      ? allIdentified.map(p => `<option value="${p}">${p}</option>`).join('')
+      : '') +
+    (unidentified.length
+      ? `<optgroup label="── Unidentified SKUs ──" style="color:var(--muted);font-style:italic;">` +
+        unidentified.map(p => `<option value="${p}">${p}</option>`).join('') +
+        `</optgroup>`
+      : '');
 
   const apiAcct = _saAccount.replace(/ /g, '-');
   document.getElementById('saSkuAnalysisAdsStatus').textContent = 'Loading ads data…';
