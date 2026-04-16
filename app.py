@@ -10,7 +10,7 @@ Run:  python3 app.py
 Open: http://localhost:5050
 """
 
-import os, re, io, json, tempfile, traceback, shutil, datetime, gc, requests
+import os, re, io, json, tempfile, traceback, shutil, datetime, gc
 from collections import defaultdict
 from pathlib import Path
 
@@ -27,7 +27,6 @@ from reportlab.lib.units import mm
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'flipkart-ops-secret-2026')
 app.config['MAX_CONTENT_LENGTH'] = 80 * 1024 * 1024  # 80 MB upload cap — protects against OOM on Railway free tier
 
 # Persistent master SKU file — stored in /data (Railway Volume) so it survives restarts
@@ -1720,16 +1719,11 @@ def ads_upload(account):
             store[bucket_key][key] = rows
 
         # Also keep track of overall date range in meta
-        # date_from = min across all buckets; date_to = max seen so far
-        all_buckets = [k for k in store if re.match(r'^\d{4}-\d{2}-\d{2}$', k)]
-        meta_date_from = min(all_buckets) if all_buckets else date_from
-        prev_date_to   = store.get('__meta__', {}).get('date_to', '') or ''
-        meta_date_to   = max(filter(None, [date_to, prev_date_to])) if any([date_to, prev_date_to]) else ''
         store['__meta__'] = {
             'updated_at': datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST'),
             'account':    account,
-            'date_from':  meta_date_from,
-            'date_to':    meta_date_to,
+            'date_from':  date_from,
+            'date_to':    date_to,
         }
 
         _save_ads_store(account, store)
@@ -1857,20 +1851,49 @@ def _build_ads_response(store):
     """Merge all date buckets in store into a flat data dict for the frontend."""
     meta = store.get('__meta__', {})
 
-    # Merge rows across all date buckets
+    # Merge rows across all date buckets — process in bucket date order so later
+    # buckets (newer uploads) win on overlapping dates.
     merged = {}   # report_key -> [rows]
-    bucket_dates = []
-    for bucket, reports in store.items():
-        if bucket.startswith('__'):
-            continue
+    for bucket in sorted(k for k in store if not k.startswith('__')):
+        reports = store[bucket]
         if not isinstance(reports, dict):
             continue
-        if re.match(r'^\d{4}-\d{2}-\d{2}$', bucket):
-            bucket_dates.append(bucket)
         for key, rows in reports.items():
             if key not in merged:
                 merged[key] = []
             merged[key].extend(rows)
+
+    # Deduplicate consolidated (daily) report by Campaign ID + Date.
+    # When two buckets cover overlapping dates (e.g. Mar 1–30 and Mar 29–Apr 15),
+    # the later bucket's row wins (already appended last due to sorted bucket order).
+    if 'consolidated' in merged:
+        seen = {}
+        deduped = []
+        for row in merged['consolidated']:
+            cid  = row.get('Campaign ID', '')
+            date = row.get('Date', '')
+            key  = f'{cid}|{date}'
+            seen[key] = row   # later row overwrites earlier for same key
+        merged['consolidated'] = list(seen.values())
+
+    # Also deduplicate consolidatedFSN by Campaign ID + Sku Id (period aggregate,
+    # but same SKU-campaign combo may appear in multiple bucket uploads)
+    if 'consolidatedFSN' in merged:
+        seen = {}
+        for row in merged['consolidatedFSN']:
+            key = f"{row.get('Campaign ID','')}|{row.get('Sku Id','')}"
+            if key not in seen:
+                seen[key] = {'row': row, 'revenue': 0.0, 'roi_sum': 0.0, 'count': 0}
+            seen[key]['revenue']  += float(row.get('Total Revenue (Rs.)', 0) or 0)
+            seen[key]['roi_sum']  += float(row.get('ROI', 0) or 0)
+            seen[key]['count']    += 1
+        deduped_fsn = []
+        for entry in seen.values():
+            r = dict(entry['row'])
+            r['Total Revenue (Rs.)'] = entry['revenue']
+            r['ROI'] = entry['roi_sum'] / entry['count'] if entry['count'] else 0
+            deduped_fsn.append(r)
+        merged['consolidatedFSN'] = deduped_fsn
 
     # Auto-correct common swap: if 'consolidated' lacks 'Ad Spend' but 'consolidatedFSN'
     # has it, swap them so the frontend KPI block always reads spend from 'consolidated'
@@ -1883,7 +1906,7 @@ def _build_ads_response(store):
         merged['consolidated'], merged['consolidatedFSN'] = consol_fsn, consol
 
     # Compute true full date range across all buckets
-    # date_from = earliest bucket start, date_to = latest from meta or bucket keys
+    bucket_dates = [k for k in store if re.match(r'^\d{4}-\d{2}-\d{2}$', k)]
     date_from = min(bucket_dates) if bucket_dates else meta.get('date_from', '')
     date_to   = meta.get('date_to', '') or (max(bucket_dates) if bucket_dates else '')
 
@@ -1892,7 +1915,7 @@ def _build_ads_response(store):
         'updated_at': meta.get('updated_at', ''),
         'date_from':  date_from,
         'date_to':    date_to,
-        'buckets':    sorted(bucket_dates),   # so frontend can show "X date ranges loaded"
+        'buckets':    sorted(bucket_dates),
     }
 
 # ─────────────────────────────────────────────
@@ -1906,76 +1929,19 @@ def index():
 
 @app.route('/api/master-sku-map', methods=['GET'])
 def master_sku_map():
-    """Return SKU -> ProductName mapping from master SKU file.
-
-    Response:
-      mapping      : { SKU_ID: "ProductName 1", ... }   (your internal IDs)
-      productNames : ["ProductName 1", ...]              (all unique canonical names)
-
-    The frontend uses productNames for fuzzy-matching Flipkart listing titles
-    (from FSN reports) to canonical product names for grouping in tiles/charts.
-    """
+    """Return SKU -> ProductName mapping from master SKU file."""
     if not os.path.exists(MASTER_SKU_PATH):
         return jsonify({'error': 'Master SKU not uploaded'}), 404
     try:
-        wb = openpyxl.load_workbook(MASTER_SKU_PATH, data_only=True)
-        mapping = {}        # SKU ID → ProductName 1
-        product_names = set()
-
-        for sheet in wb.worksheets:
-            rows = list(sheet.iter_rows(values_only=True))
-            if not rows:
-                continue
-            # Find header row
-            header = None
-            data_start = 0
-            for i, row in enumerate(rows):
-                norm = [str(c).strip().lower() if c else '' for c in row]
-                if any(x in norm for x in ['sku', 'sku id', 'skuid']):
-                    header = norm
-                    data_start = i + 1
-                    break
-            if not header:
-                continue
-
-            def col_idx(names):
-                for n in names:
-                    for i, h in enumerate(header):
-                        if h == n or h.startswith(n):
-                            return i
-                return None
-
-            sku_col  = col_idx(['sku', 'sku id', 'skuid'])
-            p1_col   = col_idx(['productname 1', 'productname', 'product name', 'product'])
-            p2_col   = None
-            # ProductName 2 must come after p1_col
-            if p1_col is not None:
-                for n in ['productname 2', 'productname']:
-                    for i, h in enumerate(header):
-                        if i > p1_col and (h == n or h.startswith(n)):
-                            p2_col = i
-                            break
-                    if p2_col is not None:
-                        break
-
-            if sku_col is None:
-                continue
-
-            for row in rows[data_start:]:
-                sku = str(row[sku_col]).strip() if row[sku_col] else ''
-                p1  = str(row[p1_col]).strip()  if p1_col is not None and row[p1_col] else ''
-                p2  = str(row[p2_col]).strip()  if p2_col is not None and row[p2_col] else ''
-                if sku and sku.lower() not in ('none', 'nan', '') and p1:
-                    mapping[sku] = p1
-                if p1:
-                    product_names.add(p1)
-                if p2:
-                    product_names.add(p2)
-
-        return jsonify({
-            'mapping': mapping,
-            'productNames': sorted(product_names),
-        })
+        import pandas as pd
+        df = pd.read_excel(MASTER_SKU_PATH)
+        mapping = {}
+        for _, row in df.iterrows():
+            sku = str(row.get('SKU', '')).strip()
+            p1  = str(row.get('ProductName 1', '')).strip() if pd.notna(row.get('ProductName 1')) else ''
+            if sku and p1 and sku != 'nan':
+                mapping[sku] = p1
+        return jsonify({'mapping': mapping})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -2542,62 +2508,6 @@ def _register_telegram_webhook():
         print(f'[Telegram] Webhook set to {webhook_url}: {result}')
     except Exception as e:
         print(f'[Telegram] Failed to set webhook: {e}')
-
-
-# ── Flipkart OAuth ──────────────────────────────────────────
-FLIPKART_ACCOUNTS = {
-    "eonspark": {
-        "client_id": "6812a123b7761031314940421500202b7b01",
-        "client_secret": "P248bb7e29a3947131a04c8f10a7e9c0b6",
-    },
-}
-
-@app.route('/flipkart/connect/<account>')
-def flipkart_connect(account):
-    from flask import redirect, session
-    creds = FLIPKART_ACCOUNTS.get(account)
-    if not creds:
-        return f"Unknown account: {account}", 404
-    session['fk_account'] = account
-    auth_url = (
-        "https://api.flipkart.net/oauth-service/oauth/authorize"
-        f"?client_id={creds['client_id']}"
-        "&response_type=code"
-        "&redirect_uri=https://wynx.up.railway.app/flipkart/callback"
-    )
-    return redirect(auth_url)
-
-@app.route('/flipkart/callback')
-def flipkart_callback():
-    from flask import session
-    code = request.args.get('code')
-    error = request.args.get('error')
-    if error:
-        return jsonify({'error': error}), 400
-    account = session.get('fk_account', 'eonspark')
-    creds = FLIPKART_ACCOUNTS.get(account)
-    resp = requests.post(
-        "https://api.flipkart.net/oauth-service/oauth/token",
-        data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "client_id": creds['client_id'],
-            "client_secret": creds['client_secret'],
-            "redirect_uri": "https://wynx.up.railway.app/flipkart/callback",
-        }
-    )
-    token_data = resp.json()
-    with open(f"/tmp/fk_token_{account}.json", 'w') as f:
-        json.dump(token_data, f)
-    return jsonify({'status': 'success', 'account': account, 'token': token_data})
-
-@app.route('/flipkart/status')
-def flipkart_status():
-    statuses = {}
-    for account in FLIPKART_ACCOUNTS:
-        token_path = f"/tmp/fk_token_{account}.json"
-        statuses[account] = "connected" if os.path.exists(token_path) else "not connected"
-    return jsonify(statuses)
 
 if __name__ == '__main__':
     import os
