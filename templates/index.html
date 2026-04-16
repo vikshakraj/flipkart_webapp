@@ -2409,7 +2409,15 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                 key={activeAccount + (st.showDashboard ? '_loaded' : '_empty')}
                                 initialData={st.showDashboard ? st.data : null}
                                 initialDateRange={st.showDashboard ? st.dateRange : null}
-                                onClear={() => handleReset(activeAccount)}
+                                onClear={(mergedResult) => {
+                                    if (mergedResult && mergedResult.data) {
+                                        // Merge upload — update cache without resetting dashboard
+                                        handleUploadSuccess(activeAccount, mergedResult);
+                                    } else {
+                                        // Full reset
+                                        handleReset(activeAccount);
+                                    }
+                                }}
                                 masterSkuMap={masterSkuMap}
                                 account={activeAccount}
                             />
@@ -2583,13 +2591,13 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                                 account={account}
                                 onReset={(mergedResult) => {
                                     if (mergedResult && mergedResult.data) {
-                                        // Merge upload succeeded — refresh dashboard with new data
+                                        // Merge upload — update data in-place, keep dashboard showing
                                         setData(mergedResult.data);
                                         setDateRange({ start: mergedResult.date_from, end: mergedResult.date_to });
-                                        // Also notify parent shell to update its cache
+                                        // Update parent shell cache too
                                         if (onClear) onClear(mergedResult);
                                     } else {
-                                        // Full reset
+                                        // Full reset — go back to upload screen
                                         setFiles({});
                                         setData({});
                                         setDateRanges({});
