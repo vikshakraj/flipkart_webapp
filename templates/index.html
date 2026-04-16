@@ -1565,15 +1565,23 @@
             <div class="sa-sku-header">
               <div class="sa-sku-title">🔗 SKU Analysis — Sales vs Ads</div>
               <div class="sa-sku-controls">
+                <label style="font-size:.78rem;color:var(--muted);">Product</label>
+                <select class="sa-sku-select" id="saSkuAnalysisProduct" onchange="renderSaSkuAnalysisTable()" style="max-width:180px;">
+                  <option value="__all__">All Products</option>
+                </select>
                 <label style="font-size:.78rem;color:var(--muted);">Sort by</label>
                 <select class="sa-sku-select" id="saSkuAnalysisSort" onchange="renderSaSkuAnalysisTable()" style="max-width:160px;">
                   <option value="total_units">Total Units</option>
-                  <option value="total_revenue">Total Revenue</option>
                   <option value="ads_units">Ads Units</option>
                   <option value="ads_revenue">Ads Revenue</option>
                   <option value="ads_pct">Ads %</option>
                   <option value="roas">ROAS</option>
                 </select>
+                <label style="font-size:.78rem;color:var(--muted);">From</label>
+                <input type="date" class="sa-date-input" id="saSkuAnalysisFrom" onchange="renderSaSkuAnalysisTable()">
+                <label style="font-size:.78rem;color:var(--muted);">To</label>
+                <input type="date" class="sa-date-input" id="saSkuAnalysisTo" onchange="renderSaSkuAnalysisTable()">
+                <button class="sa-filter-btn" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);" onclick="resetSaSkuAnalysisFilter()">Reset</button>
                 <span id="saSkuAnalysisAdsStatus" style="font-size:.75rem;color:var(--muted);"></span>
               </div>
             </div>
@@ -1584,7 +1592,6 @@
                     <th style="text-align:left;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">SKU ID</th>
                     <th style="text-align:left;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Product</th>
                     <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Total Units</th>
-                    <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Total Revenue</th>
                     <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Ads Units</th>
                     <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Ads Revenue</th>
                     <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Ads %</th>
@@ -5419,6 +5426,12 @@ function renderSaSkuAnalysis(d) {
   _saSkuAnalysisData = null;
   document.getElementById('saSkuAnalysisSection').style.display = 'block';
 
+  // Set date filter defaults to full range
+  const fromEl = document.getElementById('saSkuAnalysisFrom');
+  const toEl   = document.getElementById('saSkuAnalysisTo');
+  fromEl.value = d.kpis.date_from;
+  toEl.value   = d.kpis.date_to;
+
   // Flatten sku_by_product: skuId → { total, daily, product }
   const salesMap = {};
   Object.entries(d.sku_by_product).forEach(([product, series]) => {
@@ -5427,6 +5440,12 @@ function renderSaSkuAnalysis(d) {
       salesMap[s.sku] = { total: s.total, daily: s.daily, product };
     });
   });
+
+  // Populate product dropdown
+  const productSel = document.getElementById('saSkuAnalysisProduct');
+  const allProducts = [...new Set(Object.values(salesMap).map(s => s.product))].sort();
+  productSel.innerHTML = '<option value="__all__">All Products</option>' +
+    allProducts.map(p => `<option value="${p}">${p}</option>`).join('');
 
   const apiAcct = _saAccount.replace(/ /g, '-');
   document.getElementById('saSkuAnalysisAdsStatus').textContent = 'Loading ads data…';
@@ -5437,19 +5456,15 @@ function renderSaSkuAnalysis(d) {
       let adsMap = {};
       if (!adsResult.empty && !adsResult.error && adsResult.data) {
         const ad = adsResult.data;
-        // Flipkart title → internal Sku Id (from FSN report)
         const titleToSkuId = {};
         (ad.consolidatedFSN || []).forEach(row => {
           const skuId = (row['Sku Id'] || '').trim();
           const title = (row['Product Name'] || '').trim();
           if (skuId && title) titleToSkuId[title] = skuId;
         });
-        // Campaign name lookup
         const campNames = {};
         (ad.consolidated || []).forEach(r => { if (r['Campaign ID'] && r['Campaign Name']) campNames[r['Campaign ID']] = r['Campaign Name']; });
         (ad.pla || []).forEach(r => { if (r['Campaign ID'] && r['Campaign Name']) campNames[r['Campaign ID']] = r['Campaign Name']; });
-
-        // Aggregate from campaign order
         (ad.campaignOrder || []).forEach(row => {
           const skuId = titleToSkuId[(row['Product Name'] || '').trim()];
           if (!skuId) return;
@@ -5466,7 +5481,6 @@ function renderSaSkuAnalysis(d) {
           adsMap[skuId].campaignSet[cid].revenue += revenue;
           adsMap[skuId].campaignSet[cid].spend   += spend;
         });
-        // Override spend with FSN-derived (revenue/ROI) — more accurate
         (ad.consolidatedFSN || []).forEach(row => {
           const skuId = (row['Sku Id'] || '').trim();
           const rev   = parseFloat(row['Total Revenue (Rs.)']) || 0;
@@ -5481,40 +5495,75 @@ function renderSaSkuAnalysis(d) {
         document.getElementById('saSkuAnalysisAdsStatus').textContent = 'No ads data — showing sales only';
       }
 
+      // Build rows — store raw daily data for date filtering in renderSaSkuAnalysisTable
       _saSkuAnalysisData = Object.entries(salesMap).map(([skuId, sales]) => {
         const ads = adsMap[skuId] || null;
-        const ads_revenue = ads ? ads.ads_revenue : 0;
-        const ads_units   = ads ? ads.ads_units   : 0;
-        const ads_spend   = ads ? ads.ads_spend   : 0;
-        const roas        = ads_spend > 0 ? ads_revenue / ads_spend : 0;
-        const ads_pct     = sales.total > 0 ? (ads_units / sales.total) * 100 : 0;
-        const campaigns   = ads ? Object.values(ads.campaignSet).map(c => ({...c, roas: c.spend>0 ? c.revenue/c.spend : 0})) : [];
-        const total_revenue = Object.values(sales.daily).reduce((a,b)=>a+b,0);
-        return { skuId, product: sales.product, total_units: sales.total, total_revenue,
-                 daily: sales.daily, dates: d.trend_dates,
-                 ads_units, ads_revenue, ads_spend, ads_pct, roas, campaigns, has_ads: !!ads };
+        const campaigns = ads ? Object.values(ads.campaignSet).map(c => ({...c, roas: c.spend>0 ? c.revenue/c.spend : 0})) : [];
+        return {
+          skuId, product: sales.product,
+          daily: sales.daily,          // date → units (used for date-filtered total_units)
+          dates: d.trend_dates,        // full sorted date array
+          // ads metrics are full-period (no date on campaign order)
+          ads_units: ads ? ads.ads_units : 0,
+          ads_revenue: ads ? ads.ads_revenue : 0,
+          ads_spend: ads ? ads.ads_spend : 0,
+          campaigns, has_ads: !!ads,
+        };
       });
       renderSaSkuAnalysisTable();
     })
     .catch(() => {
       document.getElementById('saSkuAnalysisAdsStatus').textContent = 'Could not load ads data';
       _saSkuAnalysisData = Object.entries(salesMap).map(([skuId, sales]) => ({
-        skuId, product: sales.product, total_units: sales.total,
-        total_revenue: Object.values(sales.daily).reduce((a,b)=>a+b,0),
-        daily: sales.daily, dates: d.trend_dates,
-        ads_units:0, ads_revenue:0, ads_spend:0, ads_pct:0, roas:0, campaigns:[], has_ads:false,
+        skuId, product: sales.product, daily: sales.daily, dates: d.trend_dates,
+        ads_units:0, ads_revenue:0, ads_spend:0, campaigns:[], has_ads:false,
       }));
       renderSaSkuAnalysisTable();
     });
 }
 
+function resetSaSkuAnalysisFilter() {
+  const d = _saData[_saAccount];
+  if (!d) return;
+  document.getElementById('saSkuAnalysisFrom').value = d.kpis.date_from;
+  document.getElementById('saSkuAnalysisTo').value   = d.kpis.date_to;
+  document.getElementById('saSkuAnalysisProduct').value = '__all__';
+  renderSaSkuAnalysisTable();
+}
+
 function renderSaSkuAnalysisTable() {
   if (!_saSkuAnalysisData) return;
-  const sortBy = document.getElementById('saSkuAnalysisSort').value;
-  const rows   = [..._saSkuAnalysisData].sort((a,b) => b[sortBy] - a[sortBy]);
-  const fmtRev = v => '₹' + Math.round(v).toLocaleString('en-IN');
+  const sortBy     = document.getElementById('saSkuAnalysisSort').value;
+  const from       = document.getElementById('saSkuAnalysisFrom').value;
+  const to         = document.getElementById('saSkuAnalysisTo').value;
+  const filterProd = document.getElementById('saSkuAnalysisProduct').value;
+  const fmtRev     = v => '₹' + Math.round(v).toLocaleString('en-IN');
 
-  document.getElementById('saSkuAnalysisTbody').innerHTML = rows.map((r, i) => {
+  // Compute date-filtered total_units per row, then derive ads_pct and sort value
+  const computed = _saSkuAnalysisData.map((r, origIdx) => {
+    // Filter daily units by date range
+    const total_units = Object.entries(r.daily)
+      .filter(([d]) => (!from || d >= from) && (!to || d <= to))
+      .reduce((sum, [, qty]) => sum + qty, 0);
+    const ads_pct = total_units > 0 ? (r.ads_units / total_units) * 100 : 0;
+    const roas    = r.ads_spend > 0 ? r.ads_revenue / r.ads_spend : 0;
+    return { ...r, total_units, ads_pct, roas, origIdx };
+  });
+
+  // Apply product filter
+  const filtered = filterProd === '__all__'
+    ? computed
+    : computed.filter(r => r.product === filterProd);
+
+  // Sort
+  const rows = [...filtered].sort((a, b) => {
+    const av = a[sortBy] || 0, bv = b[sortBy] || 0;
+    return bv - av;
+  });
+
+  document.getElementById('saSkuAnalysisTbody').innerHTML = rows.length === 0
+    ? `<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--muted);">No SKUs found for the selected filters.</td></tr>`
+    : rows.map((r, i) => {
     const adsPct = r.has_ads && r.ads_pct > 0
       ? `<div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px;">
            <div style="width:${Math.min(r.ads_pct,100).toFixed(1)}%;height:100%;background:var(--accent);border-radius:2px;"></div>
@@ -5530,7 +5579,6 @@ function renderSaSkuAnalysisTable() {
       <td style="padding:9px 10px;font-family:'JetBrains Mono',monospace;font-size:.73rem;color:var(--muted);white-space:nowrap;">${r.skuId}</td>
       <td style="padding:9px 10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem;" title="${r.product}">${r.product}</td>
       <td style="padding:9px 10px;text-align:right;font-weight:600;color:var(--text);">${r.total_units.toLocaleString()}</td>
-      <td style="padding:9px 10px;text-align:right;color:#00ff88;">${fmtRev(r.total_revenue)}</td>
       <td style="padding:9px 10px;text-align:right;color:var(--accent);">${r.has_ads ? r.ads_units.toLocaleString() : '—'}</td>
       <td style="padding:9px 10px;text-align:right;color:var(--accent);">${r.has_ads ? fmtRev(r.ads_revenue) : '—'}</td>
       <td style="padding:9px 10px;text-align:right;">
@@ -5540,31 +5588,33 @@ function renderSaSkuAnalysisTable() {
       <td style="padding:9px 10px;text-align:right;font-weight:700;color:${roasColor};">${r.roas>0 ? r.roas.toFixed(2)+'x' : '—'}</td>
       <td style="padding:9px 10px;text-align:center;">
         ${r.campaigns.length>0
-          ? `<button onclick="openSaSkuCampaigns(${i})" style="padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.75rem;cursor:pointer;font-family:inherit;">👁 ${r.campaigns.length}</button>`
+          ? `<button onclick="openSaSkuCampaigns(${r.origIdx})" style="padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.75rem;cursor:pointer;font-family:inherit;">👁 ${r.campaigns.length}</button>`
           : `<span style="color:var(--muted);font-size:.75rem;">—</span>`}
       </td>
       <td style="padding:9px 10px;text-align:center;">
-        <button onclick="openSaSkuChart(${i})" style="padding:3px 10px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:.75rem;cursor:pointer;font-family:inherit;">📈</button>
+        <button onclick="openSaSkuChart(${r.origIdx})" style="padding:3px 10px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:.75rem;cursor:pointer;font-family:inherit;">📈</button>
       </td>
     </tr>`;
   }).join('');
 }
 
-function openSaSkuChart(idx) {
-  const sortBy = document.getElementById('saSkuAnalysisSort').value;
-  const r = _saSkuAnalysisData ? [..._saSkuAnalysisData].sort((a,b)=>b[sortBy]-a[sortBy])[idx] : null;
+function openSaSkuChart(origIdx) {
+  const r = _saSkuAnalysisData ? _saSkuAnalysisData[origIdx] : null;
   if (!r) return;
+  const from = document.getElementById('saSkuAnalysisFrom').value;
+  const to   = document.getElementById('saSkuAnalysisTo').value;
+  const filteredDates = (r.dates||[]).filter(d => (!from||d>=from) && (!to||d<=to) && r.daily[d] !== undefined);
+  const total_units = filteredDates.reduce((s,d) => s + (r.daily[d]||0), 0);
   document.getElementById('saSkuChartTitle').textContent = 'Total Sales — ' + r.skuId;
   document.getElementById('saSkuChartMeta').innerHTML =
     `<span>Product: <b style="color:var(--text)">${r.product}</b></span>` +
-    `<span>Total units: <b style="color:var(--accent)">${r.total_units}</b></span>` +
-    (r.has_ads ? `<span>Ads units: <b style="color:var(--accent)">${r.ads_units}</b></span>` : '');
+    `<span>Units (filtered period): <b style="color:var(--accent)">${total_units}</b></span>` +
+    (r.has_ads ? `<span>Ads units (full period): <b style="color:var(--accent)">${r.ads_units}</b></span>` : '');
   document.getElementById('saSkuChartModal').style.display = 'flex';
-  const dates = (r.dates||[]).filter(d => r.daily[d] !== undefined);
   if (_saSkuChartInstance) { _saSkuChartInstance.destroy(); _saSkuChartInstance = null; }
   _saSkuChartInstance = new Chart(document.getElementById('saSkuChartCanvas'), {
     type:'bar',
-    data:{ labels:dates, datasets:[{ label:'Units Sold', data:dates.map(d=>r.daily[d]||0),
+    data:{ labels: filteredDates, datasets:[{ label:'Units Sold', data: filteredDates.map(d=>r.daily[d]||0),
       backgroundColor:'rgba(0,212,255,0.7)', borderColor:'#00d4ff', borderWidth:1, borderRadius:3 }] },
     options:{ responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'#141b2d', borderColor:'#2a3650', borderWidth:1,
@@ -5582,9 +5632,8 @@ function closeSaSkuChart() {
   if (_saSkuChartInstance) { _saSkuChartInstance.destroy(); _saSkuChartInstance = null; }
 }
 
-function openSaSkuCampaigns(idx) {
-  const sortBy = document.getElementById('saSkuAnalysisSort').value;
-  const r = _saSkuAnalysisData ? [..._saSkuAnalysisData].sort((a,b)=>b[sortBy]-a[sortBy])[idx] : null;
+function openSaSkuCampaigns(origIdx) {
+  const r = _saSkuAnalysisData ? _saSkuAnalysisData[origIdx] : null;
   if (!r) return;
   document.getElementById('saSkuCampaignsTitle').textContent = 'Campaigns — ' + r.skuId;
   const fmtRev = v => '₹' + Math.round(v).toLocaleString('en-IN');
