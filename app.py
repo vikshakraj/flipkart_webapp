@@ -1329,18 +1329,20 @@ def _compute_analytics(store):
                 prod_sku_daily[r['product']][r['sku']][d] += r['qty']
                 prod_sku_total[r['product']][r['sku']]    += r['qty']
 
-    # For each product: top 7 SKUs by total, rest = Others
+    # For each product: store top 50 SKUs by total (enough for the analysis table),
+    # rest = Others. The donut chart caps itself at 7 on the frontend.
+    SKU_STORE_LIMIT = 50
     sku_by_product = {}
     for prod, sku_totals in prod_sku_total.items():
-        top7 = sorted(sku_totals.items(), key=lambda x: -x[1])[:7]
-        top7_skus = [s for s, _ in top7]
+        top_skus_list = sorted(sku_totals.items(), key=lambda x: -x[1])[:SKU_STORE_LIMIT]
+        top_skus = [s for s, _ in top_skus_list]
         others_daily = defaultdict(int)
         for sku, day_map in prod_sku_daily[prod].items():
-            if sku not in top7_skus:
+            if sku not in top_skus:
                 for d, q in day_map.items():
                     others_daily[d] += q
         series = []
-        for sku in top7_skus:
+        for sku in top_skus:
             series.append({
                 'sku':   sku,
                 'total': prod_sku_total[prod][sku],
