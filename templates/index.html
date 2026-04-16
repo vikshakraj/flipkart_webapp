@@ -5457,11 +5457,19 @@ function renderSkuCharts(d, product, from, to){
   // Filter dates
   const dates = (d.trend_dates || []).filter(dt => (!from||dt>=from) && (!to||dt<=to));
 
-  // ── Donut: total units per SKU in filtered range ──────────────────────────
-  const donutData = series.map(s=>{
+  // ── Donut: total units per SKU in filtered range — cap at 7 for readability ──
+  const allDonutData = series.map(s=>{
     const total = dates.reduce((sum,dt)=>(s.daily[dt]||0)+sum, 0);
     return { sku: s.sku, total };
   }).filter(s=>s.total>0).sort((a,b)=>b.total-a.total);
+  // Keep top 7 named SKUs + roll rest into Others
+  const donutTop = allDonutData.filter(s=>s.sku!=='Others').slice(0,7);
+  const donutOthersTotal = allDonutData.filter(s=>s.sku!=='Others').slice(7)
+    .reduce((sum,s)=>sum+s.total,0)
+    + (allDonutData.find(s=>s.sku==='Others')?.total||0);
+  const donutData = donutOthersTotal > 0
+    ? [...donutTop, { sku:'Others', total: donutOthersTotal }]
+    : donutTop;
 
   if(_saSkuDonutChart){ _saSkuDonutChart.destroy(); }
   _saSkuDonutChart = new Chart(document.getElementById('saSkuDonutCanvas'),{
