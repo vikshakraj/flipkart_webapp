@@ -5501,7 +5501,19 @@ function renderSkuCharts(d, product, from, to){
 
   // ── Line chart: daily units per SKU ──────────────────────────────────────
   if(_saSkuLineChart){ _saSkuLineChart.destroy(); }
-  const lineDatasets = series.map((s,i)=>({
+  // Cap to top 7 named SKUs + Others (same as donut) — avoids crowded legend
+  const lineTop7 = series.filter(s=>s.sku!=='Others').slice(0,7);
+  const lineOthersRows = series.filter(s=>s.sku!=='Others').slice(7);
+  const lineOthersSrc  = series.find(s=>s.sku==='Others');
+  let lineSeries = [...lineTop7];
+  if (lineOthersRows.length > 0 || lineOthersSrc) {
+    const othersDaily = {};
+    [...lineOthersRows, ...(lineOthersSrc ? [lineOthersSrc] : [])].forEach(s => {
+      dates.forEach(dt => { othersDaily[dt] = (othersDaily[dt]||0) + (s.daily[dt]||0); });
+    });
+    lineSeries.push({ sku: 'Others', daily: othersDaily });
+  }
+  const lineDatasets = lineSeries.map((s,i)=>({
     label: s.sku.length>30 ? s.sku.slice(0,30)+'…' : s.sku,
     data:  dates.map(dt=>s.daily[dt]||0),
     borderColor:     SA_COLORS[i%SA_COLORS.length],
