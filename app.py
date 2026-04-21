@@ -27,6 +27,7 @@ from reportlab.lib.units import mm
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'wynx-dev-key-change-in-prod')
 app.config['MAX_CONTENT_LENGTH'] = 80 * 1024 * 1024  # 80 MB upload cap — protects against OOM on Railway free tier
 
 # Persistent master SKU file — stored in /data (Railway Volume) so it survives restarts
