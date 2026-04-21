@@ -27,6 +27,7 @@ from reportlab.lib.units import mm
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'wynx-dev-key-change-in-prod')
 app.config['MAX_CONTENT_LENGTH'] = 80 * 1024 * 1024  # 80 MB upload cap — protects against OOM on Railway free tier
 
 # Persistent master SKU file — stored in /data (Railway Volume) so it survives restarts
@@ -2510,6 +2511,97 @@ def _register_telegram_webhook():
         print(f'[Telegram] Webhook set to {webhook_url}: {result}')
     except Exception as e:
         print(f'[Telegram] Failed to set webhook: {e}')
+
+
+# ─────────────────────────────────────────────
+# FLIPKART API OAUTH
+# ─────────────────────────────────────────────
+import requests as _requests
+
+_FK_CLIENT_ID     = os.environ.get('FLIPKART_CLIENT_ID', '')
+_FK_CLIENT_SECRET = os.environ.get('FLIPKART_CLIENT_SECRET', '')
+
+FLIPKART_ACCOUNTS = {
+    "cutestclub": {"client_id": _FK_CLIENT_ID, "client_secret": _FK_CLIENT_SECRET},
+}
+
+FK_TOKEN_DIR = _data_dir
+
+def _fk_token_path(account):
+    return os.path.join(FK_TOKEN_DIR, f'fk_token_{account}.json')
+
+@app.route('/flipkart/connect/<account>')
+def flipkart_connect(account):
+    from flask import redirect, session
+    creds = FLIPKART_ACCOUNTS.get(account.lower())
+    if not creds:
+        return f"Unknown account: {account}. Known: {list(FLIPKART_ACCOUNTS.keys())}", 404
+    if not creds['client_id']:
+        return "FLIPKART_CLIENT_ID environment variable not set on Railway.", 500
+    session['fk_account'] = account.lower()
+    auth_url = (
+        "https://api.flipkart.net/oauth-service/oauth/authorize"
+        f"?client_id={creds['client_id']}"
+        "&response_type=code"
+        "&redirect_uri=https://wynx.up.railway.app/flipkart/callback"
+    )
+    return redirect(auth_url)
+
+@app.route('/flipkart/callback')
+def flipkart_callback():
+    from flask import session
+    code    = request.args.get('code')
+    account = session.get('fk_account')
+    if not code or not account:
+        return "Missing code or session. Please start from /flipkart/connect/cutestclub", 400
+    creds = FLIPKART_ACCOUNTS.get(account)
+    if not creds:
+        return f"Unknown account in session: {account}", 400
+    resp = _requests.post(
+        "https://api.flipkart.net/oauth-service/oauth/token",
+        data={
+            "grant_type":    "authorization_code",
+            "code":          code,
+            "client_id":     creds['client_id'],
+            "client_secret": creds['client_secret'],
+            "redirect_uri":  "https://wynx.up.railway.app/flipkart/callback",
+        },
+        timeout=15,
+    )
+    token_data = resp.json()
+    if 'access_token' not in token_data:
+        return jsonify({"error": "Token exchange failed", "details": token_data}), 500
+    token_data['connected_at'] = datetime.datetime.now(tz=IST).isoformat()
+    with open(_fk_token_path(account), 'w') as f:
+        json.dump(token_data, f)
+    return (
+        f"<h2>Connected!</h2>"
+        f"<p>Account <b>{account}</b> is now linked to Flipkart API.</p>"
+        f"<p><a href='/flipkart/status'>Check status</a></p>"
+    )
+
+@app.route('/flipkart/status')
+def flipkart_status():
+    statuses = {}
+    for account in FLIPKART_ACCOUNTS:
+        token_path = _fk_token_path(account)
+        if os.path.exists(token_path):
+            try:
+                with open(token_path) as f:
+                    t = json.load(f)
+                statuses[account] = {
+                    "status":       "connected",
+                    "connected_at": t.get("connected_at", "unknown"),
+                    "expires_in":   t.get("expires_in", "unknown"),
+                }
+            except Exception:
+                statuses[account] = {"status": "token_corrupt"}
+        else:
+            statuses[account] = {
+                "status":      "not_connected",
+                "connect_url": f"https://wynx.up.railway.app/flipkart/connect/{account}",
+            }
+    return jsonify(statuses)
 
 if __name__ == '__main__':
     import os
