@@ -1293,6 +1293,7 @@ def _fk_item_to_store_row(item, product_resolver):
     order_date = item.get('orderDate', '')
     date_str   = str(order_date)[:10] if order_date else ''
     return date_str, {
+        'order_item_id': item.get('orderItemId', ''),   # for deduplication on merge
         'sku': sku_clean, 'product': product, 'qty': qty, 'status': status,
         'ret_reason': ret_reason, 'ret_sub': ret_sub,
         'disp_breach': disp_breach, 'dlv_breach': dlv_breach, 'revenue': revenue,
@@ -1551,11 +1552,11 @@ def _compute_analytics(store):
 
 
 
-def _fk_sync_sales(account):
+def _fk_sync_sales(account, full_resync=False):
     """
     Fetch recent shipments from Flipkart API and merge into the persistent sales store.
-    Incremental — only fetches dates after the latest date already stored (minus 2-day buffer).
-    Returns a summary dict.
+    If full_resync=True, wipes the store first and fetches the full 60-day window.
+    Otherwise incremental — only fetches dates after the latest date already stored (minus 2-day buffer).
     """
     import requests as _req
 
@@ -1563,18 +1564,22 @@ def _fk_sync_sales(account):
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     base_url = f'{FK_API_BASE}/sellers/v3/shipments/filter/'
 
-    store     = _load_sales_store(account)
-    store     = _prune_old_dates(store)
     now_ist   = datetime.datetime.now(tz=IST)
     cutoff    = (now_ist - datetime.timedelta(days=SALES_TTL_DAYS)).strftime('%Y-%m-%d')
 
-    existing_dates = [k for k in store if not k.startswith('__')]
-    if existing_dates:
-        latest     = max(existing_dates)
-        fetch_from = (datetime.datetime.strptime(latest, '%Y-%m-%d')
-                      - datetime.timedelta(days=2)).strftime('%Y-%m-%d')
-    else:
+    if full_resync:
+        store      = {}
         fetch_from = cutoff
+    else:
+        store     = _load_sales_store(account)
+        store     = _prune_old_dates(store)
+        existing_dates = [k for k in store if not k.startswith('__')]
+        if existing_dates:
+            latest     = max(existing_dates)
+            fetch_from = (datetime.datetime.strptime(latest, '%Y-%m-%d')
+                          - datetime.timedelta(days=2)).strftime('%Y-%m-%d')
+        else:
+            fetch_from = cutoff
     fetch_to = now_ist.strftime('%Y-%m-%d')
 
     # Build product resolver
@@ -1602,6 +1607,44 @@ def _fk_sync_sales(account):
 
     new_rows      = defaultdict(list)
     total_fetched = 0
+
+    # --- preDispatch: APPROVED, READY_TO_DISPATCH, PACKED (active unfulfilled orders) ---
+    payload = {
+        'filter': {
+            'type': 'preDispatch',
+            'states': ['APPROVED', 'READY_TO_DISPATCH', 'PACKED', 'PACKING_IN_PROGRESS'],
+            'orderDate': {
+                'from': f'{fetch_from}T00:00:00+05:30',
+                'to':   f'{fetch_to}T23:59:59+05:30',
+            },
+        },
+        'pagination': {'pageSize': 20},
+    }
+    next_url = base_url
+    fetched  = 0
+    while next_url and fetched < 5000:
+        try:
+            r = (_req.post(next_url, json=payload, headers=headers, timeout=30)
+                 if next_url == base_url
+                 else _req.get(next_url, headers=headers, timeout=30))
+            if r.status_code != 200:
+                print(f'[FKSync] preDispatch {r.status_code}: {r.text[:200]}')
+                break
+            data = r.json()
+            for shipment in data.get('shipments', []):
+                for item in shipment.get('orderItems', []):
+                    ds, row = _fk_item_to_store_row(item, resolve_product)
+                    if ds and ds >= cutoff:
+                        new_rows[ds].append(row)
+                        fetched += 1
+            if not data.get('hasMore') or not data.get('nextPageUrl'):
+                break
+            next_url = data['nextPageUrl']
+        except Exception as e:
+            print(f'[FKSync] preDispatch error: {e}')
+            break
+    total_fetched += fetched
+    print(f'[FKSync] preDispatch → {fetched} items')
 
     # --- postDispatch: SHIPPED + DELIVERED ---
     for state_list in [['SHIPPED', 'DELIVERED']]:
@@ -1707,9 +1750,22 @@ def _fk_sync_sales(account):
     except Exception as e:
         print(f'[FKSync] Returns fetch error: {e}')
 
-    # Merge into store — new date buckets replace old ones
-    for d, rows in new_rows.items():
-        store[d] = rows
+    # Merge new_rows into store — upsert by order_item_id so we never lose existing orders.
+    # For each date: build a map of existing rows keyed by order_item_id, then overwrite
+    # with fresh API rows (which have updated status), keeping any rows the API didn't return.
+    for d, api_rows in new_rows.items():
+        existing = store.get(d, [])
+        # Index existing rows by order_item_id (rows without one are kept as-is)
+        indexed = {r['order_item_id']: r for r in existing if r.get('order_item_id')}
+        unkeyed = [r for r in existing if not r.get('order_item_id')]
+        # Overwrite/add API rows
+        for row in api_rows:
+            oid = row.get('order_item_id', '')
+            if oid:
+                indexed[oid] = row
+            else:
+                unkeyed.append(row)
+        store[d] = list(indexed.values()) + unkeyed
 
     store['__meta__'] = {
         'updated_at':   now_ist.strftime('%d %b %Y, %H:%M IST'),
@@ -1921,7 +1977,9 @@ def sales_sync(account):
         return jsonify({'error': f'No Flipkart API credentials configured for {account}. '
                                   f'Set {_fk_env_key(account)}_APP_ID and _APP_SECRET in Railway.'}), 400
     try:
-        result = _fk_sync_sales(account)
+        body = request.get_json() or {}
+        full_resync = bool(body.get('full_resync', False))
+        result = _fk_sync_sales(account, full_resync=full_resync)
         # Return fresh analytics immediately after sync
         store  = _load_sales_store(account)
         store  = _prune_old_dates(store)
