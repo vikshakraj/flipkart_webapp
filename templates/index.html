@@ -6133,6 +6133,26 @@ function lstInit() {
       });
       _lstProducts = [...prodSet].sort();
       lstPopulateProductDropdowns();
+
+      // Restore cached listings from this session (survives tab switches, not page reloads)
+      try {
+        const cachedRows = sessionStorage.getItem('lst_rows_' + _lstAccount);
+        const cachedMeta = sessionStorage.getItem('lst_meta_' + _lstAccount);
+        if (cachedRows && cachedMeta) {
+          const rows = JSON.parse(cachedRows);
+          const meta = JSON.parse(cachedMeta);
+          if (rows.length > 0) {
+            _lstAllRows    = rows;
+            _lstNextPageId = meta.nextPageId || null;
+            _lstHasMore    = !!meta.hasMore;
+            const loadedAt = meta.loadedAt ? new Date(meta.loadedAt).toLocaleTimeString() : '';
+            document.getElementById('lstStatus').textContent =
+              `${rows.length} listings loaded${_lstHasMore ? ' · more available' : ' · all loaded'}` +
+              (loadedAt ? ` · cached from ${loadedAt}` : '');
+            lstApplyFilter();
+          }
+        }
+      } catch(e) {}
     })
     .catch(() => {});
 }
@@ -6176,10 +6196,11 @@ function lstFetchPage(page_id) {
   status.textContent = page_id ? 'Loading next batch…' : 'Fetching from Flipkart API…';
 
   if (!page_id) {
-    // Fresh load — reset everything
+    // Fresh load — reset everything and clear cached data
     _lstAllRows  = [];
     _lstFiltered = [];
     _lstPage     = 1;
+    try { sessionStorage.removeItem('lst_rows_' + _lstAccount); sessionStorage.removeItem('lst_meta_' + _lstAccount); } catch(e) {}
     document.getElementById('lstTableContainer').innerHTML =
       '<div class="lst-loading"><div class="lst-spinner"></div> Fetching active listings…</div>';
     document.getElementById('lstPagination').style.display = 'none';
@@ -6212,6 +6233,15 @@ function lstFetchPage(page_id) {
 
       const totalLoaded = _lstAllRows.length;
       status.textContent = `${totalLoaded} listings loaded${_lstHasMore ? ' · more available' : ' · all loaded'}`;
+
+      // Persist to sessionStorage so tab-switching doesn't lose the data
+      try {
+        sessionStorage.setItem('lst_rows_' + _lstAccount, JSON.stringify(_lstAllRows));
+        sessionStorage.setItem('lst_meta_' + _lstAccount, JSON.stringify({
+          nextPageId: _lstNextPageId, hasMore: _lstHasMore,
+          loadedAt: new Date().toISOString(),
+        }));
+      } catch(e) {}
 
       lstApplyFilter();
     })
@@ -6479,15 +6509,40 @@ window.lstSubmitBulk = function() {
     result.className = 'lst-modal-result err'; result.style.display = 'block';
     result.textContent = isPrice ? 'Enter a valid selling price (min ₹1).' : 'Enter a valid stock count (min 0).'; return;
   }
-  const targets = prod === '__all__' ? _lstAllRows : _lstAllRows.filter(r => r.product === prod);
-  if (targets.length === 0) {
-    result.className = 'lst-modal-result err'; result.style.display = 'block';
-    result.textContent = 'No listings found for the selected product.'; return;
+
+  submitBtn.disabled = true;
+  result.className = 'lst-modal-result'; result.style.display = 'block';
+
+  // Build target SKU list:
+  // - "All Products" → use all loaded rows as before
+  // - Specific product → read SKU IDs directly from Master SKU map (no extra API pages needed)
+  //   then enrich with any price/location data already loaded, falling back to minimal payload
+  let targets;
+  if (prod === '__all__') {
+    targets = _lstAllRows;
+  } else {
+    // Collect every SKU mapped to this product from the master file
+    const masterSkuIds = Object.entries(_lstSkuMap)
+      .filter(([, p]) => p === prod)
+      .map(([sku]) => sku);
+    if (masterSkuIds.length === 0) {
+      result.className = 'lst-modal-result err'; result.style.display = 'block';
+      result.textContent = 'No SKUs found for this product in the Master SKU file.';
+      submitBtn.disabled = false; return;
+    }
+    // For each master SKU, use the already-loaded row if available (has product_id, locations),
+    // otherwise build a minimal row — the API will error on unknown SKUs which we display inline
+    const loadedMap = Object.fromEntries(_lstAllRows.map(r => [r.sku_id, r]));
+    targets = masterSkuIds.map(skuId => loadedMap[skuId] || { sku_id: skuId, product_id: '', locations: [] });
   }
 
-  result.className = 'lst-modal-result'; result.style.display = 'block';
+  if (targets.length === 0) {
+    result.className = 'lst-modal-result err'; result.style.display = 'block';
+    result.textContent = 'No listings found for the selected product.';
+    submitBtn.disabled = false; return;
+  }
+
   result.textContent = `⏳ Updating ${targets.length} SKU${targets.length > 1 ? 's' : ''}…`;
-  submitBtn.disabled = true;
 
   const endpoint = isPrice ? 'update-price' : 'update-inventory';
   const skus     = isPrice
