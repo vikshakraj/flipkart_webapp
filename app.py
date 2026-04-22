@@ -2854,6 +2854,7 @@ def listings_get(account):
                         'mrp':           price.get('mrp', ''),
                         'stock_count':   stock,
                         'fsn':           det.get('fsn', ''),
+                        'locations':     [{'id': loc.get('id',''), 'status': loc.get('status','ENABLED')} for loc in locs],
                     }
 
         # ── Merge ──
@@ -2868,6 +2869,7 @@ def listings_get(account):
                 'selling_price': det.get('selling_price', ''),
                 'mrp':           det.get('mrp', ''),
                 'stock_count':   det.get('stock_count', 0),
+                'locations':     det.get('locations', []),
             })
 
         return jsonify({
@@ -2958,8 +2960,18 @@ def listings_update_inventory(account):
             batch   = skus[i:i+10]
             payload = {}
             for s in batch:
+                # Use stored location IDs if available, otherwise fall back to a single
+                # default location entry. The API requires locations[].id + status + inventory.
+                loc_list = s.get('locations') or []
+                if loc_list:
+                    locations = [{'id': loc['id'], 'status': loc.get('status', 'ENABLED'),
+                                  'inventory': int(s['stock_count'])} for loc in loc_list]
+                else:
+                    locations = [{'id': 'default', 'status': 'ENABLED',
+                                  'inventory': int(s['stock_count'])}]
                 payload[s['sku_id']] = {
-                    'inventory': [{'location_id': s.get('location_id', 'default'), 'stock_count': int(s['stock_count'])}]
+                    'product_id': s.get('product_id', ''),
+                    'locations':  locations,
                 }
             r = _req.post(url, json=payload, headers=headers, timeout=30)
             if r.status_code == 200:
