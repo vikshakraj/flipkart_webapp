@@ -2852,6 +2852,7 @@ def listings_get(account):
                     detail_map[sku_id] = {
                         'selling_price': price.get('selling_price', ''),
                         'mrp':           price.get('mrp', ''),
+                        'mop':           price.get('mop', ''),
                         'stock_count':   stock,
                         'fsn':           det.get('fsn', ''),
                         'locations':     [{'id': loc.get('id',''), 'status': loc.get('status','ENABLED')} for loc in locs],
@@ -2868,6 +2869,7 @@ def listings_get(account):
                 'fsn':           det.get('fsn', ''),
                 'selling_price': det.get('selling_price', ''),
                 'mrp':           det.get('mrp', ''),
+                'mop':           det.get('mop', ''),
                 'stock_count':   det.get('stock_count', 0),
                 'locations':     det.get('locations', []),
             })
@@ -2914,9 +2916,9 @@ def listings_update_price(account):
                 payload[s['sku_id']] = {
                     'product_id': s['product_id'],
                     'price': {
-                        'mrp':           int(s['mrp']),
-                        'selling_price': int(s['selling_price']),
-                        'currency':      'INR',
+                        'mrp':      int(s['mrp']),
+                        'mop':      int(s['mop']),
+                        'currency': 'INR',
                     }
                 }
             r = _req.post(url, json=payload, headers=headers, timeout=30)
