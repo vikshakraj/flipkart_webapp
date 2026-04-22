@@ -1724,14 +1724,13 @@
           <option value="__all__">All Products</option>
         </select>
         <button class="lst-btn" onclick="lstOpenBulkModal()">⚡ Bulk Action</button>
-        <button class="lst-btn lst-btn-primary" onclick="lstLoadListings(true)" id="lstRefreshBtn">↻ Refresh</button>
         <span class="lst-status" id="lstStatus"></span>
       </div>
 
       <!-- Table -->
       <div class="lst-table-wrap">
         <div id="lstTableContainer">
-          <div class="lst-empty" style="color:var(--muted);">Click <b style="color:var(--accent)">Refresh</b> to load listings from Flipkart API.</div>
+          <div class="lst-empty" style="color:var(--muted);">Select a product from the dropdown above to load its listings.</div>
         </div>
         <div class="lst-pagination" id="lstPagination" style="display:none;">
           <span id="lstPageInfo" style="color:var(--muted);font-size:.8rem;"></span>
@@ -6274,12 +6273,83 @@ window.lstLoadListings = function() {
 
 // ── Filter ──
 window.lstApplyFilter = function() {
-  const prod = document.getElementById('lstProductFilter').value;
-  _lstFiltered = prod === '__all__'
-    ? _lstAllRows
-    : _lstAllRows.filter(r => r.product === prod);
-  _lstPage = 1;
-  lstRenderTable();
+  const prod   = document.getElementById('lstProductFilter').value;
+  const status = document.getElementById('lstStatus');
+
+  if (prod === '__all__') {
+    // No product selected — clear table, show prompt
+    _lstFiltered = [];
+    _lstPage = 1;
+    document.getElementById('lstTableContainer').innerHTML =
+      '<div class="lst-empty" style="color:var(--muted);">Select a product from the dropdown above to load its listings.</div>';
+    document.getElementById('lstPagination').style.display = 'none';
+    status.textContent = '';
+    return;
+  }
+
+  // Get all SKUs for this product from master file
+  const masterSkuIds = Object.entries(_lstSkuMap)
+    .filter(([, p]) => p === prod)
+    .map(([sku]) => sku);
+
+  if (masterSkuIds.length === 0) {
+    document.getElementById('lstTableContainer').innerHTML =
+      '<div class="lst-empty" style="color:var(--muted);">No SKUs found for this product in the Master SKU file.</div>';
+    document.getElementById('lstPagination').style.display = 'none';
+    return;
+  }
+
+  // Check which SKUs are already loaded
+  const loadedMap  = Object.fromEntries(_lstAllRows.map(r => [r.sku_id, r]));
+  const missing    = masterSkuIds.filter(s => !loadedMap[s]);
+
+  if (missing.length === 0) {
+    // All already loaded — just filter and render
+    _lstFiltered = masterSkuIds.map(s => loadedMap[s]).filter(Boolean);
+    _lstPage = 1;
+    lstRenderTable();
+    return;
+  }
+
+  // Fetch the missing SKUs from the API via the details endpoint
+  status.textContent = `Loading ${masterSkuIds.length} SKUs…`;
+  document.getElementById('lstTableContainer').innerHTML =
+    '<div class="lst-loading"><div class="lst-spinner"></div> Loading listings…</div>';
+  document.getElementById('lstPagination').style.display = 'none';
+
+  fetch(`/api/listings/${_lstAccount}/by-skus`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ sku_ids: masterSkuIds }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        document.getElementById('lstTableContainer').innerHTML =
+          `<div class="lst-empty" style="color:#ff4466;">${data.error}</div>`;
+        status.textContent = '⚠ ' + data.error;
+        return;
+      }
+      // Merge returned rows into _lstAllRows
+      const newRows = (data.listings || []).map(row => ({
+        ...row,
+        product: lstResolveProduct(row.sku_id),
+      }));
+      // Upsert into _lstAllRows
+      const existingIds = new Set(_lstAllRows.map(r => r.sku_id));
+      newRows.forEach(r => { if (!existingIds.has(r.sku_id)) _lstAllRows.push(r); });
+      // Now filter
+      const updatedMap = Object.fromEntries(_lstAllRows.map(r => [r.sku_id, r]));
+      _lstFiltered = masterSkuIds.map(s => updatedMap[s]).filter(Boolean);
+      _lstPage = 1;
+      status.textContent = `${_lstFiltered.length} SKUs loaded for ${prod}`;
+      lstRenderTable();
+    })
+    .catch(e => {
+      document.getElementById('lstTableContainer').innerHTML =
+        `<div class="lst-empty" style="color:#ff4466;">Network error: ${e.message}</div>`;
+      status.textContent = '⚠ Network error';
+    });
 };
 
 // ── Render table ──
@@ -6310,8 +6380,9 @@ function lstRenderTable() {
           <th>SKU ID</th>
           <th>Product</th>
           <th>FSN</th>
-          <th class="right">Settlement Price</th>
+          <th class="right">Selling Price</th>
           <th class="right">Stock Count</th>
+          <th class="right">Settlement</th>
         </tr>
       </thead>
       <tbody>${pageRows.map((r, idx) => lstRenderRow(r, start + idx)).join('')}</tbody>
@@ -6346,24 +6417,16 @@ function lstRenderTable() {
 }
 
 function lstRenderRow(r, idx) {
-  const priceEdit = _lstEditing[r.sku_id + ':price'];
-  const stockEdit = _lstEditing[r.sku_id + ':stock'];
-  const safeKey   = r.sku_id.replace(/[^a-z0-9]/gi, '_');
+  const stockEdit   = _lstEditing[r.sku_id + ':stock'];
+  const settlEdit   = _lstEditing[r.sku_id + ':price'];
+  const safeKey     = r.sku_id.replace(/[^a-z0-9]/gi, '_');
 
-  const priceCell = priceEdit
-    ? `<div class="lst-inline-edit">
-         <input class="lst-edit-input" id="lst-inp-price-${idx}" type="number" min="1" step="1" value="${r.mop || r.selling_price}"
-           onkeydown="if(event.key==='Enter')lstSaveInline('${r.sku_id}','price',${idx});if(event.key==='Escape')lstCancelInline('${r.sku_id}','price')">
-         <button class="lst-save-btn" onclick="lstSaveInline('${r.sku_id}','price',${idx})">✓</button>
-         <button class="lst-cancel-btn" onclick="lstCancelInline('${r.sku_id}','price')">✕</button>
-       </div>
-       <span class="lst-err" id="lst-err-price-${idx}"></span>`
-    : `<div class="lst-inline-edit">
-         <span class="lst-val">₹${Number(r.mop || r.selling_price || 0).toLocaleString('en-IN')}</span>
-         <button class="lst-edit-btn" title="Edit price" onclick="lstStartInline('${r.sku_id}','price')">✏️</button>
-       </div>
-       <span class="lst-ok" id="lst-ok-price-${safeKey}"></span>`;
+  // Selling price — read-only display
+  const priceCell = r.selling_price
+    ? `<span style="font-weight:600;">₹${Number(r.selling_price).toLocaleString('en-IN')}</span>`
+    : `<span style="color:var(--muted);font-size:.75rem;">—</span>`;
 
+  // Stock count — editable
   const stockCell = stockEdit
     ? `<div class="lst-inline-edit">
          <input class="lst-edit-input" id="lst-inp-stock-${idx}" type="number" min="0" step="1" value="${r.stock_count}"
@@ -6378,12 +6441,27 @@ function lstRenderRow(r, idx) {
        </div>
        <span class="lst-ok" id="lst-ok-stock-${safeKey}"></span>`;
 
+  // Edit Settlement — separate button/inline
+  const settlCell = settlEdit
+    ? `<div class="lst-inline-edit">
+         <input class="lst-edit-input" id="lst-inp-price-${idx}" type="number" min="1" step="1" placeholder="e.g. 299"
+           onkeydown="if(event.key==='Enter')lstSaveInline('${r.sku_id}','price',${idx});if(event.key==='Escape')lstCancelInline('${r.sku_id}','price')">
+         <button class="lst-save-btn" onclick="lstSaveInline('${r.sku_id}','price',${idx})">✓</button>
+         <button class="lst-cancel-btn" onclick="lstCancelInline('${r.sku_id}','price')">✕</button>
+       </div>
+       <span class="lst-err" id="lst-err-price-${idx}"></span>`
+    : `<div class="lst-inline-edit">
+         <button class="lst-btn" style="padding:3px 10px;font-size:.75rem;white-space:nowrap;" onclick="lstStartInline('${r.sku_id}','price')">Edit Settlement</button>
+       </div>
+       <span class="lst-ok" id="lst-ok-price-${safeKey}"></span>`;
+
   return `<tr>
     <td class="mono">${r.sku_id}</td>
     <td style="font-size:.8rem;">${r.product}</td>
     <td class="mono">${r.fsn || '—'}</td>
     <td class="right">${priceCell}</td>
     <td class="right">${stockCell}</td>
+    <td class="right">${settlCell}</td>
   </tr>`;
 }
 
