@@ -2815,8 +2815,7 @@ def listings_get(account):
         pages   = 0
 
         while pages < 50:
-            # NOTE: Flipkart typo — field is 'lisitng_status' not 'listing_status'
-            payload = {'filters': {'lisitng_status': 'ACTIVE'}, 'page_id': page_id}
+            payload = {'filters': {'listing_status': 'ACTIVE'}, 'page_id': page_id}
             r = _req.post(search_url, json=payload, headers=headers, timeout=30)
             if r.status_code != 200:
                 return jsonify({'error': f'Flipkart API error [{r.status_code}]: {r.text[:300]}'}), 502
