@@ -1749,7 +1749,7 @@
       <p class="lst-modal-sub">Update price or stock for all SKUs under a product in one shot.</p>
 
       <div class="lst-modal-tabs">
-        <button class="lst-modal-tab active" id="lstBulkTabPrice" onclick="lstSwitchBulkTab('price')">💰 Selling Price</button>
+        <button class="lst-modal-tab active" id="lstBulkTabPrice" onclick="lstSwitchBulkTab('price')">💰 Settlement Price</button>
         <button class="lst-modal-tab" id="lstBulkTabStock" onclick="lstSwitchBulkTab('stock')">📦 Stock Count</button>
       </div>
 
@@ -1762,7 +1762,7 @@
           </select>
         </div>
         <div class="lst-modal-field">
-          <label class="lst-modal-label">New Selling Price (₹)</label>
+          <label class="lst-modal-label">New Settlement Price (₹)</label>
           <input type="number" min="1" step="1" class="lst-modal-input" id="lstBulkPriceValue" placeholder="e.g. 499">
         </div>
       </div>
@@ -6310,7 +6310,7 @@ function lstRenderTable() {
           <th>SKU ID</th>
           <th>Product</th>
           <th>FSN</th>
-          <th class="right">Selling Price</th>
+          <th class="right">Settlement Price</th>
           <th class="right">Stock Count</th>
         </tr>
       </thead>
@@ -6352,14 +6352,14 @@ function lstRenderRow(r, idx) {
 
   const priceCell = priceEdit
     ? `<div class="lst-inline-edit">
-         <input class="lst-edit-input" id="lst-inp-price-${idx}" type="number" min="1" step="1" value="${r.selling_price}"
+         <input class="lst-edit-input" id="lst-inp-price-${idx}" type="number" min="1" step="1" value="${r.mop || r.selling_price}"
            onkeydown="if(event.key==='Enter')lstSaveInline('${r.sku_id}','price',${idx});if(event.key==='Escape')lstCancelInline('${r.sku_id}','price')">
          <button class="lst-save-btn" onclick="lstSaveInline('${r.sku_id}','price',${idx})">✓</button>
          <button class="lst-cancel-btn" onclick="lstCancelInline('${r.sku_id}','price')">✕</button>
        </div>
        <span class="lst-err" id="lst-err-price-${idx}"></span>`
     : `<div class="lst-inline-edit">
-         <span class="lst-val">₹${Number(r.selling_price || 0).toLocaleString('en-IN')}</span>
+         <span class="lst-val">₹${Number(r.mop || r.selling_price || 0).toLocaleString('en-IN')}</span>
          <button class="lst-edit-btn" title="Edit price" onclick="lstStartInline('${r.sku_id}','price')">✏️</button>
        </div>
        <span class="lst-ok" id="lst-ok-price-${safeKey}"></span>`;
@@ -6431,7 +6431,7 @@ window.lstSaveInline = function(skuId, field, rowIdx) {
 
   const endpoint = field === 'price' ? 'update-price' : 'update-inventory';
   const body     = field === 'price'
-    ? { skus: [{ sku_id: skuId, product_id: row.product_id, mrp: row.mrp || val, selling_price: val }] }
+    ? { skus: [{ sku_id: skuId, product_id: row.product_id, mrp: row.mrp || val, mop: val }] }
     : { skus: [{ sku_id: skuId, product_id: row.product_id, locations: row.locations || [], stock_count: val }] };
 
   fetch(`/api/listings/${_lstAccount}/${endpoint}`, {
@@ -6467,7 +6467,7 @@ function lstHandleInlineResult(data, skuId, field, val, rowIdx) {
   // Success — update local state
   [_lstAllRows, _lstFiltered].forEach(arr => {
     const r = arr.find(r => r.sku_id === skuId);
-    if (r) { if (field === 'price') r.selling_price = val; else r.stock_count = val; }
+    if (r) { if (field === 'price') r.mop = val; else r.stock_count = val; }
   });
   delete _lstEditing[skuId + ':' + field];
   lstRenderTable();
@@ -6546,7 +6546,7 @@ window.lstSubmitBulk = function() {
 
   const endpoint = isPrice ? 'update-price' : 'update-inventory';
   const skus     = isPrice
-    ? targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id, mrp: r.mrp || val, selling_price: val }))
+    ? targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id, mrp: r.mrp || val, mop: val }))
     : targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id, locations: r.locations || [], stock_count: val }));
 
   fetch(`/api/listings/${_lstAccount}/${endpoint}`, {
@@ -6578,7 +6578,7 @@ function lstHandleBulkResult(data, total, field, val) {
     if (res.status === 'success') {
       [_lstAllRows, _lstFiltered].forEach(arr => {
         const r = arr.find(r => r.sku_id === skuId);
-        if (r) { if (field === 'price') r.selling_price = val; else r.stock_count = val; }
+        if (r) { if (field === 'price') r.mop = val; else r.stock_count = val; }
       });
     }
   });
