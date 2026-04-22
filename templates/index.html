@@ -5872,29 +5872,28 @@ function _checkSaSyncAvailable() {
   const syncBtn    = document.getElementById('saSyncBtn');
   const syncStatus = document.getElementById('saSyncStatus');
   if (!syncBtn) return;
-  // Fetch sync status once per session
-  if (_saSyncStatusCache !== null) {
-    _applySyncStatus(_saSyncStatusCache);
-    return;
-  }
+  // Hide while loading
+  syncBtn.style.display    = 'none';
+  syncStatus.style.display = 'none';
+
   fetch('/api/sales-sync-status')
     .then(r => r.json())
     .then(data => {
       _saSyncStatusCache = data;
       _applySyncStatus(data);
     })
-    .catch(() => {});
+    .catch(e => console.warn('[SyncStatus] fetch failed:', e));
 }
 
 function _applySyncStatus(data) {
   const syncBtn    = document.getElementById('saSyncBtn');
   const syncStatus = document.getElementById('saSyncStatus');
   if (!syncBtn) return;
-  const acctInfo = data[_saAccount];
+  const acctInfo = data ? data[_saAccount] : null;
   if (acctInfo && acctInfo.api_configured) {
     syncBtn.style.display    = 'inline-flex';
     syncStatus.style.display = 'inline';
-    syncStatus.textContent   = acctInfo.updated_at !== 'never'
+    syncStatus.textContent   = acctInfo.updated_at && acctInfo.updated_at !== 'never'
       ? `Last sync: ${acctInfo.updated_at}`
       : 'Never synced via API';
   } else {
