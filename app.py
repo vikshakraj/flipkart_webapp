@@ -2793,8 +2793,9 @@ def debug_pdf():
 def listings_get(account):
     """
     Fetch all ACTIVE listings for the given account from Flipkart API.
+    Step 1: POST /sellers/listings/v3/search  — paginated, 500/page, returns sku_id + product_id only
+    Step 2: POST /sellers/listings/v3/details — batched 10/call, returns price + inventory
     Returns list of {sku_id, fsn, selling_price, mrp, stock_count, product_id}.
-    Paginates through all pages automatically.
     """
     import requests as _req
     account = account.upper().replace('-', ' ')
@@ -2806,33 +2807,79 @@ def listings_get(account):
             'Authorization': f'Bearer {token}',
             'Content-Type':  'application/json',
         }
-        url      = f'{FK_API_BASE}/sellers/listings/v3/search'
-        listings = []
-        page_id  = None
-        pages    = 0
 
-        while pages < 50:   # safety cap — 50 pages x 500 = 25,000 listings max
-            payload = {'listing_status': 'ACTIVE', 'page_id': page_id}
-            r = _req.post(url, json=payload, headers=headers, timeout=30)
+        # ── Step 1: collect all sku_ids via search ──
+        search_url = f'{FK_API_BASE}/sellers/listings/v3/search'
+        sku_entries = []   # list of {sku_id, product_id}
+        page_id = None
+        pages   = 0
+
+        while pages < 50:
+            # NOTE: Flipkart typo — field is 'lisitng_status' not 'listing_status'
+            payload = {'filters': {'lisitng_status': 'ACTIVE'}, 'page_id': page_id}
+            r = _req.post(search_url, json=payload, headers=headers, timeout=30)
             if r.status_code != 200:
                 return jsonify({'error': f'Flipkart API error [{r.status_code}]: {r.text[:300]}'}), 502
             data = r.json()
-            for item in data.get('listings', []):
-                attrs = item.get('attributeValues', item)
-                listings.append({
-                    'sku_id':        item.get('skuId', ''),
-                    'fsn':           item.get('fsn', ''),
-                    'product_id':    item.get('productId', ''),
-                    'selling_price': attrs.get('selling_price') or attrs.get('sellingPrice') or '',
-                    'mrp':           attrs.get('mrp', ''),
-                    'stock_count':   attrs.get('stock_count') or attrs.get('stockCount') or 0,
-                })
+            raw_listings = data.get('listings', [])
+            # listings can be a list or a dict keyed by sku_id
+            if isinstance(raw_listings, list):
+                for item in raw_listings:
+                    sku_entries.append({
+                        'sku_id':     item.get('sku_id') or item.get('skuId', ''),
+                        'product_id': item.get('product_id') or item.get('productId', ''),
+                    })
+            elif isinstance(raw_listings, dict):
+                for sku_id, item in raw_listings.items():
+                    sku_entries.append({
+                        'sku_id':     sku_id,
+                        'product_id': item.get('product_id') or item.get('productId', ''),
+                    })
             pages += 1
-            if not data.get('has_more') and not data.get('hasMore'):
+            if not data.get('has_more'):
                 break
-            page_id = data.get('next_page_id') or data.get('nextPageId')
+            page_id = data.get('next_page_id')
             if not page_id:
                 break
+
+        if not sku_entries:
+            return jsonify({'ok': True, 'account': account, 'listings': [], 'total': 0})
+
+        # ── Step 2: fetch details in batches of 10 ──
+        details_url = f'{FK_API_BASE}/sellers/listings/v3/details'
+        detail_map  = {}   # sku_id -> detail dict
+
+        sku_ids = [e['sku_id'] for e in sku_entries if e['sku_id']]
+        for i in range(0, len(sku_ids), 10):
+            batch = sku_ids[i:i+10]
+            r = _req.post(details_url, json={'sku_ids': batch}, headers=headers, timeout=30)
+            if r.status_code == 200:
+                available = r.json().get('available', {})
+                for sku_id, det in available.items():
+                    price  = det.get('price', {})
+                    locs   = det.get('locations', [{}])
+                    stock  = sum(loc.get('inventory', 0) for loc in locs if loc.get('status') == 'ENABLED') if locs else 0
+                    detail_map[sku_id] = {
+                        'selling_price': price.get('selling_price', ''),
+                        'mrp':           price.get('mrp', ''),
+                        'stock_count':   stock,
+                        'fsn':           det.get('fsn', ''),
+                    }
+            # If details call fails for a batch, those SKUs just get empty price/stock
+
+        # ── Merge search results with details ──
+        listings = []
+        for e in sku_entries:
+            sid = e['sku_id']
+            det = detail_map.get(sid, {})
+            listings.append({
+                'sku_id':        sid,
+                'product_id':    e['product_id'],
+                'fsn':           det.get('fsn', ''),
+                'selling_price': det.get('selling_price', ''),
+                'mrp':           det.get('mrp', ''),
+                'stock_count':   det.get('stock_count', 0),
+            })
 
         return jsonify({'ok': True, 'account': account, 'listings': listings, 'total': len(listings)})
     except RuntimeError as e:
