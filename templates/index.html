@@ -226,6 +226,67 @@
   #panel-ads .content{padding-top:0!important;min-height:0!important;}
   #panel-ads .upload-section{margin-top:0!important;padding-top:0!important;}
   #panel-ads .dashboard{padding-top:1rem!important;}
+
+  /* ══ Listings ══ */
+  .lst-wrap{padding:28px;max-width:1400px;margin:0 auto;}
+  .lst-account-tabs-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:24px;}
+  .lst-acct-tab{padding:8px 20px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.85rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;}
+  .lst-acct-tab:hover{border-color:var(--accent);color:var(--text);}
+  .lst-acct-tab.active{background:var(--accent);color:var(--bg);border-color:var(--accent);}
+  .lst-acct-tab:disabled{opacity:.4;cursor:not-allowed;}
+  .lst-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+  .lst-select{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:7px 12px;border-radius:8px;font-size:.82rem;font-family:inherit;cursor:pointer;}
+  .lst-select:focus{outline:none;border-color:var(--accent);}
+  .lst-btn{padding:7px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;display:inline-flex;align-items:center;gap:6px;}
+  .lst-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .lst-btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);border-color:transparent;}
+  .lst-btn-primary:hover{opacity:.88;color:var(--bg);}
+  .lst-status{font-size:.78rem;color:var(--muted);margin-left:auto;}
+  .lst-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+  .lst-table{width:100%;border-collapse:collapse;font-size:.82rem;}
+  .lst-table thead tr{background:var(--surface2);border-bottom:2px solid var(--border);}
+  .lst-table th{padding:10px 14px;text-align:left;font-weight:700;color:var(--muted);font-size:.7rem;text-transform:uppercase;letter-spacing:.6px;white-space:nowrap;}
+  .lst-table th.right{text-align:right;}
+  .lst-table td{padding:9px 14px;border-bottom:1px solid rgba(42,54,80,.4);color:var(--text);vertical-align:middle;}
+  .lst-table td.mono{font-family:'JetBrains Mono',monospace;font-size:.73rem;color:var(--muted);}
+  .lst-table tbody tr:hover{background:rgba(255,255,255,.02);}
+  .lst-table td.right{text-align:right;}
+  .lst-inline-edit{display:inline-flex;align-items:center;gap:6px;}
+  .lst-val{font-weight:600;color:var(--text);}
+  .lst-edit-btn{background:none;border:none;color:var(--muted);cursor:pointer;padding:2px 4px;border-radius:4px;font-size:.8rem;line-height:1;transition:color .15s;}
+  .lst-edit-btn:hover{color:var(--accent);}
+  .lst-edit-input{width:80px;background:var(--surface2);border:1px solid var(--accent);color:var(--text);padding:4px 8px;border-radius:6px;font-size:.82rem;font-family:'JetBrains Mono',monospace;text-align:right;}
+  .lst-edit-input:focus{outline:none;}
+  .lst-save-btn{background:var(--accent);color:var(--bg);border:none;padding:4px 9px;border-radius:5px;font-size:.75rem;font-weight:700;cursor:pointer;font-family:inherit;}
+  .lst-cancel-btn{background:transparent;border:1px solid var(--border);color:var(--muted);padding:4px 9px;border-radius:5px;font-size:.75rem;cursor:pointer;font-family:inherit;}
+  .lst-err{font-size:.72rem;color:#ff4466;margin-top:3px;display:block;}
+  .lst-ok{font-size:.72rem;color:#00ff88;margin-top:3px;display:block;}
+  .lst-pagination{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-top:1px solid var(--border);font-size:.82rem;color:var(--muted);}
+  .lst-page-btns{display:flex;gap:6px;}
+  .lst-page-btn{padding:5px 14px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.8rem;cursor:pointer;font-family:inherit;transition:all .15s;}
+  .lst-page-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
+  .lst-page-btn:disabled{opacity:.35;cursor:not-allowed;}
+  .lst-page-btn.active{background:var(--accent);color:var(--bg);border-color:var(--accent);}
+  .lst-empty{text-align:center;padding:48px 20px;color:var(--muted);font-size:.88rem;}
+  .lst-loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:48px;color:var(--muted);font-size:.88rem;}
+  .lst-spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:lst-spin .7s linear infinite;}
+  @keyframes lst-spin{to{transform:rotate(360deg);}}
+  /* Bulk action modal */
+  .lst-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
+  .lst-modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 32px;width:480px;max-width:94%;max-height:86vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5);}
+  .lst-modal h3{font-size:1.1rem;font-weight:700;color:var(--text);margin-bottom:4px;}
+  .lst-modal-sub{font-size:.8rem;color:var(--muted);margin-bottom:20px;}
+  .lst-modal-tabs{display:flex;gap:4px;background:var(--surface2);border-radius:9px;padding:4px;margin-bottom:22px;}
+  .lst-modal-tab{flex:1;padding:7px;border:none;border-radius:7px;background:transparent;color:var(--muted);font-size:.82rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;}
+  .lst-modal-tab.active{background:var(--accent);color:var(--bg);}
+  .lst-modal-field{margin-bottom:16px;}
+  .lst-modal-label{font-size:.78rem;color:var(--muted);font-weight:600;display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px;}
+  .lst-modal-input{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-size:.9rem;font-family:'JetBrains Mono',monospace;box-sizing:border-box;}
+  .lst-modal-input:focus{outline:none;border-color:var(--accent);}
+  .lst-modal-result{margin-top:14px;padding:12px 14px;border-radius:8px;font-size:.82rem;background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:var(--accent);display:none;}
+  .lst-modal-result.err{background:rgba(255,68,102,.07);border-color:rgba(255,68,102,.25);color:#ff6688;}
+  .lst-modal-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;}
+
 </style>
 <style>
 .app {
@@ -1181,6 +1242,7 @@
         <button class="main-tab" onclick="switchTab('sku',this)">📋 Master SKU</button>
         <button class="main-tab" onclick="switchTab('ads',this)">📊 Ads Dashboard</button>
         <button class="main-tab" onclick="switchTab('sales',this)">📈 Sales Analytics</button>
+        <button class="main-tab" onclick="switchTab('listings',this)">🏪 Listings</button>
       </nav>
     </div>
   </header>
@@ -1639,6 +1701,93 @@
 
       </div><!-- /sa-content -->
     </div><!-- /sa-wrap -->
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       LISTINGS PANEL
+  ════════════════════════════════════════════════════════ -->
+  <div id="panel-listings" class="tab-panel">
+    <div class="lst-wrap">
+
+      <!-- Account tabs -->
+      <div class="lst-account-tabs-bar">
+        <button class="lst-acct-tab active" onclick="lstSwitchAccount('CUTEST-CLUB',this)">Cutest Club</button>
+        <button class="lst-acct-tab" disabled title="API not configured">Refreshwave</button>
+        <button class="lst-acct-tab" disabled title="API not configured">Eonspark</button>
+        <button class="lst-acct-tab" disabled title="API not configured">Hellohi</button>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="lst-toolbar">
+        <label style="font-size:.78rem;color:var(--muted);">Product</label>
+        <select class="lst-select" id="lstProductFilter" onchange="lstApplyFilter()" style="min-width:180px;">
+          <option value="__all__">All Products</option>
+        </select>
+        <button class="lst-btn" onclick="lstOpenBulkModal()">⚡ Bulk Action</button>
+        <button class="lst-btn lst-btn-primary" onclick="lstLoadListings(true)" id="lstRefreshBtn">↻ Refresh</button>
+        <span class="lst-status" id="lstStatus"></span>
+      </div>
+
+      <!-- Table -->
+      <div class="lst-table-wrap">
+        <div id="lstTableContainer">
+          <div class="lst-empty" style="color:var(--muted);">Click <b style="color:var(--accent)">Refresh</b> to load listings from Flipkart API.</div>
+        </div>
+        <div class="lst-pagination" id="lstPagination" style="display:none;">
+          <span id="lstPageInfo" style="color:var(--muted);font-size:.8rem;"></span>
+          <div class="lst-page-btns" id="lstPageBtns"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Bulk Action Modal ── -->
+  <div id="lstBulkModal" class="lst-modal-overlay" style="display:none;" onclick="if(event.target===this)lstCloseBulkModal()">
+    <div class="lst-modal">
+      <h3>⚡ Bulk Action</h3>
+      <p class="lst-modal-sub">Update price or stock for all SKUs under a product in one shot.</p>
+
+      <div class="lst-modal-tabs">
+        <button class="lst-modal-tab active" id="lstBulkTabPrice" onclick="lstSwitchBulkTab('price')">💰 Selling Price</button>
+        <button class="lst-modal-tab" id="lstBulkTabStock" onclick="lstSwitchBulkTab('stock')">📦 Stock Count</button>
+      </div>
+
+      <!-- Price tab -->
+      <div id="lstBulkPricePane">
+        <div class="lst-modal-field">
+          <label class="lst-modal-label">Product</label>
+          <select class="lst-modal-input" id="lstBulkPriceProduct" style="font-family:inherit;">
+            <option value="__all__">All Products</option>
+          </select>
+        </div>
+        <div class="lst-modal-field">
+          <label class="lst-modal-label">New Selling Price (₹)</label>
+          <input type="number" min="1" step="1" class="lst-modal-input" id="lstBulkPriceValue" placeholder="e.g. 499">
+        </div>
+      </div>
+
+      <!-- Stock tab -->
+      <div id="lstBulkStockPane" style="display:none;">
+        <div class="lst-modal-field">
+          <label class="lst-modal-label">Product</label>
+          <select class="lst-modal-input" id="lstBulkStockProduct" style="font-family:inherit;">
+            <option value="__all__">All Products</option>
+          </select>
+        </div>
+        <div class="lst-modal-field">
+          <label class="lst-modal-label">New Stock Count</label>
+          <input type="number" min="0" step="1" class="lst-modal-input" id="lstBulkStockValue" placeholder="e.g. 50">
+        </div>
+      </div>
+
+      <div class="lst-modal-result" id="lstBulkResult"></div>
+
+      <div class="lst-modal-footer">
+        <button class="lst-btn" onclick="lstCloseBulkModal()">Cancel</button>
+        <button class="lst-btn lst-btn-primary" id="lstBulkSubmitBtn" onclick="lstSubmitBulk()">Submit</button>
+      </div>
+    </div>
   </div>
 
 </div>
@@ -5946,6 +6095,461 @@ function triggerSaSync(fullResync) {
       syncBtn.disabled = false;
     });
 }
+/* ═══════════════════════════════════════════════════════════
+   LISTINGS MODULE
+═══════════════════════════════════════════════════════════ */
+(function() {
+
+// ── State ──
+let _lstAccount    = 'CUTEST-CLUB';
+let _lstAllRows    = [];   // full fetched listing rows (enriched with product name)
+let _lstFiltered   = [];   // after product filter
+let _lstPage       = 1;
+const LST_PER_PAGE = 100;
+let _lstSkuMap     = {};   // sku_id → product name (from master SKU)
+let _lstProducts   = [];   // sorted product names for this account
+let _lstBulkTab    = 'price';
+let _lstEditing    = {};   // { 'sku_id:field': true } to track open editors
+
+// ── Init ──
+function lstInit() {
+  // Load master SKU mapping for product filter
+  fetch('/api/sku-data')
+    .then(r => r.json())
+    .then(data => {
+      // Build sku→product map for Cutest Club sheet
+      _lstSkuMap = {};
+      _lstProducts = [];
+      const sheets = data.sheets || {};
+      // Try to find the Cutest Club sheet (case-insensitive)
+      const sheetKey = Object.keys(sheets).find(k => k.toLowerCase().replace(/\s/g,'') === 'cutestclub') || '';
+      const rows = sheets[sheetKey] || [];
+      const prodSet = new Set();
+      rows.forEach(r => {
+        if (r.sku && r.p1) { _lstSkuMap[r.sku] = r.p1; prodSet.add(r.p1); }
+        if (r.sku && r.p2) { _lstSkuMap[r.sku + '__p2'] = r.p2; prodSet.add(r.p2); }
+      });
+      _lstProducts = [...prodSet].sort();
+      lstPopulateProductDropdowns();
+    })
+    .catch(() => {});
+}
+
+function lstPopulateProductDropdowns() {
+  const opts = ['<option value="__all__">All Products</option>',
+    ..._lstProducts.map(p => `<option value="${p}">${p}</option>`)
+  ].join('');
+  ['lstProductFilter','lstBulkPriceProduct','lstBulkStockProduct'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = opts;
+  });
+}
+
+// ── Account switch ──
+window.lstSwitchAccount = function(account, btn) {
+  _lstAccount = account;
+  document.querySelectorAll('.lst-acct-tab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  _lstAllRows = [];
+  _lstFiltered = [];
+  _lstPage = 1;
+  document.getElementById('lstTableContainer').innerHTML =
+    '<div class="lst-empty">Click <b style="color:var(--accent)">Refresh</b> to load listings.</div>';
+  document.getElementById('lstPagination').style.display = 'none';
+  document.getElementById('lstStatus').textContent = '';
+};
+
+// ── Load listings from API ──
+window.lstLoadListings = function(force) {
+  const btn = document.getElementById('lstRefreshBtn');
+  const status = document.getElementById('lstStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ Loading…';
+  status.textContent = 'Fetching from Flipkart API…';
+  document.getElementById('lstTableContainer').innerHTML =
+    '<div class="lst-loading"><div class="lst-spinner"></div> Fetching active listings…</div>';
+  document.getElementById('lstPagination').style.display = 'none';
+
+  fetch(`/api/listings/${_lstAccount}`)
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.textContent = '↻ Refresh';
+      if (data.error) {
+        status.textContent = '⚠ ' + data.error;
+        document.getElementById('lstTableContainer').innerHTML =
+          `<div class="lst-empty" style="color:#ff4466;">${data.error}</div>`;
+        return;
+      }
+      // Enrich with product name from master SKU
+      _lstAllRows = (data.listings || []).map(row => ({
+        ...row,
+        product: lstResolveProduct(row.sku_id),
+      }));
+      status.textContent = `${_lstAllRows.length} active listings · last refreshed just now`;
+      _lstPage = 1;
+      lstApplyFilter();
+    })
+    .catch(e => {
+      btn.disabled = false;
+      btn.textContent = '↻ Refresh';
+      status.textContent = '⚠ Network error';
+      document.getElementById('lstTableContainer').innerHTML =
+        `<div class="lst-empty" style="color:#ff4466;">Network error: ${e.message}</div>`;
+    });
+};
+
+function lstResolveProduct(skuId) {
+  if (_lstSkuMap[skuId]) return _lstSkuMap[skuId];
+  // Fuzzy: strip pack suffix and try
+  const stripped = skuId.replace(/\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$/i, '').trim();
+  if (stripped !== skuId && _lstSkuMap[stripped]) return _lstSkuMap[stripped];
+  // Try prefix match against master keys
+  for (const [msku, prod] of Object.entries(_lstSkuMap)) {
+    if (skuId.startsWith(msku) || msku.startsWith(skuId)) return prod;
+  }
+  return '—';
+}
+
+// ── Filter ──
+window.lstApplyFilter = function() {
+  const prod = document.getElementById('lstProductFilter').value;
+  _lstFiltered = prod === '__all__'
+    ? _lstAllRows
+    : _lstAllRows.filter(r => r.product === prod);
+  _lstPage = 1;
+  lstRenderTable();
+};
+
+// ── Render table ──
+function lstRenderTable() {
+  const container = document.getElementById('lstTableContainer');
+  const pagination = document.getElementById('lstPagination');
+
+  if (_lstFiltered.length === 0) {
+    container.innerHTML = '<div class="lst-empty">No listings found for the selected filter.</div>';
+    pagination.style.display = 'none';
+    return;
+  }
+
+  const totalPages = Math.ceil(_lstFiltered.length / LST_PER_PAGE);
+  if (_lstPage > totalPages) _lstPage = totalPages;
+  const start = (_lstPage - 1) * LST_PER_PAGE;
+  const pageRows = _lstFiltered.slice(start, start + LST_PER_PAGE);
+
+  container.innerHTML = `
+    <table class="lst-table">
+      <thead>
+        <tr>
+          <th>SKU ID</th>
+          <th>Product</th>
+          <th>FSN</th>
+          <th class="right">Selling Price</th>
+          <th class="right">Stock Count</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${pageRows.map((r, idx) => lstRenderRow(r, start + idx)).join('')}
+      </tbody>
+    </table>`;
+
+  // Pagination
+  pagination.style.display = 'flex';
+  document.getElementById('lstPageInfo').textContent =
+    `Showing ${start + 1}–${Math.min(start + LST_PER_PAGE, _lstFiltered.length)} of ${_lstFiltered.length} listings`;
+
+  // Page buttons — show at most 7 pages around current
+  const btns = document.getElementById('lstPageBtns');
+  let btnHtml = `<button class="lst-page-btn" onclick="lstGoPage(${_lstPage-1})" ${_lstPage===1?'disabled':''}>‹ Prev</button>`;
+  const lo = Math.max(1, _lstPage-3), hi = Math.min(totalPages, _lstPage+3);
+  if (lo > 1) btnHtml += `<button class="lst-page-btn" onclick="lstGoPage(1)">1</button>${lo>2?'<span style="color:var(--muted);padding:0 4px;">…</span>':''}`;
+  for (let p = lo; p <= hi; p++) {
+    btnHtml += `<button class="lst-page-btn${p===_lstPage?' active':''}" onclick="lstGoPage(${p})">${p}</button>`;
+  }
+  if (hi < totalPages) btnHtml += `${hi<totalPages-1?'<span style="color:var(--muted);padding:0 4px;">…</span>':''}<button class="lst-page-btn" onclick="lstGoPage(${totalPages})">${totalPages}</button>`;
+  btnHtml += `<button class="lst-page-btn" onclick="lstGoPage(${_lstPage+1})" ${_lstPage===totalPages?'disabled':''}>Next ›</button>`;
+  btns.innerHTML = btnHtml;
+}
+
+function lstRenderRow(r, idx) {
+  const priceEdit = _lstEditing[r.sku_id + ':price'];
+  const stockEdit = _lstEditing[r.sku_id + ':stock'];
+
+  const priceCell = priceEdit
+    ? `<div class="lst-inline-edit">
+        <input class="lst-edit-input" id="lst-inp-price-${idx}" type="number" min="1" step="1" value="${r.selling_price}" onkeydown="if(event.key==='Enter')lstSaveInline('${r.sku_id}','price',${idx});if(event.key==='Escape')lstCancelInline('${r.sku_id}','price')">
+        <button class="lst-save-btn" onclick="lstSaveInline('${r.sku_id}','price',${idx})">✓</button>
+        <button class="lst-cancel-btn" onclick="lstCancelInline('${r.sku_id}','price')">✕</button>
+       </div>
+       <span class="lst-err" id="lst-err-price-${idx}"></span>`
+    : `<div class="lst-inline-edit">
+        <span class="lst-val">₹${Number(r.selling_price||0).toLocaleString('en-IN')}</span>
+        <button class="lst-edit-btn" title="Edit price" onclick="lstStartInline('${r.sku_id}','price')">✏️</button>
+       </div>
+       <span class="lst-ok" id="lst-ok-price-${r.sku_id.replace(/[^a-z0-9]/gi,'_')}"></span>`;
+
+  const stockCell = stockEdit
+    ? `<div class="lst-inline-edit">
+        <input class="lst-edit-input" id="lst-inp-stock-${idx}" type="number" min="0" step="1" value="${r.stock_count}" onkeydown="if(event.key==='Enter')lstSaveInline('${r.sku_id}','stock',${idx});if(event.key==='Escape')lstCancelInline('${r.sku_id}','stock')">
+        <button class="lst-save-btn" onclick="lstSaveInline('${r.sku_id}','stock',${idx})">✓</button>
+        <button class="lst-cancel-btn" onclick="lstCancelInline('${r.sku_id}','stock')">✕</button>
+       </div>
+       <span class="lst-err" id="lst-err-stock-${idx}"></span>`
+    : `<div class="lst-inline-edit">
+        <span class="lst-val">${Number(r.stock_count||0).toLocaleString()}</span>
+        <button class="lst-edit-btn" title="Edit stock" onclick="lstStartInline('${r.sku_id}','stock')">✏️</button>
+       </div>
+       <span class="lst-ok" id="lst-ok-stock-${r.sku_id.replace(/[^a-z0-9]/gi,'_')}"></span>`;
+
+  return `<tr>
+    <td class="mono">${r.sku_id}</td>
+    <td style="font-size:.8rem;">${r.product}</td>
+    <td class="mono">${r.fsn || '—'}</td>
+    <td class="right">${priceCell}</td>
+    <td class="right">${stockCell}</td>
+  </tr>`;
+}
+
+window.lstGoPage = function(p) {
+  const total = Math.ceil(_lstFiltered.length / LST_PER_PAGE);
+  if (p < 1 || p > total) return;
+  _lstPage = p;
+  lstRenderTable();
+  document.querySelector('.lst-wrap').scrollIntoView({behavior:'smooth', block:'start'});
+};
+
+// ── Inline editing ──
+window.lstStartInline = function(skuId, field) {
+  _lstEditing[skuId + ':' + field] = true;
+  lstRenderTable();
+  // Focus the input after render
+  setTimeout(() => {
+    const idx = _lstFiltered.findIndex(r => r.sku_id === skuId);
+    if (idx < 0) return;
+    const rowIdx = idx;
+    const inp = document.getElementById(`lst-inp-${field}-${rowIdx}`);
+    if (inp) { inp.focus(); inp.select(); }
+  }, 30);
+};
+
+window.lstCancelInline = function(skuId, field) {
+  delete _lstEditing[skuId + ':' + field];
+  lstRenderTable();
+};
+
+window.lstSaveInline = function(skuId, field, rowIdx) {
+  const inp = document.getElementById(`lst-inp-${field}-${rowIdx}`);
+  if (!inp) return;
+  const val = parseInt(inp.value, 10);
+  if (isNaN(val) || val < (field === 'stock' ? 0 : 1)) {
+    const err = document.getElementById(`lst-err-${field}-${rowIdx}`);
+    if (err) err.textContent = field === 'price' ? 'Enter a valid price (min ₹1)' : 'Enter a valid stock count (min 0)';
+    return;
+  }
+
+  const row = _lstFiltered.find(r => r.sku_id === skuId);
+  if (!row) return;
+
+  inp.disabled = true;
+
+  if (field === 'price') {
+    fetch(`/api/listings/${_lstAccount}/update-price`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ skus: [{ sku_id: skuId, product_id: row.product_id, mrp: row.mrp || val, selling_price: val }] })
+    })
+    .then(r => r.json())
+    .then(data => lstHandleInlineResult(data, skuId, field, val, rowIdx))
+    .catch(e => {
+      const err = document.getElementById(`lst-err-${field}-${rowIdx}`);
+      if (err) err.textContent = 'Network error: ' + e.message;
+      if (inp) inp.disabled = false;
+    });
+  } else {
+    fetch(`/api/listings/${_lstAccount}/update-inventory`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ skus: [{ sku_id: skuId, stock_count: val }] })
+    })
+    .then(r => r.json())
+    .then(data => lstHandleInlineResult(data, skuId, field, val, rowIdx))
+    .catch(e => {
+      const err = document.getElementById(`lst-err-${field}-${rowIdx}`);
+      if (err) err.textContent = 'Network error: ' + e.message;
+      if (inp) inp.disabled = false;
+    });
+  }
+};
+
+function lstHandleInlineResult(data, skuId, field, val, rowIdx) {
+  if (data.error) {
+    const err = document.getElementById(`lst-err-${field}-${rowIdx}`);
+    if (err) err.textContent = data.error;
+    const inp = document.getElementById(`lst-inp-${field}-${rowIdx}`);
+    if (inp) inp.disabled = false;
+    return;
+  }
+  const skuResult = (data.results || {})[skuId] || {};
+  const errors = skuResult.errors || skuResult.attribute_errors || [];
+  if (skuResult.status === 'failure' || (skuResult.status !== 'success' && errors.length > 0)) {
+    const msg = errors.map(e => e.description || e.code).join('; ') || 'Update failed';
+    const err = document.getElementById(`lst-err-${field}-${rowIdx}`);
+    if (err) err.textContent = msg;
+    const inp = document.getElementById(`lst-inp-${field}-${rowIdx}`);
+    if (inp) inp.disabled = false;
+    return;
+  }
+  // Success — update local state and re-render
+  const row = _lstFiltered.find(r => r.sku_id === skuId);
+  const masterRow = _lstAllRows.find(r => r.sku_id === skuId);
+  if (row) { if (field === 'price') row.selling_price = val; else row.stock_count = val; }
+  if (masterRow) { if (field === 'price') masterRow.selling_price = val; else masterRow.stock_count = val; }
+  delete _lstEditing[skuId + ':' + field];
+  lstRenderTable();
+  // Flash success indicator briefly
+  const safeId = skuId.replace(/[^a-z0-9]/gi,'_');
+  const ok = document.getElementById(`lst-ok-${field}-${safeId}`);
+  if (ok) { ok.textContent = '✓ Updated'; setTimeout(() => { if(ok) ok.textContent = ''; }, 3000); }
+}
+
+// ── Bulk Action Modal ──
+window.lstOpenBulkModal = function() {
+  if (_lstAllRows.length === 0) {
+    alert('Load listings first by clicking Refresh.');
+    return;
+  }
+  document.getElementById('lstBulkPriceValue').value = '';
+  document.getElementById('lstBulkStockValue').value = '';
+  document.getElementById('lstBulkResult').style.display = 'none';
+  document.getElementById('lstBulkModal').style.display = 'flex';
+};
+
+window.lstCloseBulkModal = function() {
+  document.getElementById('lstBulkModal').style.display = 'none';
+};
+
+window.lstSwitchBulkTab = function(tab) {
+  _lstBulkTab = tab;
+  document.getElementById('lstBulkTabPrice').classList.toggle('active', tab === 'price');
+  document.getElementById('lstBulkTabStock').classList.toggle('active', tab === 'stock');
+  document.getElementById('lstBulkPricePane').style.display = tab === 'price' ? '' : 'none';
+  document.getElementById('lstBulkStockPane').style.display = tab === 'stock' ? '' : 'none';
+  document.getElementById('lstBulkResult').style.display = 'none';
+};
+
+window.lstSubmitBulk = function() {
+  const result = document.getElementById('lstBulkResult');
+  const submitBtn = document.getElementById('lstBulkSubmitBtn');
+
+  if (_lstBulkTab === 'price') {
+    const prod = document.getElementById('lstBulkPriceProduct').value;
+    const val  = parseInt(document.getElementById('lstBulkPriceValue').value, 10);
+    if (isNaN(val) || val < 1) {
+      result.className = 'lst-modal-result err'; result.style.display = 'block';
+      result.textContent = 'Please enter a valid selling price (min ₹1).'; return;
+    }
+    const targets = prod === '__all__' ? _lstAllRows : _lstAllRows.filter(r => r.product === prod);
+    if (targets.length === 0) {
+      result.className = 'lst-modal-result err'; result.style.display = 'block';
+      result.textContent = 'No listings found for the selected product.'; return;
+    }
+    result.className = 'lst-modal-result'; result.style.display = 'block';
+    result.textContent = `⏳ Updating ${targets.length} SKU${targets.length>1?'s':''}…`;
+    submitBtn.disabled = true;
+
+    const skus = targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id, mrp: r.mrp || val, selling_price: val }));
+    fetch(`/api/listings/${_lstAccount}/update-price`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ skus })
+    })
+    .then(r => r.json())
+    .then(data => lstHandleBulkResult(data, targets.length, 'price', val))
+    .catch(e => {
+      result.className = 'lst-modal-result err'; result.style.display = 'block';
+      result.textContent = 'Network error: ' + e.message;
+      submitBtn.disabled = false;
+    });
+
+  } else {
+    const prod = document.getElementById('lstBulkStockProduct').value;
+    const val  = parseInt(document.getElementById('lstBulkStockValue').value, 10);
+    if (isNaN(val) || val < 0) {
+      result.className = 'lst-modal-result err'; result.style.display = 'block';
+      result.textContent = 'Please enter a valid stock count (min 0).'; return;
+    }
+    const targets = prod === '__all__' ? _lstAllRows : _lstAllRows.filter(r => r.product === prod);
+    if (targets.length === 0) {
+      result.className = 'lst-modal-result err'; result.style.display = 'block';
+      result.textContent = 'No listings found for the selected product.'; return;
+    }
+    result.className = 'lst-modal-result'; result.style.display = 'block';
+    result.textContent = `⏳ Updating ${targets.length} SKU${targets.length>1?'s':''}…`;
+    submitBtn.disabled = true;
+
+    const skus = targets.map(r => ({ sku_id: r.sku_id, stock_count: val }));
+    fetch(`/api/listings/${_lstAccount}/update-inventory`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ skus })
+    })
+    .then(r => r.json())
+    .then(data => lstHandleBulkResult(data, targets.length, 'stock', val))
+    .catch(e => {
+      result.className = 'lst-modal-result err'; result.style.display = 'block';
+      result.textContent = 'Network error: ' + e.message;
+      submitBtn.disabled = false;
+    });
+  }
+};
+
+function lstHandleBulkResult(data, total, field, val) {
+  const result = document.getElementById('lstBulkResult');
+  const submitBtn = document.getElementById('lstBulkSubmitBtn');
+  submitBtn.disabled = false;
+
+  if (data.error) {
+    result.className = 'lst-modal-result err'; result.style.display = 'block';
+    result.textContent = data.error; return;
+  }
+
+  const results = data.results || {};
+  const succeeded = Object.values(results).filter(r => r.status === 'success').length;
+  const failed    = Object.values(results).filter(r => r.status === 'failure').length;
+
+  // Update local state for succeeded SKUs
+  Object.entries(results).forEach(([skuId, res]) => {
+    if (res.status === 'success') {
+      const row = _lstAllRows.find(r => r.sku_id === skuId);
+      const frow = _lstFiltered.find(r => r.sku_id === skuId);
+      if (row) { if (field==='price') row.selling_price=val; else row.stock_count=val; }
+      if (frow) { if (field==='price') frow.selling_price=val; else frow.stock_count=val; }
+    }
+  });
+  lstRenderTable();
+
+  if (failed === 0) {
+    result.className = 'lst-modal-result'; result.style.display = 'block';
+    result.textContent = `✓ ${succeeded} SKU${succeeded>1?'s':''} updated successfully.`;
+  } else {
+    const errMsgs = Object.entries(results)
+      .filter(([,r]) => r.status === 'failure')
+      .slice(0, 3)
+      .map(([sku, r]) => `${sku}: ${(r.errors||[]).map(e=>e.description).join(', ')}`)
+      .join(' | ');
+    result.className = 'lst-modal-result err'; result.style.display = 'block';
+    result.textContent = `${succeeded} updated, ${failed} failed. ${errMsgs}`;
+  }
+}
+
+// ── Wire up switchTab hook ──
+const _origSwitchTab = window.switchTab;
+window.switchTab = function(name, btn) {
+  _origSwitchTab(name, btn);
+  if (name === 'listings' && !window._lstInitDone) {
+    window._lstInitDone = true;
+    lstInit();
+  }
+};
+
+})(); // end IIFE
+
 </script>
 
 
