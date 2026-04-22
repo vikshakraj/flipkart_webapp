@@ -1248,8 +1248,55 @@ def _df_to_store_rows(df):
             'ret_sub':    str(r.get('return_sub_reason','')) if str(r.get('return_sub_reason','')) != 'nan' else '',
             'disp_breach':str(r.get('dispatch_sla_breached','')),
             'dlv_breach': str(r.get('delivery_sla_breached','')),
+            'revenue':    float(r['selling_price']) * int(r.get('quantity', 1))
+                          if 'selling_price' in df.columns and not pd.isna(r.get('selling_price'))
+                          else 0.0,
         })
     return dict(store)
+
+
+# ─────────────────────────────────────────────
+# FLIPKART API — SALES SYNC HELPERS
+# ─────────────────────────────────────────────
+
+def _fk_compute_sla_breach(dispatch_by, dispatched_on, deliver_by, delivered_on):
+    """Derive SLA breach flags from raw date strings. Returns ('Y'|'N'|'', 'Y'|'N'|'')"""
+    def _parse(s):
+        if not s: return None
+        for fmt in ('%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+            try: return datetime.datetime.strptime(str(s)[:19], fmt)
+            except Exception: pass
+        return None
+    db  = _parse(dispatch_by);   don  = _parse(dispatched_on)
+    dlb = _parse(deliver_by);    dlon = _parse(delivered_on)
+    disp_breach = ('Y' if don > db else 'N') if db and don else ''
+    dlv_breach  = ('Y' if dlon > dlb else 'N') if dlb and dlon else ''
+    return disp_breach, dlv_breach
+
+
+def _fk_item_to_store_row(item, product_resolver):
+    """Convert one orderItem dict from Flipkart API into our store row format."""
+    sku_raw   = item.get('sku', '')
+    sku_clean = re.sub(r'^"""SKU:|"""$', '', sku_raw).strip().strip('"')
+    product   = product_resolver(sku_clean)
+    qty       = int(item.get('quantity', 1))
+    status    = item.get('status', '')
+    price_comp = item.get('priceComponents', {}) or {}
+    unit_price = float(price_comp.get('sellingPrice') or price_comp.get('customerPrice') or 0)
+    revenue    = unit_price * qty
+    ret_reason = (item.get('cancellationReason', '') or '').lower()
+    ret_sub    = item.get('cancellationSubReason', '') or ''
+    disp_breach, dlv_breach = _fk_compute_sla_breach(
+        item.get('dispatchByDate'), item.get('dispatchedDate'),
+        item.get('deliverByDate'),  item.get('deliveryDate'),
+    )
+    order_date = item.get('orderDate', '')
+    date_str   = str(order_date)[:10] if order_date else ''
+    return date_str, {
+        'sku': sku_clean, 'product': product, 'qty': qty, 'status': status,
+        'ret_reason': ret_reason, 'ret_sub': ret_sub,
+        'disp_breach': disp_breach, 'dlv_breach': dlv_breach, 'revenue': revenue,
+    }
 
 def _is_genuine_return(row, valid_reasons):
     """A RETURNED row is a genuine return only if its reason is in valid_reasons.
@@ -1285,6 +1332,8 @@ def _compute_analytics(store):
     delivery_breach = sum(1 for r in all_rows if r['dlv_breach']  == 'Y')
     dispatched_tot  = sum(1 for r in all_rows if r['disp_breach'] in ('Y','N'))
     delivered_tot   = sum(1 for r in all_rows if r['dlv_breach']  in ('Y','N'))
+    # Revenue — sum sellingPrice × qty for active (non-cancelled, non-returned) orders
+    total_revenue   = sum(r.get('revenue', 0) for r in all_rows if r['status'] in ACTIVE)
 
     all_dates  = sorted(store.keys())
     date_from  = all_dates[0]  if all_dates else ''
@@ -1293,6 +1342,7 @@ def _compute_analytics(store):
     kpis = {
         'total_orders':        len(all_rows),
         'total_units':         total_units,
+        'total_revenue':       round(total_revenue, 2),
         'delivered':           delivered,
         'returned':            returned_cnt,
         'cancelled':           cancelled_cnt,
@@ -1308,15 +1358,22 @@ def _compute_analytics(store):
     # Product trend + returns/cancels — single pass for all per-product daily data
     prod_day          = defaultdict(lambda: defaultdict(int))
     prod_total        = defaultdict(int)
+    prod_revenue      = defaultdict(float)          # product → total revenue
+    prod_rev_daily    = defaultdict(lambda: defaultdict(float))  # product → date → revenue
     prod_ret_daily    = defaultdict(lambda: defaultdict(int))
     prod_cancel_daily = defaultdict(lambda: defaultdict(int))
     prod_orders_daily = defaultdict(lambda: defaultdict(int))
+    daily_revenue     = defaultdict(float)          # date → revenue
     for d, rows in store.items():
         for r in rows:
             prod_orders_daily[r['product']][d] += r['qty']
             if r['status'] in ACTIVE:
                 prod_day[r['product']][d]   += r['qty']
                 prod_total[r['product']]    += r['qty']
+                rev = r.get('revenue', 0)
+                prod_revenue[r['product']]         += rev
+                prod_rev_daily[r['product']][d]    += rev
+                daily_revenue[d]                   += rev
             if _is_genuine_return(r, VALID_RETURN_REASONS):
                 prod_ret_daily[r['product']][d] += r['qty']
             elif r['status'] in CANCELLED or r['status'] in RETURNED:
@@ -1330,6 +1387,8 @@ def _compute_analytics(store):
             'data':        {d: prod_day[prod].get(d, 0) for d in all_dates},
             'data_ret':    {d: prod_ret_daily[prod].get(d, 0) for d in all_dates},
             'data_cancel': {d: prod_cancel_daily[prod].get(d, 0) for d in all_dates},
+            'revenue':     round(prod_revenue.get(prod, 0), 2),
+            'rev_daily':   {d: round(prod_rev_daily[prod].get(d, 0), 2) for d in all_dates},
         })
 
     # Returns chart
@@ -1431,42 +1490,48 @@ def _compute_analytics(store):
             'returns': daily_returns.get(d, 0),
             'cancels': daily_cancels.get(d, 0),
             'orders':  daily_orders.get(d, 0),
+            'revenue': round(daily_revenue.get(d, 0), 2),
         }
         for d in all_dates
     ]
 
     # ── SKU breakdown per product (active orders only) ──────────────────────
-    # Structure: { product: { sku: {total, daily: {date: qty}} } }
-    prod_sku_daily = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
-    prod_sku_total = defaultdict(lambda: defaultdict(int))
+    # Structure: { product: { sku: {total, daily: {date: qty}, revenue} } }
+    prod_sku_daily   = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+    prod_sku_total   = defaultdict(lambda: defaultdict(int))
+    prod_sku_revenue = defaultdict(lambda: defaultdict(float))
     for d, rows in store.items():
         for r in rows:
             if r['status'] in ACTIVE:
-                prod_sku_daily[r['product']][r['sku']][d] += r['qty']
-                prod_sku_total[r['product']][r['sku']]    += r['qty']
+                prod_sku_daily[r['product']][r['sku']][d]   += r['qty']
+                prod_sku_total[r['product']][r['sku']]      += r['qty']
+                prod_sku_revenue[r['product']][r['sku']]    += r.get('revenue', 0)
 
-    # For each product: top 7 SKUs by total, rest = Others
+    # For each product: store top 50 SKUs (table needs all; donut/line cap at 7 on frontend)
+    SKU_STORE_LIMIT = 50
     sku_by_product = {}
     for prod, sku_totals in prod_sku_total.items():
-        top7 = sorted(sku_totals.items(), key=lambda x: -x[1])[:7]
-        top7_skus = [s for s, _ in top7]
-        others_daily = defaultdict(int)
+        top_skus_list = sorted(sku_totals.items(), key=lambda x: -x[1])[:SKU_STORE_LIMIT]
+        top_skus      = [s for s, _ in top_skus_list]
+        others_daily  = defaultdict(int)
         for sku, day_map in prod_sku_daily[prod].items():
-            if sku not in top7_skus:
+            if sku not in top_skus:
                 for d, q in day_map.items():
                     others_daily[d] += q
         series = []
-        for sku in top7_skus:
+        for sku in top_skus:
             series.append({
-                'sku':   sku,
-                'total': prod_sku_total[prod][sku],
-                'daily': {d: prod_sku_daily[prod][sku].get(d, 0) for d in all_dates},
+                'sku':     sku,
+                'total':   prod_sku_total[prod][sku],
+                'revenue': round(prod_sku_revenue[prod].get(sku, 0), 2),
+                'daily':   {d: prod_sku_daily[prod][sku].get(d, 0) for d in all_dates},
             })
         if others_daily:
             series.append({
-                'sku':   'Others',
-                'total': sum(others_daily.values()),
-                'daily': {d: others_daily.get(d, 0) for d in all_dates},
+                'sku':     'Others',
+                'total':   sum(others_daily.values()),
+                'revenue': 0.0,
+                'daily':   {d: others_daily.get(d, 0) for d in all_dates},
             })
         sku_by_product[prod] = series
 
@@ -1474,6 +1539,7 @@ def _compute_analytics(store):
         'kpis':               kpis,
         'trend_dates':        all_dates,
         'trend_series':       trend_series,
+        'daily_revenue':      {d: round(daily_revenue.get(d, 0), 2) for d in all_dates},
         'returns_chart':      returns_chart,
         'returns_by_product': returns_by_product,
         'returns_drill':      returns_drill,
@@ -1481,6 +1547,184 @@ def _compute_analytics(store):
         'cancels_by_product': cancels_by_product,
         'daily_stats':        daily_stats,
         'sku_by_product':     sku_by_product,
+    }
+
+
+
+def _fk_sync_sales(account):
+    """
+    Fetch recent shipments from Flipkart API and merge into the persistent sales store.
+    Incremental — only fetches dates after the latest date already stored (minus 2-day buffer).
+    Returns a summary dict.
+    """
+    import requests as _req
+
+    token   = fk_get_token(account)
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    base_url = f'{FK_API_BASE}/sellers/v3/shipments/filter/'
+
+    store     = _load_sales_store(account)
+    store     = _prune_old_dates(store)
+    now_ist   = datetime.datetime.now(tz=IST)
+    cutoff    = (now_ist - datetime.timedelta(days=SALES_TTL_DAYS)).strftime('%Y-%m-%d')
+
+    existing_dates = [k for k in store if not k.startswith('__')]
+    if existing_dates:
+        latest     = max(existing_dates)
+        fetch_from = (datetime.datetime.strptime(latest, '%Y-%m-%d')
+                      - datetime.timedelta(days=2)).strftime('%Y-%m-%d')
+    else:
+        fetch_from = cutoff
+    fetch_to = now_ist.strftime('%Y-%m-%d')
+
+    # Build product resolver
+    sku_to_product = {}
+    if os.path.exists(MASTER_SKU_PATH):
+        try:
+            with open(MASTER_SKU_PATH, 'rb') as f:
+                master = load_sku_master(f.read())
+            acct_master = get_account_master(master, account)
+            for sku, info in acct_master.items():
+                if info.get('product'):
+                    sku_to_product[sku] = info['product']
+        except Exception as me:
+            print(f'[FKSync] Master SKU load failed: {me}')
+
+    def resolve_product(sku_clean):
+        def norm(s): return s.strip().title()
+        if sku_clean in sku_to_product: return norm(sku_to_product[sku_clean])
+        stripped = re.sub(r'\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$', '', sku_clean, flags=re.IGNORECASE).strip()
+        if stripped != sku_clean and stripped in sku_to_product: return norm(sku_to_product[stripped])
+        for ms_key, prod_name in sku_to_product.items():
+            ms = re.sub(r'\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$', '', ms_key, flags=re.IGNORECASE).strip()
+            if ms and (ms == stripped or ms == sku_clean): return norm(prod_name)
+        return norm(stripped) if stripped else sku_clean
+
+    new_rows      = defaultdict(list)
+    total_fetched = 0
+
+    # --- postDispatch: SHIPPED + DELIVERED ---
+    for state_list in [['SHIPPED', 'DELIVERED']]:
+        payload  = {
+            'filter': {
+                'type': 'postDispatch', 'states': state_list,
+                'orderDate': {
+                    'from': f'{fetch_from}T00:00:00+05:30',
+                    'to':   f'{fetch_to}T23:59:59+05:30',
+                },
+            },
+            'pagination': {'pageSize': 20},
+        }
+        next_url = base_url
+        fetched  = 0
+        while next_url and fetched < 5000:
+            try:
+                r = (_req.post(next_url, json=payload, headers=headers, timeout=30)
+                     if next_url == base_url
+                     else _req.get(next_url, headers=headers, timeout=30))
+                if r.status_code != 200:
+                    print(f'[FKSync] postDispatch {r.status_code}: {r.text[:200]}')
+                    break
+                data = r.json()
+                for shipment in data.get('shipments', []):
+                    for item in shipment.get('orderItems', []):
+                        ds, row = _fk_item_to_store_row(item, resolve_product)
+                        if ds and ds >= cutoff:
+                            new_rows[ds].append(row)
+                            fetched += 1
+                if not data.get('hasMore') or not data.get('nextPageUrl'):
+                    break
+                next_url = data['nextPageUrl']
+            except Exception as e:
+                print(f'[FKSync] postDispatch error: {e}')
+                break
+        total_fetched += fetched
+        print(f'[FKSync] postDispatch → {fetched} items')
+
+    # --- cancelled orders (all 3 cancellation types) ---
+    for ctype in ['buyerCancellation', 'sellerCancellation', 'marketplaceCancellation']:
+        payload = {
+            'filter': {
+                'type': 'cancelled', 'states': ['CANCELLED'],
+                'cancellationType': ctype,
+                'cancellationDate': {
+                    'from': f'{fetch_from}T00:00:00+05:30',
+                    'to':   f'{fetch_to}T23:59:59+05:30',
+                },
+            },
+            'pagination': {'pageSize': 20},
+        }
+        next_url = base_url
+        fetched  = 0
+        while next_url and fetched < 5000:
+            try:
+                r = (_req.post(next_url, json=payload, headers=headers, timeout=30)
+                     if next_url == base_url
+                     else _req.get(next_url, headers=headers, timeout=30))
+                if r.status_code != 200: break
+                data = r.json()
+                for shipment in data.get('shipments', []):
+                    for item in shipment.get('orderItems', []):
+                        ds, row = _fk_item_to_store_row(item, resolve_product)
+                        if ds and ds >= cutoff:
+                            new_rows[ds].append(row)
+                            fetched += 1
+                if not data.get('hasMore') or not data.get('nextPageUrl'):
+                    break
+                next_url = data['nextPageUrl']
+            except Exception as e:
+                print(f'[FKSync] {ctype} error: {e}')
+                break
+        total_fetched += fetched
+        print(f'[FKSync] {ctype} → {fetched} items')
+
+    # --- returns via /v2/returns ---
+    try:
+        r = _req.get(f'{FK_API_BASE}/sellers/v2/returns', headers=headers, timeout=30)
+        if r.status_code == 200:
+            ret_fetched = 0
+            for ret in r.json().get('returnItems', []):
+                oi         = ret.get('orderItem', {}) or {}
+                sku_raw    = oi.get('sku', '')
+                sku_clean  = re.sub(r'^\"\"\"SKU:|\"\"\"$', '', sku_raw).strip().strip('"')
+                product    = resolve_product(sku_clean)
+                qty        = int(oi.get('quantity', 1))
+                order_date = oi.get('orderDate', '')
+                ds         = str(order_date)[:10] if order_date else ''
+                pc         = oi.get('priceComponents', {}) or {}
+                revenue    = float(pc.get('sellingPrice') or 0) * qty
+                if ds and ds >= cutoff:
+                    new_rows[ds].append({
+                        'sku': sku_clean, 'product': product, 'qty': qty,
+                        'status': 'RETURNED',
+                        'ret_reason': (ret.get('returnReason') or '').lower(),
+                        'ret_sub': ret.get('returnSubReason') or '',
+                        'disp_breach': '', 'dlv_breach': '', 'revenue': revenue,
+                    })
+                    ret_fetched += 1
+            total_fetched += ret_fetched
+            print(f'[FKSync] returns → {ret_fetched} items')
+    except Exception as e:
+        print(f'[FKSync] Returns fetch error: {e}')
+
+    # Merge into store — new date buckets replace old ones
+    for d, rows in new_rows.items():
+        store[d] = rows
+
+    store['__meta__'] = {
+        'updated_at':   now_ist.strftime('%d %b %Y, %H:%M IST'),
+        'account':      account,
+        'sync_method':  'api',
+        'fetch_from':   fetch_from,
+        'fetch_to':     fetch_to,
+    }
+    _save_sales_store(account, store)
+
+    return {
+        'ok': True, 'account': account,
+        'total_fetched': total_fetched,
+        'fetch_from': fetch_from, 'fetch_to': fetch_to,
+        'new_dates': len(new_rows),
     }
 
 @app.route('/api/sales-upload/<account>', methods=['POST'])
@@ -1661,6 +1905,58 @@ def sales_data(account):
         if result and meta.get('updated_at'):
             result['updated_at'] = meta['updated_at']
         return jsonify(result or {'empty': True})
+
+
+@app.route('/api/sales-sync/<account>', methods=['POST'])
+def sales_sync(account):
+    """
+    Trigger a Flipkart API sync for the given account.
+    Only works for accounts with FK credentials configured.
+    """
+    account = account.upper().replace('-', ' ')
+    if account not in SALES_ACCOUNTS:
+        return jsonify({'error': f'Unknown account: {account}'}), 400
+    app_id, _ = _fk_credentials(account)
+    if not app_id:
+        return jsonify({'error': f'No Flipkart API credentials configured for {account}. '
+                                  f'Set {_fk_env_key(account)}_APP_ID and _APP_SECRET in Railway.'}), 400
+    try:
+        result = _fk_sync_sales(account)
+        # Return fresh analytics immediately after sync
+        store  = _load_sales_store(account)
+        store  = _prune_old_dates(store)
+        meta   = store.pop('__meta__', {})
+        clean  = {k: v for k, v in store.items() if not k.startswith('__')}
+        analytics = _compute_analytics(clean)
+        if analytics and meta.get('updated_at'):
+            analytics['updated_at'] = meta['updated_at']
+        return jsonify({
+            'sync':      result,
+            'analytics': analytics or {},
+        })
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/sales-sync-status', methods=['GET'])
+def sales_sync_status():
+    """Return sync status for all accounts — which have API credentials, last sync time."""
+    results = {}
+    for account in SALES_ACCOUNTS:
+        app_id, _ = _fk_credentials(account)
+        store = _load_sales_store(account)
+        meta  = store.get('__meta__', {})
+        results[account] = {
+            'api_configured': bool(app_id),
+            'sync_method':    meta.get('sync_method', 'xlsx'),
+            'updated_at':     meta.get('updated_at', 'never'),
+            'fetch_from':     meta.get('fetch_from', ''),
+            'fetch_to':       meta.get('fetch_to', ''),
+        }
+    return jsonify(results)
 
 
 # ─────────────────────────────────────────────
