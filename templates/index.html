@@ -1581,7 +1581,6 @@
                 <label style="font-size:.78rem;color:var(--muted);">Sort by</label>
                 <select class="sa-sku-select" id="saSkuAnalysisSort" onchange="renderSaSkuAnalysisTable()" style="max-width:160px;">
                   <option value="total_units">Total Units</option>
-                  <option value="total_revenue">Total Revenue</option>
                   <option value="ads_units">Ads Units</option>
                   <option value="ads_revenue">Ads Revenue</option>
                   <option value="ads_pct">Ads %</option>
@@ -1602,7 +1601,6 @@
                     <th style="text-align:left;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">SKU ID</th>
                     <th style="text-align:left;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Product</th>
                     <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Total Units</th>
-                    <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Total Revenue</th>
                     <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Ads Units</th>
                     <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Ads Revenue</th>
                     <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Ads %</th>
@@ -5772,9 +5770,9 @@ function renderSaSkuAnalysisTable() {
   });
 
   document.getElementById('saSkuAnalysisTbody').innerHTML = rows.length === 0
-    ? `<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--muted);">No SKUs found for the selected filters.</td></tr>`
+    ? `<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--muted);">No SKUs found for the selected filters.</td></tr>`
     : rows.map((r, i) => {
-    const fmtRevCell = v => v > 0 ? fmtRev(v) : '<span style="color:var(--muted);font-size:.75rem;">—</span>';
+    const fmtRev     = v => '₹' + Math.round(v).toLocaleString('en-IN');
     const adsPct = r.has_ads && r.ads_pct > 0
       ? `<div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px;">
            <div style="width:${Math.min(r.ads_pct,100).toFixed(1)}%;height:100%;background:var(--accent);border-radius:2px;"></div>
@@ -5790,7 +5788,6 @@ function renderSaSkuAnalysisTable() {
       <td style="padding:9px 10px;font-family:'JetBrains Mono',monospace;font-size:.73rem;color:var(--muted);white-space:nowrap;">${r.skuId}</td>
       <td style="padding:9px 10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem;" title="${r.product}">${r.product}</td>
       <td style="padding:9px 10px;text-align:right;font-weight:600;color:var(--text);">${r.total_units.toLocaleString()}</td>
-      <td style="padding:9px 10px;text-align:right;color:#00ff88;">${fmtRevCell(r.total_revenue)}</td>
       <td style="padding:9px 10px;text-align:right;color:var(--accent);">${r.has_ads ? r.ads_units.toLocaleString() : '—'}</td>
       <td style="padding:9px 10px;text-align:right;color:var(--accent);">${r.has_ads ? fmtRev(r.ads_revenue) : '—'}</td>
       <td style="padding:9px 10px;text-align:right;">
