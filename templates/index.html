@@ -6402,7 +6402,7 @@ window.lstSaveInline = function(skuId, field, rowIdx) {
   const endpoint = field === 'price' ? 'update-price' : 'update-inventory';
   const body     = field === 'price'
     ? { skus: [{ sku_id: skuId, product_id: row.product_id, mrp: row.mrp || val, selling_price: val }] }
-    : { skus: [{ sku_id: skuId, stock_count: val }] };
+    : { skus: [{ sku_id: skuId, product_id: row.product_id, locations: row.locations || [], stock_count: val }] };
 
   fetch(`/api/listings/${_lstAccount}/${endpoint}`, {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
@@ -6492,7 +6492,7 @@ window.lstSubmitBulk = function() {
   const endpoint = isPrice ? 'update-price' : 'update-inventory';
   const skus     = isPrice
     ? targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id, mrp: r.mrp || val, selling_price: val }))
-    : targets.map(r => ({ sku_id: r.sku_id, stock_count: val }));
+    : targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id, locations: r.locations || [], stock_count: val }));
 
   fetch(`/api/listings/${_lstAccount}/${endpoint}`, {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ skus })
