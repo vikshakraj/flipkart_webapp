@@ -1421,7 +1421,12 @@
               <span class="sa-period-label">data period</span>
               <span class="sa-updated-at" id="saUpdatedAt"></span>
             </div>
-            <div style="display:flex;gap:8px;align-items:center;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button id="saSyncBtn" class="sa-filter-btn" onclick="triggerSaSync()"
+              style="display:none;background:linear-gradient(135deg,var(--accent),#0099cc);color:#0a0e1a;font-weight:700;border:none;padding:7px 14px;">
+              ⚡ Sync Now
+            </button>
+            <span id="saSyncStatus" style="font-size:.75rem;color:var(--muted);display:none;"></span>
             <button class="sa-clear-btn" onclick="clearSaData()" title="Wipe stored data and re-upload from scratch">🗑 Clear & Re-upload</button>
             <button class="sa-reupload" onclick="showSaUpload()">↑ Upload new file</button>
           </div>
@@ -1572,6 +1577,7 @@
                 <label style="font-size:.78rem;color:var(--muted);">Sort by</label>
                 <select class="sa-sku-select" id="saSkuAnalysisSort" onchange="renderSaSkuAnalysisTable()" style="max-width:160px;">
                   <option value="total_units">Total Units</option>
+                  <option value="total_revenue">Total Revenue</option>
                   <option value="ads_units">Ads Units</option>
                   <option value="ads_revenue">Ads Revenue</option>
                   <option value="ads_pct">Ads %</option>
@@ -1592,6 +1598,7 @@
                     <th style="text-align:left;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">SKU ID</th>
                     <th style="text-align:left;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Product</th>
                     <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Total Units</th>
+                    <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Total Revenue</th>
                     <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Ads Units</th>
                     <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Ads Revenue</th>
                     <th style="text-align:right;padding:8px 10px;color:var(--muted);font-weight:600;white-space:nowrap;">Ads %</th>
@@ -4844,6 +4851,9 @@ function renderSaDashboard(d){
   document.getElementById('saLoading').style.display   = 'none';
   document.getElementById('saDashboard').style.display = 'block';
 
+  // Show/hide Sync Now button based on API credentials
+  _checkSaSyncAvailable();
+
   // Period + updated
   document.getElementById('saPeriod').textContent = d.kpis.date_from + '  →  ' + d.kpis.date_to;
   const updEl = document.getElementById('saUpdatedAt');
@@ -4856,14 +4866,17 @@ function renderSaDashboard(d){
 
   // KPI cards
   const kGrid = document.getElementById('saKpiGrid');
+  const hasRevenue = d.kpis.total_revenue > 0;
+  const fmtRev = v => '₹' + Math.round(v).toLocaleString('en-IN');
   const kpis = [
-    { label:'Total Orders',        val: d.kpis.total_orders.toLocaleString(),  sub:'',                                   color:'#00d4ff' },
-    { label:'Total Units',         val: d.kpis.total_units.toLocaleString(),   sub:'across all SKUs',                    color:'#00d4ff' },
-    { label:'Delivered',           val: d.kpis.delivered_pct+'%',              sub: d.kpis.delivered.toLocaleString()+' units',  color:'#00ff88' },
-    { label:'Returned / RTO',      val: d.kpis.returned_pct+'%',              sub: d.kpis.returned.toLocaleString()+' units',   color:'#fbbf24' },
-    { label:'Cancelled',           val: d.kpis.cancelled_pct+'%',             sub: d.kpis.cancelled.toLocaleString()+' units',  color:'#ff3366' },
-    { label:'Dispatch SLA Breach', val: d.kpis.dispatch_breach_pct+'%',       sub:'of dispatched orders',               color:'#a855f7' },
-    { label:'Delivery SLA Breach', val: d.kpis.delivery_breach_pct+'%',       sub:'of delivered orders',                color:'#fb923c' },
+    { label:'Total Orders',        val: d.kpis.total_orders.toLocaleString(),  sub:'',                                          color:'#00d4ff' },
+    { label:'Total Units',         val: d.kpis.total_units.toLocaleString(),   sub:'across all SKUs',                           color:'#00d4ff' },
+    ...(hasRevenue ? [{ label:'Total Revenue', val: fmtRev(d.kpis.total_revenue), sub:'active orders only', color:'#00ff88' }] : []),
+    { label:'Delivered',           val: d.kpis.delivered_pct+'%',              sub: d.kpis.delivered.toLocaleString()+' units', color:'#00ff88' },
+    { label:'Returned / RTO',      val: d.kpis.returned_pct+'%',              sub: d.kpis.returned.toLocaleString()+' units',  color:'#fbbf24' },
+    { label:'Cancelled',           val: d.kpis.cancelled_pct+'%',             sub: d.kpis.cancelled.toLocaleString()+' units', color:'#ff3366' },
+    { label:'Dispatch SLA Breach', val: d.kpis.dispatch_breach_pct+'%',       sub:'of dispatched orders',                      color:'#a855f7' },
+    { label:'Delivery SLA Breach', val: d.kpis.delivery_breach_pct+'%',       sub:'of delivered orders',                       color:'#fb923c' },
   ];
   kGrid.innerHTML = kpis.map(k=>`
     <div class="sa-kpi">
@@ -4891,6 +4904,7 @@ function renderTrendChart(){
   const chosen = document.getElementById('saProductSelect').value;
   const series = chosen === '__ALL__' ? d.trend_series : d.trend_series.filter(s=>s.name===chosen);
   const labels = d.trend_dates;
+  const hasRevenue = d.daily_revenue && Object.values(d.daily_revenue).some(v=>v>0);
 
   const datasets = series.map((s,i)=>({
     label: s.name,
@@ -4902,7 +4916,29 @@ function renderTrendChart(){
     pointHoverRadius: 5,
     tension: 0.35,
     fill: chosen !== '__ALL__',
+    yAxisID: 'y',
   }));
+
+  // Add daily revenue line if data available
+  if (hasRevenue) {
+    const revData = chosen === '__ALL__'
+      ? labels.map(dt => d.daily_revenue[dt] || 0)
+      : labels.map(dt => {
+          // Sum rev_daily across filtered series
+          return series.reduce((sum, s) => sum + (s.rev_daily ? (s.rev_daily[dt] || 0) : 0), 0);
+        });
+    datasets.push({
+      label: 'Revenue (₹)',
+      data:  revData,
+      type:  'bar',
+      backgroundColor: 'rgba(0,255,136,0.25)',
+      borderColor:     '#00ff88',
+      borderWidth: 1,
+      borderRadius: 2,
+      yAxisID: 'y2',
+      order: 10,
+    });
+  }
 
   const canvas = document.getElementById('saTrendCanvas');
   if(_saTrendChart){ _saTrendChart.destroy(); }
@@ -4913,12 +4949,26 @@ function renderTrendChart(){
       responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
       plugins:{
-        legend:{ display: chosen==='__ALL__', labels:{ color:'#8b92a8', font:{size:10,family:"'IBM Plex Sans',sans-serif"}, boxWidth:12, padding:10 } },
-        tooltip:{ backgroundColor:'#141b2d', borderColor:'#2a3650', borderWidth:1, titleColor:'#e4e7eb', bodyColor:'#8b92a8', padding:10 }
+        legend:{ display: chosen==='__ALL__' || hasRevenue, labels:{ color:'#8b92a8', font:{size:10,family:"'IBM Plex Sans',sans-serif"}, boxWidth:12, padding:10 } },
+        tooltip:{
+          backgroundColor:'#141b2d', borderColor:'#2a3650', borderWidth:1,
+          titleColor:'#e4e7eb', bodyColor:'#8b92a8', padding:10,
+          callbacks: {
+            label: ctx => {
+              if (ctx.dataset.label === 'Revenue (₹)')
+                return `  Revenue: ₹${Math.round(ctx.raw).toLocaleString('en-IN')}`;
+              return `  ${ctx.dataset.label}: ${ctx.raw} units`;
+            }
+          }
+        }
       },
       scales:{
         x:{ ticks:{color:'#8b92a8',font:{size:10},maxTicksLimit:14}, grid:{color:'rgba(42,54,80,.4)'} },
-        y:{ beginAtZero:true, ticks:{color:'#8b92a8',font:{size:10},stepSize:1}, grid:{color:'rgba(42,54,80,.4)'} }
+        y:{ beginAtZero:true, ticks:{color:'#8b92a8',font:{size:10},stepSize:1}, grid:{color:'rgba(42,54,80,.4)'} },
+        y2:{ display: hasRevenue, beginAtZero:true, position:'right',
+             ticks:{ color:'#00ff88', font:{size:10},
+               callback: v => v>=100000 ? '₹'+(v/100000).toFixed(1)+'L' : v>=1000 ? '₹'+(v/1000).toFixed(0)+'k' : '₹'+v },
+             grid:{ display:false } }
       }
     }
   });
@@ -5562,12 +5612,12 @@ function renderSaSkuAnalysis(d) {
   fromEl.value = d.kpis.date_from;
   toEl.value   = d.kpis.date_to;
 
-  // Flatten sku_by_product: skuId → { total, daily, product }
+  // Flatten sku_by_product: skuId → { total, revenue, daily, product }
   const salesMap = {};
   Object.entries(d.sku_by_product).forEach(([product, series]) => {
     series.forEach(s => {
       if (s.sku === 'Others') return;
-      salesMap[s.sku] = { total: s.total, daily: s.daily, product };
+      salesMap[s.sku] = { total: s.total, revenue: s.revenue || 0, daily: s.daily, product };
     });
   });
 
@@ -5656,12 +5706,12 @@ function renderSaSkuAnalysis(d) {
         const campaigns = ads ? Object.values(ads.campaignSet).map(c => ({...c, roas: c.spend>0 ? c.revenue/c.spend : 0})) : [];
         return {
           skuId, product: sales.product,
-          daily: sales.daily,          // date → units (used for date-filtered total_units)
-          dates: d.trend_dates,        // full sorted date array
-          // ads metrics are full-period (no date on campaign order)
-          ads_units: ads ? ads.ads_units : 0,
-          ads_revenue: ads ? ads.ads_revenue : 0,
-          ads_spend: ads ? ads.ads_spend : 0,
+          daily: sales.daily,
+          dates: d.trend_dates,
+          total_revenue: sales.revenue || 0,   // from sku_by_product (API-synced only)
+          ads_units:    ads ? ads.ads_units   : 0,
+          ads_revenue:  ads ? ads.ads_revenue : 0,
+          ads_spend:    ads ? ads.ads_spend   : 0,
           campaigns, has_ads: !!ads,
         };
       });
@@ -5671,6 +5721,7 @@ function renderSaSkuAnalysis(d) {
       document.getElementById('saSkuAnalysisAdsStatus').textContent = 'Could not load ads data';
       _saSkuAnalysisData = Object.entries(salesMap).map(([skuId, sales]) => ({
         skuId, product: sales.product, daily: sales.daily, dates: d.trend_dates,
+        total_revenue: sales.revenue || 0,
         ads_units:0, ads_revenue:0, ads_spend:0, campaigns:[], has_ads:false,
       }));
       renderSaSkuAnalysisTable();
@@ -5717,8 +5768,9 @@ function renderSaSkuAnalysisTable() {
   });
 
   document.getElementById('saSkuAnalysisTbody').innerHTML = rows.length === 0
-    ? `<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--muted);">No SKUs found for the selected filters.</td></tr>`
+    ? `<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--muted);">No SKUs found for the selected filters.</td></tr>`
     : rows.map((r, i) => {
+    const fmtRevCell = v => v > 0 ? fmtRev(v) : '<span style="color:var(--muted);font-size:.75rem;">—</span>';
     const adsPct = r.has_ads && r.ads_pct > 0
       ? `<div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px;">
            <div style="width:${Math.min(r.ads_pct,100).toFixed(1)}%;height:100%;background:var(--accent);border-radius:2px;"></div>
@@ -5734,6 +5786,7 @@ function renderSaSkuAnalysisTable() {
       <td style="padding:9px 10px;font-family:'JetBrains Mono',monospace;font-size:.73rem;color:var(--muted);white-space:nowrap;">${r.skuId}</td>
       <td style="padding:9px 10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem;" title="${r.product}">${r.product}</td>
       <td style="padding:9px 10px;text-align:right;font-weight:600;color:var(--text);">${r.total_units.toLocaleString()}</td>
+      <td style="padding:9px 10px;text-align:right;color:#00ff88;">${fmtRevCell(r.total_revenue)}</td>
       <td style="padding:9px 10px;text-align:right;color:var(--accent);">${r.has_ads ? r.ads_units.toLocaleString() : '—'}</td>
       <td style="padding:9px 10px;text-align:right;color:var(--accent);">${r.has_ads ? fmtRev(r.ads_revenue) : '—'}</td>
       <td style="padding:9px 10px;text-align:right;">
@@ -5808,6 +5861,82 @@ function openSaSkuCampaigns(origIdx) {
 
 function closeSaSkuCampaigns() {
   document.getElementById('saSkuCampaignsModal').style.display = 'none';
+}
+
+/* ═══════════════════════════════════════
+   SALES ANALYTICS — API SYNC
+═══════════════════════════════════════ */
+let _saSyncStatusCache = null;
+
+function _checkSaSyncAvailable() {
+  const syncBtn    = document.getElementById('saSyncBtn');
+  const syncStatus = document.getElementById('saSyncStatus');
+  if (!syncBtn) return;
+  // Fetch sync status once per session
+  if (_saSyncStatusCache !== null) {
+    _applySyncStatus(_saSyncStatusCache);
+    return;
+  }
+  fetch('/api/sales-sync-status')
+    .then(r => r.json())
+    .then(data => {
+      _saSyncStatusCache = data;
+      _applySyncStatus(data);
+    })
+    .catch(() => {});
+}
+
+function _applySyncStatus(data) {
+  const syncBtn    = document.getElementById('saSyncBtn');
+  const syncStatus = document.getElementById('saSyncStatus');
+  if (!syncBtn) return;
+  const acctInfo = data[_saAccount];
+  if (acctInfo && acctInfo.api_configured) {
+    syncBtn.style.display    = 'inline-flex';
+    syncStatus.style.display = 'inline';
+    syncStatus.textContent   = acctInfo.updated_at !== 'never'
+      ? `Last sync: ${acctInfo.updated_at}`
+      : 'Never synced via API';
+  } else {
+    syncBtn.style.display    = 'none';
+    syncStatus.style.display = 'none';
+  }
+}
+
+function triggerSaSync() {
+  const syncBtn    = document.getElementById('saSyncBtn');
+  const syncStatus = document.getElementById('saSyncStatus');
+  syncBtn.disabled    = true;
+  syncBtn.textContent = '⏳ Syncing…';
+  syncStatus.textContent = 'Fetching from Flipkart API…';
+
+  const apiAcct = _saAccount.replace(/ /g, '-');
+  fetch('/api/sales-sync/' + apiAcct, { method: 'POST' })
+    .then(r => r.json())
+    .then(result => {
+      if (result.error) {
+        alert('Sync failed: ' + result.error);
+        syncBtn.textContent = '⚡ Sync Now';
+        syncBtn.disabled = false;
+        return;
+      }
+      const s = result.sync;
+      syncStatus.textContent = `Synced ${s.total_fetched} orders · ${s.new_dates} dates updated`;
+      syncBtn.textContent = '⚡ Sync Now';
+      syncBtn.disabled = false;
+      // Invalidate sync cache so next render re-fetches
+      _saSyncStatusCache = null;
+      // Update dashboard with fresh analytics
+      if (result.analytics && result.analytics.kpis) {
+        _saData[_saAccount] = result.analytics;
+        renderSaDashboard(result.analytics);
+      }
+    })
+    .catch(e => {
+      alert('Sync error: ' + e.message);
+      syncBtn.textContent = '⚡ Sync Now';
+      syncBtn.disabled = false;
+    });
 }
 </script>
 
