@@ -2792,15 +2792,18 @@ def debug_pdf():
 @app.route('/api/listings/<account>', methods=['GET'])
 def listings_get(account):
     """
-    Fetch all ACTIVE listings for the given account from Flipkart API.
-    Step 1: POST /sellers/listings/v3/search  — paginated, 500/page, returns sku_id + product_id only
-    Step 2: POST /sellers/listings/v3/details — batched 10/call, returns price + inventory
-    Returns list of {sku_id, fsn, selling_price, mrp, stock_count, product_id}.
+    Fetch one page of ACTIVE listings for the given account from Flipkart API.
+    Query params:
+      - page_id: encrypted page cursor from previous response (omit for first page)
+    Step 1: POST /sellers/listings/v3/search  — one page (500 SKUs), returns sku_id + product_id
+    Step 2: POST /sellers/listings/v3/details — batches of 10, returns price + inventory
+    Returns: { listings, next_page_id, has_more, total_this_page }
     """
     import requests as _req
     account = account.upper().replace('-', ' ')
     if account not in KNOWN_ACCOUNTS:
         return jsonify({'error': f'Unknown account: {account}'}), 400
+    page_id = request.args.get('page_id', None) or None   # None means first page
     try:
         token   = fk_get_token(account)
         headers = {
@@ -2808,65 +2811,52 @@ def listings_get(account):
             'Content-Type':  'application/json',
         }
 
-        # ── Step 1: collect all sku_ids via search ──
-        search_url = f'{FK_API_BASE}/sellers/listings/v3/search'
-        sku_entries = []   # list of {sku_id, product_id}
-        page_id = None
-        pages   = 0
+        # ── Step 1: fetch ONE search page (up to 500 sku_ids) ──
+        search_url  = f'{FK_API_BASE}/sellers/listings/v3/search'
+        payload     = {'filters': {'listing_status': 'ACTIVE'}, 'page_id': page_id}
+        r = _req.post(search_url, json=payload, headers=headers, timeout=30)
+        if r.status_code != 200:
+            return jsonify({'error': f'Flipkart API error [{r.status_code}]: {r.text[:300]}'}), 502
+        data = r.json()
 
-        while pages < 50:
-            payload = {'filters': {'listing_status': 'ACTIVE'}, 'page_id': page_id}
-            r = _req.post(search_url, json=payload, headers=headers, timeout=30)
-            if r.status_code != 200:
-                return jsonify({'error': f'Flipkart API error [{r.status_code}]: {r.text[:300]}'}), 502
-            data = r.json()
-            raw_listings = data.get('listings', [])
-            # listings can be a list or a dict keyed by sku_id
-            if isinstance(raw_listings, list):
-                for item in raw_listings:
-                    sku_entries.append({
-                        'sku_id':     item.get('sku_id') or item.get('skuId', ''),
-                        'product_id': item.get('product_id') or item.get('productId', ''),
-                    })
-            elif isinstance(raw_listings, dict):
-                for sku_id, item in raw_listings.items():
-                    sku_entries.append({
-                        'sku_id':     sku_id,
-                        'product_id': item.get('product_id') or item.get('productId', ''),
-                    })
-            pages += 1
-            if not data.get('has_more'):
-                break
-            page_id = data.get('next_page_id')
-            if not page_id:
-                break
+        raw_listings = data.get('listings', [])
+        sku_entries  = []
+        if isinstance(raw_listings, list):
+            for item in raw_listings:
+                sid = item.get('sku_id') or item.get('skuId', '')
+                if sid:
+                    sku_entries.append({'sku_id': sid, 'product_id': item.get('product_id') or item.get('productId', '')})
+        elif isinstance(raw_listings, dict):
+            for sid, item in raw_listings.items():
+                sku_entries.append({'sku_id': sid, 'product_id': item.get('product_id') or item.get('productId', '')})
+
+        next_page_id = data.get('next_page_id') or None
+        has_more     = bool(data.get('has_more')) and bool(next_page_id)
 
         if not sku_entries:
-            return jsonify({'ok': True, 'account': account, 'listings': [], 'total': 0})
+            return jsonify({'ok': True, 'account': account, 'listings': [],
+                            'next_page_id': None, 'has_more': False, 'total_this_page': 0})
 
         # ── Step 2: fetch details in batches of 10 ──
         details_url = f'{FK_API_BASE}/sellers/listings/v3/details'
-        detail_map  = {}   # sku_id -> detail dict
-
-        sku_ids = [e['sku_id'] for e in sku_entries if e['sku_id']]
+        detail_map  = {}
+        sku_ids     = [e['sku_id'] for e in sku_entries]
         for i in range(0, len(sku_ids), 10):
             batch = sku_ids[i:i+10]
-            r = _req.post(details_url, json={'sku_ids': batch}, headers=headers, timeout=30)
-            if r.status_code == 200:
-                available = r.json().get('available', {})
-                for sku_id, det in available.items():
-                    price  = det.get('price', {})
-                    locs   = det.get('locations', [{}])
-                    stock  = sum(loc.get('inventory', 0) for loc in locs if loc.get('status') == 'ENABLED') if locs else 0
+            dr = _req.post(details_url, json={'sku_ids': batch}, headers=headers, timeout=30)
+            if dr.status_code == 200:
+                for sku_id, det in dr.json().get('available', {}).items():
+                    price = det.get('price', {})
+                    locs  = det.get('locations', [])
+                    stock = sum(loc.get('inventory', 0) for loc in locs if loc.get('status') == 'ENABLED')
                     detail_map[sku_id] = {
                         'selling_price': price.get('selling_price', ''),
                         'mrp':           price.get('mrp', ''),
                         'stock_count':   stock,
                         'fsn':           det.get('fsn', ''),
                     }
-            # If details call fails for a batch, those SKUs just get empty price/stock
 
-        # ── Merge search results with details ──
+        # ── Merge ──
         listings = []
         for e in sku_entries:
             sid = e['sku_id']
@@ -2880,7 +2870,14 @@ def listings_get(account):
                 'stock_count':   det.get('stock_count', 0),
             })
 
-        return jsonify({'ok': True, 'account': account, 'listings': listings, 'total': len(listings)})
+        return jsonify({
+            'ok':             True,
+            'account':        account,
+            'listings':       listings,
+            'next_page_id':   next_page_id,
+            'has_more':       has_more,
+            'total_this_page': len(listings),
+        })
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 500
     except Exception as e:
