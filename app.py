@@ -2964,11 +2964,9 @@ def listings_update_inventory(account):
                 # default location entry. The API requires locations[].id + status + inventory.
                 loc_list = s.get('locations') or []
                 if loc_list:
-                    locations = [{'id': loc['id'], 'status': loc.get('status', 'ENABLED'),
-                                  'inventory': int(s['stock_count'])} for loc in loc_list]
+                    locations = [{'id': loc['id'], 'inventory': int(s['stock_count'])} for loc in loc_list]
                 else:
-                    locations = [{'id': 'default', 'status': 'ENABLED',
-                                  'inventory': int(s['stock_count'])}]
+                    locations = [{'id': 'default', 'inventory': int(s['stock_count'])}]
                 payload[s['sku_id']] = {
                     'product_id': s.get('product_id', ''),
                     'locations':  locations,
