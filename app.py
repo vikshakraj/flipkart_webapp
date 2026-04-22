@@ -1572,7 +1572,6 @@ def _fk_sync_sales(account, full_resync=False):
     if full_resync:
         # Full re-sync: fetch the entire 60-day window but KEEP existing rows —
         # upsert will overwrite stale API rows while preserving XLSX-uploaded history
-        # that the API no longer returns (older delivered orders, etc.)
         fetch_from = cutoff
     else:
         existing_dates = [k for k in store if not k.startswith('__')]
@@ -2784,6 +2783,156 @@ def debug_pdf():
         return jsonify({'pages': pages_out})
     finally:
         shutil.rmtree(req_tmp, ignore_errors=True)
+
+
+# ─────────────────────────────────────────────
+# LISTINGS API — FETCH / UPDATE PRICE / UPDATE INVENTORY
+# ─────────────────────────────────────────────
+
+@app.route('/api/listings/<account>', methods=['GET'])
+def listings_get(account):
+    """
+    Fetch all ACTIVE listings for the given account from Flipkart API.
+    Returns list of {sku_id, fsn, selling_price, mrp, stock_count, product_id}.
+    Paginates through all pages automatically.
+    """
+    import requests as _req
+    account = account.upper().replace('-', ' ')
+    if account not in KNOWN_ACCOUNTS:
+        return jsonify({'error': f'Unknown account: {account}'}), 400
+    try:
+        token   = fk_get_token(account)
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type':  'application/json',
+        }
+        url      = f'{FK_API_BASE}/sellers/listings/v3/search'
+        listings = []
+        page_id  = None
+        pages    = 0
+
+        while pages < 50:   # safety cap — 50 pages x 500 = 25,000 listings max
+            payload = {'listing_status': 'ACTIVE', 'page_id': page_id}
+            r = _req.post(url, json=payload, headers=headers, timeout=30)
+            if r.status_code != 200:
+                return jsonify({'error': f'Flipkart API error [{r.status_code}]: {r.text[:300]}'}), 502
+            data = r.json()
+            for item in data.get('listings', []):
+                attrs = item.get('attributeValues', item)
+                listings.append({
+                    'sku_id':        item.get('skuId', ''),
+                    'fsn':           item.get('fsn', ''),
+                    'product_id':    item.get('productId', ''),
+                    'selling_price': attrs.get('selling_price') or attrs.get('sellingPrice') or '',
+                    'mrp':           attrs.get('mrp', ''),
+                    'stock_count':   attrs.get('stock_count') or attrs.get('stockCount') or 0,
+                })
+            pages += 1
+            if not data.get('has_more') and not data.get('hasMore'):
+                break
+            page_id = data.get('next_page_id') or data.get('nextPageId')
+            if not page_id:
+                break
+
+        return jsonify({'ok': True, 'account': account, 'listings': listings, 'total': len(listings)})
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/listings/<account>/update-price', methods=['POST'])
+def listings_update_price(account):
+    """
+    Update selling price for one or more SKUs.
+    Body: { skus: [{sku_id, product_id, mrp, selling_price}, ...] }
+    Batches into groups of 10 (API limit). Returns per-SKU Flipkart status.
+    """
+    import requests as _req
+    account = account.upper().replace('-', ' ')
+    if account not in KNOWN_ACCOUNTS:
+        return jsonify({'error': f'Unknown account: {account}'}), 400
+    body = request.get_json() or {}
+    skus = body.get('skus', [])
+    if not skus:
+        return jsonify({'error': 'No SKUs provided'}), 400
+    try:
+        token   = fk_get_token(account)
+        headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+        url     = f'{FK_API_BASE}/sellers/listings/v3/update/price'
+        results = {}
+        for i in range(0, len(skus), 10):
+            batch   = skus[i:i+10]
+            payload = {}
+            for s in batch:
+                payload[s['sku_id']] = {
+                    'product_id': s['product_id'],
+                    'price': {
+                        'mrp':          int(s['mrp']),
+                        'sellingPrice': int(s['selling_price']),
+                        'currency':     'INR',
+                    }
+                }
+            r = _req.post(url, json=payload, headers=headers, timeout=30)
+            if r.status_code == 200:
+                results.update(r.json())
+            else:
+                for s in batch:
+                    results[s['sku_id']] = {
+                        'status': 'failure',
+                        'errors': [{'severity': 'ERROR', 'description': f'HTTP {r.status_code}: {r.text[:200]}'}]
+                    }
+        return jsonify({'ok': True, 'results': results})
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/listings/<account>/update-inventory', methods=['POST'])
+def listings_update_inventory(account):
+    """
+    Update stock count for one or more SKUs.
+    Body: { skus: [{sku_id, stock_count}, ...] }
+    Batches into groups of 10. Returns per-SKU Flipkart status.
+    """
+    import requests as _req
+    account = account.upper().replace('-', ' ')
+    if account not in KNOWN_ACCOUNTS:
+        return jsonify({'error': f'Unknown account: {account}'}), 400
+    body = request.get_json() or {}
+    skus = body.get('skus', [])
+    if not skus:
+        return jsonify({'error': 'No SKUs provided'}), 400
+    try:
+        token   = fk_get_token(account)
+        headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+        url     = f'{FK_API_BASE}/sellers/listings/v3/update/inventory'
+        results = {}
+        for i in range(0, len(skus), 10):
+            batch   = skus[i:i+10]
+            payload = {}
+            for s in batch:
+                payload[s['sku_id']] = {
+                    'inventory': [{'location_id': s.get('location_id', 'default'), 'stock_count': int(s['stock_count'])}]
+                }
+            r = _req.post(url, json=payload, headers=headers, timeout=30)
+            if r.status_code == 200:
+                results.update(r.json())
+            else:
+                for s in batch:
+                    results[s['sku_id']] = {
+                        'status': 'failure',
+                        'errors': [{'severity': 'ERROR', 'description': f'HTTP {r.status_code}: {r.text[:200]}'}]
+                    }
+        return jsonify({'ok': True, 'results': results})
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/debug')
 def debug():
