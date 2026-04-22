@@ -6102,26 +6102,28 @@ function triggerSaSync(fullResync) {
 
 // ── State ──
 let _lstAccount    = 'CUTEST-CLUB';
-let _lstAllRows    = [];   // full fetched listing rows (enriched with product name)
-let _lstFiltered   = [];   // after product filter
-let _lstPage       = 1;
+let _lstAllRows    = [];      // all rows fetched so far (across all loaded search pages)
+let _lstFiltered   = [];      // after product filter
+let _lstPage       = 1;       // current UI page (100 rows each)
 const LST_PER_PAGE = 100;
-let _lstSkuMap     = {};   // sku_id → product name (from master SKU)
-let _lstProducts   = [];   // sorted product names for this account
+let _lstSkuMap     = {};      // sku_id → product name (from master SKU)
+let _lstProducts   = [];      // sorted product names for this account
 let _lstBulkTab    = 'price';
-let _lstEditing    = {};   // { 'sku_id:field': true } to track open editors
+let _lstEditing    = {};      // { 'sku_id:field': true }
+
+// Flipkart search-page cursor state
+let _lstNextPageId  = null;   // cursor for next Flipkart search page
+let _lstHasMore     = false;  // whether Flipkart has more search pages
+let _lstFetching    = false;  // guard against concurrent fetches
 
 // ── Init ──
 function lstInit() {
-  // Load master SKU mapping for product filter
   fetch('/api/sku-data')
     .then(r => r.json())
     .then(data => {
-      // Build sku→product map for Cutest Club sheet
       _lstSkuMap = {};
       _lstProducts = [];
       const sheets = data.sheets || {};
-      // Try to find the Cutest Club sheet (case-insensitive)
       const sheetKey = Object.keys(sheets).find(k => k.toLowerCase().replace(/\s/g,'') === 'cutestclub') || '';
       const rows = sheets[sheetKey] || [];
       const prodSet = new Set();
@@ -6147,69 +6149,98 @@ function lstPopulateProductDropdowns() {
 
 // ── Account switch ──
 window.lstSwitchAccount = function(account, btn) {
-  _lstAccount = account;
+  _lstAccount   = account;
+  _lstAllRows   = [];
+  _lstFiltered  = [];
+  _lstPage      = 1;
+  _lstNextPageId = null;
+  _lstHasMore   = false;
   document.querySelectorAll('.lst-acct-tab').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
-  _lstAllRows = [];
-  _lstFiltered = [];
-  _lstPage = 1;
   document.getElementById('lstTableContainer').innerHTML =
-    '<div class="lst-empty">Click <b style="color:var(--accent)">Refresh</b> to load listings.</div>';
+    '<div class="lst-empty">Click <b style="color:var(--accent)">Load Listings</b> to fetch from Flipkart.</div>';
   document.getElementById('lstPagination').style.display = 'none';
   document.getElementById('lstStatus').textContent = '';
 };
 
-// ── Load listings from API ──
-window.lstLoadListings = function(force) {
-  const btn = document.getElementById('lstRefreshBtn');
+// ── Fetch one Flipkart search page + details ──
+// page_id = null → first page; otherwise the cursor from the previous response
+function lstFetchPage(page_id) {
+  if (_lstFetching) return;
+  _lstFetching = true;
+
+  const btn    = document.getElementById('lstRefreshBtn');
   const status = document.getElementById('lstStatus');
   btn.disabled = true;
   btn.textContent = '⏳ Loading…';
-  status.textContent = 'Fetching from Flipkart API…';
-  document.getElementById('lstTableContainer').innerHTML =
-    '<div class="lst-loading"><div class="lst-spinner"></div> Fetching active listings…</div>';
-  document.getElementById('lstPagination').style.display = 'none';
+  status.textContent = page_id ? 'Loading next batch…' : 'Fetching from Flipkart API…';
 
-  fetch(`/api/listings/${_lstAccount}`)
+  if (!page_id) {
+    // Fresh load — reset everything
+    _lstAllRows  = [];
+    _lstFiltered = [];
+    _lstPage     = 1;
+    document.getElementById('lstTableContainer').innerHTML =
+      '<div class="lst-loading"><div class="lst-spinner"></div> Fetching active listings…</div>';
+    document.getElementById('lstPagination').style.display = 'none';
+  }
+
+  const url = `/api/listings/${_lstAccount}` + (page_id ? `?page_id=${encodeURIComponent(page_id)}` : '');
+  fetch(url)
     .then(r => r.json())
     .then(data => {
+      _lstFetching = false;
       btn.disabled = false;
       btn.textContent = '↻ Refresh';
+
       if (data.error) {
         status.textContent = '⚠ ' + data.error;
-        document.getElementById('lstTableContainer').innerHTML =
-          `<div class="lst-empty" style="color:#ff4466;">${data.error}</div>`;
+        if (_lstAllRows.length === 0)
+          document.getElementById('lstTableContainer').innerHTML =
+            `<div class="lst-empty" style="color:#ff4466;">${data.error}</div>`;
         return;
       }
-      // Enrich with product name from master SKU
-      _lstAllRows = (data.listings || []).map(row => ({
+
+      // Append new rows (enrich with product name)
+      const newRows = (data.listings || []).map(row => ({
         ...row,
         product: lstResolveProduct(row.sku_id),
       }));
-      status.textContent = `${_lstAllRows.length} active listings · last refreshed just now`;
-      _lstPage = 1;
+      _lstAllRows  = [..._lstAllRows, ...newRows];
+      _lstNextPageId = data.next_page_id || null;
+      _lstHasMore    = !!data.has_more;
+
+      const totalLoaded = _lstAllRows.length;
+      status.textContent = `${totalLoaded} listings loaded${_lstHasMore ? ' · more available' : ' · all loaded'}`;
+
       lstApplyFilter();
     })
     .catch(e => {
+      _lstFetching = false;
       btn.disabled = false;
       btn.textContent = '↻ Refresh';
+      const status = document.getElementById('lstStatus');
       status.textContent = '⚠ Network error';
-      document.getElementById('lstTableContainer').innerHTML =
-        `<div class="lst-empty" style="color:#ff4466;">Network error: ${e.message}</div>`;
+      if (_lstAllRows.length === 0)
+        document.getElementById('lstTableContainer').innerHTML =
+          `<div class="lst-empty" style="color:#ff4466;">Network error: ${e.message}</div>`;
     });
-};
+}
 
 function lstResolveProduct(skuId) {
   if (_lstSkuMap[skuId]) return _lstSkuMap[skuId];
-  // Fuzzy: strip pack suffix and try
   const stripped = skuId.replace(/\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$/i, '').trim();
   if (stripped !== skuId && _lstSkuMap[stripped]) return _lstSkuMap[stripped];
-  // Try prefix match against master keys
   for (const [msku, prod] of Object.entries(_lstSkuMap)) {
     if (skuId.startsWith(msku) || msku.startsWith(skuId)) return prod;
   }
   return '—';
 }
+
+// ── Public: Refresh button ──
+window.lstLoadListings = function() {
+  lstFetchPage(null);
+};
 
 // ── Filter ──
 window.lstApplyFilter = function() {
@@ -6223,18 +6254,23 @@ window.lstApplyFilter = function() {
 
 // ── Render table ──
 function lstRenderTable() {
-  const container = document.getElementById('lstTableContainer');
+  const container  = document.getElementById('lstTableContainer');
   const pagination = document.getElementById('lstPagination');
 
+  if (_lstAllRows.length === 0) {
+    container.innerHTML = '<div class="lst-empty">No listings loaded yet.</div>';
+    pagination.style.display = 'none';
+    return;
+  }
   if (_lstFiltered.length === 0) {
-    container.innerHTML = '<div class="lst-empty">No listings found for the selected filter.</div>';
+    container.innerHTML = '<div class="lst-empty">No listings match the selected product filter.</div>';
     pagination.style.display = 'none';
     return;
   }
 
-  const totalPages = Math.ceil(_lstFiltered.length / LST_PER_PAGE);
-  if (_lstPage > totalPages) _lstPage = totalPages;
-  const start = (_lstPage - 1) * LST_PER_PAGE;
+  const totalUIPages = Math.ceil(_lstFiltered.length / LST_PER_PAGE);
+  if (_lstPage > totalUIPages) _lstPage = totalUIPages;
+  const start    = (_lstPage - 1) * LST_PER_PAGE;
   const pageRows = _lstFiltered.slice(start, start + LST_PER_PAGE);
 
   container.innerHTML = `
@@ -6248,58 +6284,69 @@ function lstRenderTable() {
           <th class="right">Stock Count</th>
         </tr>
       </thead>
-      <tbody>
-        ${pageRows.map((r, idx) => lstRenderRow(r, start + idx)).join('')}
-      </tbody>
+      <tbody>${pageRows.map((r, idx) => lstRenderRow(r, start + idx)).join('')}</tbody>
     </table>`;
 
-  // Pagination
+  // ── Pagination ──
   pagination.style.display = 'flex';
-  document.getElementById('lstPageInfo').textContent =
-    `Showing ${start + 1}–${Math.min(start + LST_PER_PAGE, _lstFiltered.length)} of ${_lstFiltered.length} listings`;
+  const isLastUIPage = _lstPage === totalUIPages;
+  const canLoadMore  = isLastUIPage && _lstHasMore;
 
-  // Page buttons — show at most 7 pages around current
+  document.getElementById('lstPageInfo').textContent =
+    `Showing ${start + 1}–${Math.min(start + LST_PER_PAGE, _lstFiltered.length)} of ${_lstFiltered.length} loaded` +
+    (_lstHasMore ? ' (more on Flipkart)' : '');
+
   const btns = document.getElementById('lstPageBtns');
-  let btnHtml = `<button class="lst-page-btn" onclick="lstGoPage(${_lstPage-1})" ${_lstPage===1?'disabled':''}>‹ Prev</button>`;
-  const lo = Math.max(1, _lstPage-3), hi = Math.min(totalPages, _lstPage+3);
-  if (lo > 1) btnHtml += `<button class="lst-page-btn" onclick="lstGoPage(1)">1</button>${lo>2?'<span style="color:var(--muted);padding:0 4px;">…</span>':''}`;
-  for (let p = lo; p <= hi; p++) {
-    btnHtml += `<button class="lst-page-btn${p===_lstPage?' active':''}" onclick="lstGoPage(${p})">${p}</button>`;
+  let html = `<button class="lst-page-btn" onclick="lstGoPage(${_lstPage - 1})" ${_lstPage === 1 ? 'disabled' : ''}>‹ Prev</button>`;
+
+  // Page number buttons
+  const lo = Math.max(1, _lstPage - 3), hi = Math.min(totalUIPages, _lstPage + 3);
+  if (lo > 1) html += `<button class="lst-page-btn" onclick="lstGoPage(1)">1</button>${lo > 2 ? '<span style="color:var(--muted);padding:0 4px">…</span>' : ''}`;
+  for (let p = lo; p <= hi; p++)
+    html += `<button class="lst-page-btn${p === _lstPage ? ' active' : ''}" onclick="lstGoPage(${p})">${p}</button>`;
+  if (hi < totalUIPages) html += `${hi < totalUIPages - 1 ? '<span style="color:var(--muted);padding:0 4px">…</span>' : ''}<button class="lst-page-btn" onclick="lstGoPage(${totalUIPages})">${totalUIPages}</button>`;
+
+  // Next button: if more Flipkart pages exist and we're on the last UI page, it fetches more instead of just paginating
+  if (canLoadMore) {
+    html += `<button class="lst-page-btn" onclick="lstLoadMore()" style="border-color:var(--accent);color:var(--accent);">Load more ›</button>`;
+  } else {
+    html += `<button class="lst-page-btn" onclick="lstGoPage(${_lstPage + 1})" ${isLastUIPage ? 'disabled' : ''}>Next ›</button>`;
   }
-  if (hi < totalPages) btnHtml += `${hi<totalPages-1?'<span style="color:var(--muted);padding:0 4px;">…</span>':''}<button class="lst-page-btn" onclick="lstGoPage(${totalPages})">${totalPages}</button>`;
-  btnHtml += `<button class="lst-page-btn" onclick="lstGoPage(${_lstPage+1})" ${_lstPage===totalPages?'disabled':''}>Next ›</button>`;
-  btns.innerHTML = btnHtml;
+  btns.innerHTML = html;
 }
 
 function lstRenderRow(r, idx) {
   const priceEdit = _lstEditing[r.sku_id + ':price'];
   const stockEdit = _lstEditing[r.sku_id + ':stock'];
+  const safeKey   = r.sku_id.replace(/[^a-z0-9]/gi, '_');
 
   const priceCell = priceEdit
     ? `<div class="lst-inline-edit">
-        <input class="lst-edit-input" id="lst-inp-price-${idx}" type="number" min="1" step="1" value="${r.selling_price}" onkeydown="if(event.key==='Enter')lstSaveInline('${r.sku_id}','price',${idx});if(event.key==='Escape')lstCancelInline('${r.sku_id}','price')">
-        <button class="lst-save-btn" onclick="lstSaveInline('${r.sku_id}','price',${idx})">✓</button>
-        <button class="lst-cancel-btn" onclick="lstCancelInline('${r.sku_id}','price')">✕</button>
+         <input class="lst-edit-input" id="lst-inp-price-${idx}" type="number" min="1" step="1" value="${r.selling_price}"
+           onkeydown="if(event.key==='Enter')lstSaveInline('${r.sku_id}','price',${idx});if(event.key==='Escape')lstCancelInline('${r.sku_id}','price')">
+         <button class="lst-save-btn" onclick="lstSaveInline('${r.sku_id}','price',${idx})">✓</button>
+         <button class="lst-cancel-btn" onclick="lstCancelInline('${r.sku_id}','price')">✕</button>
        </div>
        <span class="lst-err" id="lst-err-price-${idx}"></span>`
     : `<div class="lst-inline-edit">
-        <span class="lst-val">₹${Number(r.selling_price||0).toLocaleString('en-IN')}</span>
-        <button class="lst-edit-btn" title="Edit price" onclick="lstStartInline('${r.sku_id}','price')">✏️</button>
+         <span class="lst-val">₹${Number(r.selling_price || 0).toLocaleString('en-IN')}</span>
+         <button class="lst-edit-btn" title="Edit price" onclick="lstStartInline('${r.sku_id}','price')">✏️</button>
        </div>
-       <span class="lst-ok" id="lst-ok-price-${r.sku_id.replace(/[^a-z0-9]/gi,'_')}"></span>`;
+       <span class="lst-ok" id="lst-ok-price-${safeKey}"></span>`;
 
   const stockCell = stockEdit
     ? `<div class="lst-inline-edit">
-        <input class="lst-edit-input" id="lst-inp-stock-${idx}" type="number" min="0" step="1" value="${r.stock_count}" onkeydown="if(event.key==='Enter')lstSaveInline('${r.sku_id}','stock',${idx});if(event.key==='Escape')lstCancelInline('${r.sku_id}','stock')">
-        <button class="lst-save-btn" onclick="lstSaveInline('${r.sku_id}','stock',${idx})">✓</button>
-        <button class="lst-cancel-btn" onclick="lstCancelInline('${r.sku_id}','stock')">✕</button>
+         <input class="lst-edit-input" id="lst-inp-stock-${idx}" type="number" min="0" step="1" value="${r.stock_count}"
+           onkeydown="if(event.key==='Enter')lstSaveInline('${r.sku_id}','stock',${idx});if(event.key==='Escape')lstCancelInline('${r.sku_id}','stock')">
+         <button class="lst-save-btn" onclick="lstSaveInline('${r.sku_id}','stock',${idx})">✓</button>
+         <button class="lst-cancel-btn" onclick="lstCancelInline('${r.sku_id}','stock')">✕</button>
        </div>
        <span class="lst-err" id="lst-err-stock-${idx}"></span>`
     : `<div class="lst-inline-edit">
-        <span class="lst-val">${Number(r.stock_count||0).toLocaleString()}</span>
-        <button class="lst-edit-btn" title="Edit stock" onclick="lstStartInline('${r.sku_id}','stock')">✏️</button>
+         <span class="lst-val">${Number(r.stock_count || 0).toLocaleString()}</span>
+         <button class="lst-edit-btn" title="Edit stock" onclick="lstStartInline('${r.sku_id}','stock')">✏️</button>
        </div>
-       <span class="lst-ok" id="lst-ok-stock-${r.sku_id.replace(/[^a-z0-9]/gi,'_')}"></span>`;
+       <span class="lst-ok" id="lst-ok-stock-${safeKey}"></span>`;
 
   return `<tr>
     <td class="mono">${r.sku_id}</td>
@@ -6315,19 +6362,21 @@ window.lstGoPage = function(p) {
   if (p < 1 || p > total) return;
   _lstPage = p;
   lstRenderTable();
-  document.querySelector('.lst-wrap').scrollIntoView({behavior:'smooth', block:'start'});
+  document.querySelector('.lst-wrap').scrollIntoView({behavior: 'smooth', block: 'start'});
+};
+
+window.lstLoadMore = function() {
+  if (_lstNextPageId) lstFetchPage(_lstNextPageId);
 };
 
 // ── Inline editing ──
 window.lstStartInline = function(skuId, field) {
   _lstEditing[skuId + ':' + field] = true;
   lstRenderTable();
-  // Focus the input after render
   setTimeout(() => {
     const idx = _lstFiltered.findIndex(r => r.sku_id === skuId);
     if (idx < 0) return;
-    const rowIdx = idx;
-    const inp = document.getElementById(`lst-inp-${field}-${rowIdx}`);
+    const inp = document.getElementById(`lst-inp-${field}-${idx}`);
     if (inp) { inp.focus(); inp.select(); }
   }, 30);
 };
@@ -6346,37 +6395,25 @@ window.lstSaveInline = function(skuId, field, rowIdx) {
     if (err) err.textContent = field === 'price' ? 'Enter a valid price (min ₹1)' : 'Enter a valid stock count (min 0)';
     return;
   }
-
   const row = _lstFiltered.find(r => r.sku_id === skuId);
   if (!row) return;
-
   inp.disabled = true;
 
-  if (field === 'price') {
-    fetch(`/api/listings/${_lstAccount}/update-price`, {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ skus: [{ sku_id: skuId, product_id: row.product_id, mrp: row.mrp || val, selling_price: val }] })
-    })
-    .then(r => r.json())
-    .then(data => lstHandleInlineResult(data, skuId, field, val, rowIdx))
-    .catch(e => {
-      const err = document.getElementById(`lst-err-${field}-${rowIdx}`);
-      if (err) err.textContent = 'Network error: ' + e.message;
-      if (inp) inp.disabled = false;
-    });
-  } else {
-    fetch(`/api/listings/${_lstAccount}/update-inventory`, {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ skus: [{ sku_id: skuId, stock_count: val }] })
-    })
-    .then(r => r.json())
-    .then(data => lstHandleInlineResult(data, skuId, field, val, rowIdx))
-    .catch(e => {
-      const err = document.getElementById(`lst-err-${field}-${rowIdx}`);
-      if (err) err.textContent = 'Network error: ' + e.message;
-      if (inp) inp.disabled = false;
-    });
-  }
+  const endpoint = field === 'price' ? 'update-price' : 'update-inventory';
+  const body     = field === 'price'
+    ? { skus: [{ sku_id: skuId, product_id: row.product_id, mrp: row.mrp || val, selling_price: val }] }
+    : { skus: [{ sku_id: skuId, stock_count: val }] };
+
+  fetch(`/api/listings/${_lstAccount}/${endpoint}`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  })
+  .then(r => r.json())
+  .then(data => lstHandleInlineResult(data, skuId, field, val, rowIdx))
+  .catch(e => {
+    const err = document.getElementById(`lst-err-${field}-${rowIdx}`);
+    if (err) err.textContent = 'Network error: ' + e.message;
+    if (inp) inp.disabled = false;
+  });
 };
 
 function lstHandleInlineResult(data, skuId, field, val, rowIdx) {
@@ -6387,9 +6424,9 @@ function lstHandleInlineResult(data, skuId, field, val, rowIdx) {
     if (inp) inp.disabled = false;
     return;
   }
-  const skuResult = (data.results || {})[skuId] || {};
-  const errors = skuResult.errors || skuResult.attribute_errors || [];
-  if (skuResult.status === 'failure' || (skuResult.status !== 'success' && errors.length > 0)) {
+  const res    = (data.results || {})[skuId] || {};
+  const errors = [...(res.errors || []), ...(res.attribute_errors || [])];
+  if (res.status === 'failure' || (res.status !== 'success' && errors.length > 0)) {
     const msg = errors.map(e => e.description || e.code).join('; ') || 'Update failed';
     const err = document.getElementById(`lst-err-${field}-${rowIdx}`);
     if (err) err.textContent = msg;
@@ -6397,25 +6434,21 @@ function lstHandleInlineResult(data, skuId, field, val, rowIdx) {
     if (inp) inp.disabled = false;
     return;
   }
-  // Success — update local state and re-render
-  const row = _lstFiltered.find(r => r.sku_id === skuId);
-  const masterRow = _lstAllRows.find(r => r.sku_id === skuId);
-  if (row) { if (field === 'price') row.selling_price = val; else row.stock_count = val; }
-  if (masterRow) { if (field === 'price') masterRow.selling_price = val; else masterRow.stock_count = val; }
+  // Success — update local state
+  [_lstAllRows, _lstFiltered].forEach(arr => {
+    const r = arr.find(r => r.sku_id === skuId);
+    if (r) { if (field === 'price') r.selling_price = val; else r.stock_count = val; }
+  });
   delete _lstEditing[skuId + ':' + field];
   lstRenderTable();
-  // Flash success indicator briefly
-  const safeId = skuId.replace(/[^a-z0-9]/gi,'_');
-  const ok = document.getElementById(`lst-ok-${field}-${safeId}`);
-  if (ok) { ok.textContent = '✓ Updated'; setTimeout(() => { if(ok) ok.textContent = ''; }, 3000); }
+  const safeKey = skuId.replace(/[^a-z0-9]/gi, '_');
+  const ok = document.getElementById(`lst-ok-${field}-${safeKey}`);
+  if (ok) { ok.textContent = '✓ Updated'; setTimeout(() => { if (ok) ok.textContent = ''; }, 3000); }
 }
 
 // ── Bulk Action Modal ──
 window.lstOpenBulkModal = function() {
-  if (_lstAllRows.length === 0) {
-    alert('Load listings first by clicking Refresh.');
-    return;
-  }
+  if (_lstAllRows.length === 0) { alert('Load listings first by clicking Refresh.'); return; }
   document.getElementById('lstBulkPriceValue').value = '';
   document.getElementById('lstBulkStockValue').value = '';
   document.getElementById('lstBulkResult').style.display = 'none';
@@ -6436,109 +6469,79 @@ window.lstSwitchBulkTab = function(tab) {
 };
 
 window.lstSubmitBulk = function() {
-  const result = document.getElementById('lstBulkResult');
+  const result    = document.getElementById('lstBulkResult');
   const submitBtn = document.getElementById('lstBulkSubmitBtn');
+  const isPrice   = _lstBulkTab === 'price';
+  const prod      = document.getElementById(isPrice ? 'lstBulkPriceProduct' : 'lstBulkStockProduct').value;
+  const val       = parseInt(document.getElementById(isPrice ? 'lstBulkPriceValue' : 'lstBulkStockValue').value, 10);
 
-  if (_lstBulkTab === 'price') {
-    const prod = document.getElementById('lstBulkPriceProduct').value;
-    const val  = parseInt(document.getElementById('lstBulkPriceValue').value, 10);
-    if (isNaN(val) || val < 1) {
-      result.className = 'lst-modal-result err'; result.style.display = 'block';
-      result.textContent = 'Please enter a valid selling price (min ₹1).'; return;
-    }
-    const targets = prod === '__all__' ? _lstAllRows : _lstAllRows.filter(r => r.product === prod);
-    if (targets.length === 0) {
-      result.className = 'lst-modal-result err'; result.style.display = 'block';
-      result.textContent = 'No listings found for the selected product.'; return;
-    }
-    result.className = 'lst-modal-result'; result.style.display = 'block';
-    result.textContent = `⏳ Updating ${targets.length} SKU${targets.length>1?'s':''}…`;
-    submitBtn.disabled = true;
-
-    const skus = targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id, mrp: r.mrp || val, selling_price: val }));
-    fetch(`/api/listings/${_lstAccount}/update-price`, {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ skus })
-    })
-    .then(r => r.json())
-    .then(data => lstHandleBulkResult(data, targets.length, 'price', val))
-    .catch(e => {
-      result.className = 'lst-modal-result err'; result.style.display = 'block';
-      result.textContent = 'Network error: ' + e.message;
-      submitBtn.disabled = false;
-    });
-
-  } else {
-    const prod = document.getElementById('lstBulkStockProduct').value;
-    const val  = parseInt(document.getElementById('lstBulkStockValue').value, 10);
-    if (isNaN(val) || val < 0) {
-      result.className = 'lst-modal-result err'; result.style.display = 'block';
-      result.textContent = 'Please enter a valid stock count (min 0).'; return;
-    }
-    const targets = prod === '__all__' ? _lstAllRows : _lstAllRows.filter(r => r.product === prod);
-    if (targets.length === 0) {
-      result.className = 'lst-modal-result err'; result.style.display = 'block';
-      result.textContent = 'No listings found for the selected product.'; return;
-    }
-    result.className = 'lst-modal-result'; result.style.display = 'block';
-    result.textContent = `⏳ Updating ${targets.length} SKU${targets.length>1?'s':''}…`;
-    submitBtn.disabled = true;
-
-    const skus = targets.map(r => ({ sku_id: r.sku_id, stock_count: val }));
-    fetch(`/api/listings/${_lstAccount}/update-inventory`, {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ skus })
-    })
-    .then(r => r.json())
-    .then(data => lstHandleBulkResult(data, targets.length, 'stock', val))
-    .catch(e => {
-      result.className = 'lst-modal-result err'; result.style.display = 'block';
-      result.textContent = 'Network error: ' + e.message;
-      submitBtn.disabled = false;
-    });
+  if (isNaN(val) || val < (isPrice ? 1 : 0)) {
+    result.className = 'lst-modal-result err'; result.style.display = 'block';
+    result.textContent = isPrice ? 'Enter a valid selling price (min ₹1).' : 'Enter a valid stock count (min 0).'; return;
   }
+  const targets = prod === '__all__' ? _lstAllRows : _lstAllRows.filter(r => r.product === prod);
+  if (targets.length === 0) {
+    result.className = 'lst-modal-result err'; result.style.display = 'block';
+    result.textContent = 'No listings found for the selected product.'; return;
+  }
+
+  result.className = 'lst-modal-result'; result.style.display = 'block';
+  result.textContent = `⏳ Updating ${targets.length} SKU${targets.length > 1 ? 's' : ''}…`;
+  submitBtn.disabled = true;
+
+  const endpoint = isPrice ? 'update-price' : 'update-inventory';
+  const skus     = isPrice
+    ? targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id, mrp: r.mrp || val, selling_price: val }))
+    : targets.map(r => ({ sku_id: r.sku_id, stock_count: val }));
+
+  fetch(`/api/listings/${_lstAccount}/${endpoint}`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ skus })
+  })
+  .then(r => r.json())
+  .then(data => lstHandleBulkResult(data, targets.length, isPrice ? 'price' : 'stock', val))
+  .catch(e => {
+    result.className = 'lst-modal-result err'; result.style.display = 'block';
+    result.textContent = 'Network error: ' + e.message;
+    submitBtn.disabled = false;
+  });
 };
 
 function lstHandleBulkResult(data, total, field, val) {
-  const result = document.getElementById('lstBulkResult');
+  const result    = document.getElementById('lstBulkResult');
   const submitBtn = document.getElementById('lstBulkSubmitBtn');
   submitBtn.disabled = false;
-
   if (data.error) {
     result.className = 'lst-modal-result err'; result.style.display = 'block';
     result.textContent = data.error; return;
   }
-
-  const results = data.results || {};
+  const results   = data.results || {};
   const succeeded = Object.values(results).filter(r => r.status === 'success').length;
   const failed    = Object.values(results).filter(r => r.status === 'failure').length;
 
-  // Update local state for succeeded SKUs
+  // Update local state for successes
   Object.entries(results).forEach(([skuId, res]) => {
     if (res.status === 'success') {
-      const row = _lstAllRows.find(r => r.sku_id === skuId);
-      const frow = _lstFiltered.find(r => r.sku_id === skuId);
-      if (row) { if (field==='price') row.selling_price=val; else row.stock_count=val; }
-      if (frow) { if (field==='price') frow.selling_price=val; else frow.stock_count=val; }
+      [_lstAllRows, _lstFiltered].forEach(arr => {
+        const r = arr.find(r => r.sku_id === skuId);
+        if (r) { if (field === 'price') r.selling_price = val; else r.stock_count = val; }
+      });
     }
   });
   lstRenderTable();
 
   if (failed === 0) {
     result.className = 'lst-modal-result'; result.style.display = 'block';
-    result.textContent = `✓ ${succeeded} SKU${succeeded>1?'s':''} updated successfully.`;
+    result.textContent = `✓ ${succeeded} SKU${succeeded > 1 ? 's' : ''} updated successfully.`;
   } else {
     const errMsgs = Object.entries(results)
-      .filter(([,r]) => r.status === 'failure')
-      .slice(0, 3)
-      .map(([sku, r]) => `${sku}: ${(r.errors||[]).map(e=>e.description).join(', ')}`)
-      .join(' | ');
+      .filter(([, r]) => r.status === 'failure').slice(0, 3)
+      .map(([sku, r]) => `${sku}: ${(r.errors || []).map(e => e.description).join(', ')}`).join(' | ');
     result.className = 'lst-modal-result err'; result.style.display = 'block';
     result.textContent = `${succeeded} updated, ${failed} failed. ${errMsgs}`;
   }
 }
 
-// ── Wire up switchTab hook ──
+// ── Wire into switchTab ──
 const _origSwitchTab = window.switchTab;
 window.switchTab = function(name, btn) {
   _origSwitchTab(name, btn);
@@ -6549,6 +6552,7 @@ window.switchTab = function(name, btn) {
 };
 
 })(); // end IIFE
+
 
 </script>
 
