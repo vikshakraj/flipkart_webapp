@@ -1422,9 +1422,13 @@
               <span class="sa-updated-at" id="saUpdatedAt"></span>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <button id="saSyncBtn" class="sa-filter-btn" onclick="triggerSaSync()"
+            <button id="saSyncBtn" class="sa-filter-btn" onclick="triggerSaSync(false)"
               style="display:none;background:linear-gradient(135deg,var(--accent),#0099cc);color:#0a0e1a;font-weight:700;border:none;padding:7px 14px;">
               ⚡ Sync Now
+            </button>
+            <button id="saFullResyncBtn" class="sa-filter-btn" onclick="if(confirm('This will wipe existing data and re-fetch all 60 days from the API. Continue?')) triggerSaSync(true)"
+              style="display:none;background:transparent;border:1px solid var(--accent);color:var(--accent);font-weight:600;padding:7px 14px;font-size:.78rem;">
+              🔄 Full Re-sync
             </button>
             <span id="saSyncStatus" style="font-size:.75rem;color:var(--muted);display:none;"></span>
             <button class="sa-clear-btn" onclick="clearSaData()" title="Wipe stored data and re-upload from scratch">🗑 Clear & Re-upload</button>
@@ -5886,33 +5890,39 @@ function _checkSaSyncAvailable() {
 }
 
 function _applySyncStatus(data) {
-  const syncBtn    = document.getElementById('saSyncBtn');
-  const syncStatus = document.getElementById('saSyncStatus');
+  const syncBtn       = document.getElementById('saSyncBtn');
+  const fullResyncBtn = document.getElementById('saFullResyncBtn');
+  const syncStatus    = document.getElementById('saSyncStatus');
   if (!syncBtn) return;
-  // _saAccount may use hyphen ('CUTEST-CLUB') but API keys use space ('CUTEST CLUB')
   const apiKey   = _saAccount.replace(/-/g, ' ');
   const acctInfo = data ? (data[apiKey] || data[_saAccount]) : null;
   if (acctInfo && acctInfo.api_configured) {
     syncBtn.style.display    = 'inline-flex';
+    if (fullResyncBtn) fullResyncBtn.style.display = 'inline-flex';
     syncStatus.style.display = 'inline';
     syncStatus.textContent   = acctInfo.updated_at && acctInfo.updated_at !== 'never'
       ? `Last sync: ${acctInfo.updated_at}`
       : 'Never synced via API';
   } else {
     syncBtn.style.display    = 'none';
+    if (fullResyncBtn) fullResyncBtn.style.display = 'none';
     syncStatus.style.display = 'none';
   }
 }
 
-function triggerSaSync() {
+function triggerSaSync(fullResync) {
   const syncBtn    = document.getElementById('saSyncBtn');
   const syncStatus = document.getElementById('saSyncStatus');
   syncBtn.disabled    = true;
   syncBtn.textContent = '⏳ Syncing…';
-  syncStatus.textContent = 'Fetching from Flipkart API…';
+  syncStatus.textContent = fullResync ? 'Full re-sync in progress…' : 'Fetching from Flipkart API…';
 
   const apiAcct = _saAccount.replace(/ /g, '-');
-  fetch('/api/sales-sync/' + apiAcct, { method: 'POST' })
+  fetch('/api/sales-sync/' + apiAcct, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ full_resync: !!fullResync }),
+  })
     .then(r => r.json())
     .then(result => {
       if (result.error) {
