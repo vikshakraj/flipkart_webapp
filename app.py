@@ -2989,6 +2989,65 @@ def listings_update_inventory(account):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/listings/<account>/by-skus', methods=['POST'])
+def listings_by_skus(account):
+    """
+    Fetch listing details for a specific list of SKU IDs.
+    Body: { sku_ids: [...] }
+    Calls /listings/v3/details in batches of 10.
+    Used by the product filter to load only the relevant SKUs.
+    """
+    import requests as _req
+    account = account.upper().replace('-', ' ')
+    if account not in KNOWN_ACCOUNTS:
+        return jsonify({'error': f'Unknown account: {account}'}), 400
+    body    = request.get_json() or {}
+    sku_ids = body.get('sku_ids', [])
+    if not sku_ids:
+        return jsonify({'ok': True, 'listings': [], 'total': 0})
+    try:
+        token   = fk_get_token(account)
+        headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+        details_url = f'{FK_API_BASE}/sellers/listings/v3/details'
+        detail_map  = {}
+        for i in range(0, len(sku_ids), 10):
+            batch = sku_ids[i:i+10]
+            dr = _req.post(details_url, json={'sku_ids': batch}, headers=headers, timeout=30)
+            if dr.status_code == 200:
+                for sku_id, det in dr.json().get('available', {}).items():
+                    price = det.get('price', {})
+                    locs  = det.get('locations', [])
+                    stock = sum(loc.get('inventory', 0) for loc in locs if loc.get('status') == 'ENABLED')
+                    detail_map[sku_id] = {
+                        'selling_price': price.get('selling_price', ''),
+                        'mrp':           price.get('mrp', ''),
+                        'mop':           price.get('mop', ''),
+                        'stock_count':   stock,
+                        'fsn':           det.get('fsn', ''),
+                        'locations':     [{'id': loc.get('id', '')} for loc in locs],
+                        'product_id':    det.get('product_id', ''),
+                    }
+        listings = []
+        for sku_id in sku_ids:
+            det = detail_map.get(sku_id, {})
+            listings.append({
+                'sku_id':        sku_id,
+                'product_id':    det.get('product_id', ''),
+                'fsn':           det.get('fsn', ''),
+                'selling_price': det.get('selling_price', ''),
+                'mrp':           det.get('mrp', ''),
+                'mop':           det.get('mop', ''),
+                'stock_count':   det.get('stock_count', 0),
+                'locations':     det.get('locations', []),
+            })
+        return jsonify({'ok': True, 'listings': listings, 'total': len(listings)})
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/debug')
 def debug():
     import datetime
