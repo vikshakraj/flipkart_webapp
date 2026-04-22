@@ -5889,7 +5889,9 @@ function _applySyncStatus(data) {
   const syncBtn    = document.getElementById('saSyncBtn');
   const syncStatus = document.getElementById('saSyncStatus');
   if (!syncBtn) return;
-  const acctInfo = data ? data[_saAccount] : null;
+  // _saAccount may use hyphen ('CUTEST-CLUB') but API keys use space ('CUTEST CLUB')
+  const apiKey   = _saAccount.replace(/-/g, ' ');
+  const acctInfo = data ? (data[apiKey] || data[_saAccount]) : null;
   if (acctInfo && acctInfo.api_configured) {
     syncBtn.style.display    = 'inline-flex';
     syncStatus.style.display = 'inline';
