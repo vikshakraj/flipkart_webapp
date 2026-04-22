@@ -1567,12 +1567,14 @@ def _fk_sync_sales(account, full_resync=False):
     now_ist   = datetime.datetime.now(tz=IST)
     cutoff    = (now_ist - datetime.timedelta(days=SALES_TTL_DAYS)).strftime('%Y-%m-%d')
 
+    store     = _load_sales_store(account)
+    store     = _prune_old_dates(store)
     if full_resync:
-        store      = {}
+        # Full re-sync: fetch the entire 60-day window but KEEP existing rows —
+        # upsert will overwrite stale API rows while preserving XLSX-uploaded history
+        # that the API no longer returns (older delivered orders, etc.)
         fetch_from = cutoff
     else:
-        store     = _load_sales_store(account)
-        store     = _prune_old_dates(store)
         existing_dates = [k for k in store if not k.startswith('__')]
         if existing_dates:
             latest     = max(existing_dates)
