@@ -43,6 +43,122 @@ KNOWN_ACCOUNTS = ['REFRESHWAVE', 'EONSPARK', 'CUTEST CLUB', 'HELLOHI']
 ORDER_DB_PATH  = os.path.join(_data_dir, 'order_db.json')  # persistent order ID history
 ORDER_DB_TTL   = 72 * 3600  # 3 days in seconds
 
+# ─────────────────────────────────────────────
+# FLIPKART API — TOKEN MANAGER
+# ─────────────────────────────────────────────
+# Credentials live in Railway env vars — never hardcoded.
+# One account supported so far: CUTEST CLUB (Eonspark creds pending).
+# Add more accounts by setting FK_<ACCOUNT>_APP_ID / FK_<ACCOUNT>_APP_SECRET.
+# Account name key: spaces replaced with underscores, uppercased.
+#   e.g. "CUTEST CLUB" → FK_CUTEST_CLUB_APP_ID
+
+FK_TOKEN_CACHE_PATH = os.path.join(_data_dir, 'fk_tokens.json')
+FK_API_BASE         = 'https://api.flipkart.net'
+FK_REFRESH_BUFFER   = 24 * 3600   # refresh token if less than 24 h remaining
+
+def _fk_env_key(account):
+    """Convert account name to env var prefix. 'CUTEST CLUB' → 'FK_CUTEST_CLUB'"""
+    return 'FK_' + account.upper().replace(' ', '_')
+
+def _fk_credentials(account):
+    """Return (app_id, app_secret) from env vars, or (None, None) if not set."""
+    prefix = _fk_env_key(account)
+    return os.environ.get(f'{prefix}_APP_ID'), os.environ.get(f'{prefix}_APP_SECRET')
+
+def _fk_load_token_cache():
+    if not os.path.exists(FK_TOKEN_CACHE_PATH):
+        return {}
+    try:
+        with open(FK_TOKEN_CACHE_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _fk_save_token_cache(cache):
+    tmp = FK_TOKEN_CACHE_PATH + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(cache, f)
+    os.replace(tmp, FK_TOKEN_CACHE_PATH)
+
+def fk_get_token(account):
+    """
+    Return a valid access token for the given account.
+    Fetches a new one if none cached or within 24 h of expiry.
+    Raises RuntimeError if credentials are not configured.
+    """
+    import requests as _req, base64 as _b64
+
+    app_id, app_secret = _fk_credentials(account)
+    if not app_id or not app_secret:
+        prefix = _fk_env_key(account)
+        raise RuntimeError(
+            f'Flipkart credentials not configured for {account}. '
+            f'Set {prefix}_APP_ID and {prefix}_APP_SECRET in Railway env vars.'
+        )
+
+    cache = _fk_load_token_cache()
+    entry = cache.get(account, {})
+    now   = datetime.datetime.now(tz=datetime.timezone.utc).timestamp()
+
+    # Return cached token if still valid with buffer
+    if entry.get('access_token') and entry.get('expires_at', 0) - now > FK_REFRESH_BUFFER:
+        return entry['access_token']
+
+    # Fetch fresh token
+    creds = _b64.b64encode(f'{app_id}:{app_secret}'.encode()).decode()
+    resp  = _req.get(
+        f'{FK_API_BASE}/oauth-service/oauth/token',
+        params={'grant_type': 'client_credentials', 'scope': 'Seller_Api'},
+        headers={'Authorization': f'Basic {creds}'},
+        timeout=15,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f'Flipkart token fetch failed [{resp.status_code}]: {resp.text[:200]}')
+
+    data        = resp.json()
+    access_token = data['access_token']
+    expires_in   = int(data.get('expires_in', 3600))
+
+    # Persist to cache
+    cache[account] = {
+        'access_token': access_token,
+        'expires_at':   now + expires_in,
+        'fetched_at':   datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST'),
+    }
+    _fk_save_token_cache(cache)
+    print(f'[FK Token] Refreshed token for {account}, expires in {expires_in//3600}h')
+    return access_token
+
+def fk_api_get(account, path, params=None):
+    """Make an authenticated GET request to the Flipkart seller API."""
+    import requests as _req
+    token = fk_get_token(account)
+    resp  = _req.get(
+        f'{FK_API_BASE}{path}',
+        params=params or {},
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type':  'application/json',
+        },
+        timeout=30,
+    )
+    return resp
+
+def fk_api_post(account, path, payload=None):
+    """Make an authenticated POST request to the Flipkart seller API."""
+    import requests as _req
+    token = fk_get_token(account)
+    resp  = _req.post(
+        f'{FK_API_BASE}{path}',
+        json=payload or {},
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type':  'application/json',
+        },
+        timeout=30,
+    )
+    return resp
+
 def _atomic_copy(src, dst):
     """Copy src → dst atomically using a temp file + rename to avoid partial writes."""
     dst_tmp = dst + '.tmp'
@@ -2332,26 +2448,49 @@ def debug():
     return jsonify(info)
 
 
-@app.route('/api/test-flipkart')
-def test_flipkart():
-    """Temporary endpoint — tests Flipkart API connectivity from Railway's IP."""
-    import requests as _req, base64
-    aid = '2424704ab1637b72290b7959232545231160'
-    sec = '2e144ad479623b4ca3f4585b24a4d4d20'
-    creds = base64.b64encode((aid + ':' + sec).encode()).decode()
+@app.route('/api/fk-token-status')
+def fk_token_status():
+    """
+    Check Flipkart API token status for all configured accounts.
+    Safe to expose — returns no secrets, just connectivity status.
+    """
+    results = {}
+    for account in KNOWN_ACCOUNTS:
+        app_id, app_secret = _fk_credentials(account)
+        if not app_id:
+            results[account] = {'configured': False}
+            continue
+        cache = _fk_load_token_cache()
+        entry = cache.get(account, {})
+        now   = datetime.datetime.now(tz=datetime.timezone.utc).timestamp()
+        expires_at = entry.get('expires_at', 0)
+        hours_left = max(0, int((expires_at - now) / 3600)) if expires_at else 0
+        results[account] = {
+            'configured':  True,
+            'has_token':   bool(entry.get('access_token')),
+            'fetched_at':  entry.get('fetched_at', 'never'),
+            'hours_left':  hours_left,
+        }
+    return jsonify(results)
+
+
+@app.route('/api/fk-token-refresh', methods=['POST'])
+def fk_token_refresh():
+    """Force-refresh the Flipkart token for a given account. PIN protected."""
+    data    = request.get_json() or {}
+    if data.get('pin') != '848424':
+        return jsonify({'error': 'Invalid PIN'}), 403
+    account = data.get('account', '').upper()
+    if account not in KNOWN_ACCOUNTS:
+        return jsonify({'error': f'Unknown account: {account}'}), 400
+    # Clear cached token to force refresh
+    cache = _fk_load_token_cache()
+    cache.pop(account, None)
+    _fk_save_token_cache(cache)
     try:
-        r = _req.get(
-            'https://api.flipkart.net/oauth-service/oauth/token',
-            params={'grant_type': 'client_credentials', 'scope': 'Seller_Api'},
-            headers={'Authorization': 'Basic ' + creds},
-            timeout=10
-        )
-        try:
-            body = r.json()
-        except Exception:
-            body = r.text
-        return jsonify({'status': r.status_code, 'body': body})
-    except Exception as e:
+        token = fk_get_token(account)
+        return jsonify({'ok': True, 'account': account, 'token_preview': token[:8] + '…'})
+    except RuntimeError as e:
         return jsonify({'error': str(e)}), 500
 
 
