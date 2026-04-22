@@ -27,7 +27,6 @@ from reportlab.lib.units import mm
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'wynx-dev-key-change-in-prod')
 app.config['MAX_CONTENT_LENGTH'] = 80 * 1024 * 1024  # 80 MB upload cap — protects against OOM on Railway free tier
 
 # Persistent master SKU file — stored in /data (Railway Volume) so it survives restarts
@@ -1330,20 +1329,18 @@ def _compute_analytics(store):
                 prod_sku_daily[r['product']][r['sku']][d] += r['qty']
                 prod_sku_total[r['product']][r['sku']]    += r['qty']
 
-    # For each product: store top 50 SKUs by total (enough for the analysis table),
-    # rest = Others. The donut chart caps itself at 7 on the frontend.
-    SKU_STORE_LIMIT = 50
+    # For each product: top 7 SKUs by total, rest = Others
     sku_by_product = {}
     for prod, sku_totals in prod_sku_total.items():
-        top_skus_list = sorted(sku_totals.items(), key=lambda x: -x[1])[:SKU_STORE_LIMIT]
-        top_skus = [s for s, _ in top_skus_list]
+        top7 = sorted(sku_totals.items(), key=lambda x: -x[1])[:7]
+        top7_skus = [s for s, _ in top7]
         others_daily = defaultdict(int)
         for sku, day_map in prod_sku_daily[prod].items():
-            if sku not in top_skus:
+            if sku not in top7_skus:
                 for d, q in day_map.items():
                     others_daily[d] += q
         series = []
-        for sku in top_skus:
+        for sku in top7_skus:
             series.append({
                 'sku':   sku,
                 'total': prod_sku_total[prod][sku],
@@ -1854,49 +1851,17 @@ def _build_ads_response(store):
     """Merge all date buckets in store into a flat data dict for the frontend."""
     meta = store.get('__meta__', {})
 
-    # Merge rows across all date buckets — process in bucket date order so later
-    # buckets (newer uploads) win on overlapping dates.
+    # Merge rows across all date buckets
     merged = {}   # report_key -> [rows]
-    for bucket in sorted(k for k in store if not k.startswith('__')):
-        reports = store[bucket]
+    for bucket, reports in store.items():
+        if bucket.startswith('__'):
+            continue
         if not isinstance(reports, dict):
             continue
         for key, rows in reports.items():
             if key not in merged:
                 merged[key] = []
             merged[key].extend(rows)
-
-    # Deduplicate consolidated (daily) report by Campaign ID + Date.
-    # When two buckets cover overlapping dates (e.g. Mar 1–30 and Mar 29–Apr 15),
-    # the later bucket's row wins (already appended last due to sorted bucket order).
-    if 'consolidated' in merged:
-        seen = {}
-        deduped = []
-        for row in merged['consolidated']:
-            cid  = row.get('Campaign ID', '')
-            date = row.get('Date', '')
-            key  = f'{cid}|{date}'
-            seen[key] = row   # later row overwrites earlier for same key
-        merged['consolidated'] = list(seen.values())
-
-    # Also deduplicate consolidatedFSN by Campaign ID + Sku Id (period aggregate,
-    # but same SKU-campaign combo may appear in multiple bucket uploads)
-    if 'consolidatedFSN' in merged:
-        seen = {}
-        for row in merged['consolidatedFSN']:
-            key = f"{row.get('Campaign ID','')}|{row.get('Sku Id','')}"
-            if key not in seen:
-                seen[key] = {'row': row, 'revenue': 0.0, 'roi_sum': 0.0, 'count': 0}
-            seen[key]['revenue']  += float(row.get('Total Revenue (Rs.)', 0) or 0)
-            seen[key]['roi_sum']  += float(row.get('ROI', 0) or 0)
-            seen[key]['count']    += 1
-        deduped_fsn = []
-        for entry in seen.values():
-            r = dict(entry['row'])
-            r['Total Revenue (Rs.)'] = entry['revenue']
-            r['ROI'] = entry['roi_sum'] / entry['count'] if entry['count'] else 0
-            deduped_fsn.append(r)
-        merged['consolidatedFSN'] = deduped_fsn
 
     # Auto-correct common swap: if 'consolidated' lacks 'Ad Spend' but 'consolidatedFSN'
     # has it, swap them so the frontend KPI block always reads spend from 'consolidated'
@@ -1908,17 +1873,11 @@ def _build_ads_response(store):
     if not _has_spend(consol) and _has_spend(consol_fsn):
         merged['consolidated'], merged['consolidatedFSN'] = consol_fsn, consol
 
-    # Compute true full date range across all buckets
-    bucket_dates = [k for k in store if re.match(r'^\d{4}-\d{2}-\d{2}$', k)]
-    date_from = min(bucket_dates) if bucket_dates else meta.get('date_from', '')
-    date_to   = meta.get('date_to', '') or (max(bucket_dates) if bucket_dates else '')
-
     return {
         'data':       merged,
         'updated_at': meta.get('updated_at', ''),
-        'date_from':  date_from,
-        'date_to':    date_to,
-        'buckets':    sorted(bucket_dates),
+        'date_from':  meta.get('date_from', ''),
+        'date_to':    meta.get('date_to', ''),
     }
 
 # ─────────────────────────────────────────────
@@ -2373,6 +2332,29 @@ def debug():
     return jsonify(info)
 
 
+@app.route('/api/test-flipkart')
+def test_flipkart():
+    """Temporary endpoint — tests Flipkart API connectivity from Railway's IP."""
+    import requests as _req, base64
+    aid = '1a2a799b87b87b29364484257003874727b0a'
+    sec = '2e144ad479623b4ca3f4585b24a4d4d20'
+    creds = base64.b64encode((aid + ':' + sec).encode()).decode()
+    try:
+        r = _req.get(
+            'https://api.flipkart.net/oauth-service/oauth/token',
+            params={'grant_type': 'client_credentials', 'scope': 'Seller_Api'},
+            headers={'Authorization': 'Basic ' + creds},
+            timeout=10
+        )
+        try:
+            body = r.json()
+        except Exception:
+            body = r.text
+        return jsonify({'status': r.status_code, 'body': body})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/latest-outputs')
 def latest_outputs():
     meta = {}
@@ -2511,97 +2493,6 @@ def _register_telegram_webhook():
         print(f'[Telegram] Webhook set to {webhook_url}: {result}')
     except Exception as e:
         print(f'[Telegram] Failed to set webhook: {e}')
-
-
-# ─────────────────────────────────────────────
-# FLIPKART API OAUTH
-# ─────────────────────────────────────────────
-import requests as _requests
-
-_FK_CLIENT_ID     = os.environ.get('FLIPKART_CLIENT_ID', '')
-_FK_CLIENT_SECRET = os.environ.get('FLIPKART_CLIENT_SECRET', '')
-
-FLIPKART_ACCOUNTS = {
-    "cutestclub": {"client_id": _FK_CLIENT_ID, "client_secret": _FK_CLIENT_SECRET},
-}
-
-FK_TOKEN_DIR = _data_dir
-
-def _fk_token_path(account):
-    return os.path.join(FK_TOKEN_DIR, f'fk_token_{account}.json')
-
-@app.route('/flipkart/connect/<account>')
-def flipkart_connect(account):
-    from flask import redirect, session
-    creds = FLIPKART_ACCOUNTS.get(account.lower())
-    if not creds:
-        return f"Unknown account: {account}. Known: {list(FLIPKART_ACCOUNTS.keys())}", 404
-    if not creds['client_id']:
-        return "FLIPKART_CLIENT_ID environment variable not set on Railway.", 500
-    session['fk_account'] = account.lower()
-    auth_url = (
-        "https://api.flipkart.net/oauth-service/oauth/authorize"
-        f"?client_id={creds['client_id']}"
-        "&response_type=code"
-        "&redirect_uri=https://wynx.up.railway.app/flipkart/callback"
-    )
-    return redirect(auth_url)
-
-@app.route('/flipkart/callback')
-def flipkart_callback():
-    from flask import session
-    code    = request.args.get('code')
-    account = session.get('fk_account')
-    if not code or not account:
-        return "Missing code or session. Please start from /flipkart/connect/cutestclub", 400
-    creds = FLIPKART_ACCOUNTS.get(account)
-    if not creds:
-        return f"Unknown account in session: {account}", 400
-    resp = _requests.post(
-        "https://api.flipkart.net/oauth-service/oauth/token",
-        data={
-            "grant_type":    "authorization_code",
-            "code":          code,
-            "client_id":     creds['client_id'],
-            "client_secret": creds['client_secret'],
-            "redirect_uri":  "https://wynx.up.railway.app/flipkart/callback",
-        },
-        timeout=15,
-    )
-    token_data = resp.json()
-    if 'access_token' not in token_data:
-        return jsonify({"error": "Token exchange failed", "details": token_data}), 500
-    token_data['connected_at'] = datetime.datetime.now(tz=IST).isoformat()
-    with open(_fk_token_path(account), 'w') as f:
-        json.dump(token_data, f)
-    return (
-        f"<h2>Connected!</h2>"
-        f"<p>Account <b>{account}</b> is now linked to Flipkart API.</p>"
-        f"<p><a href='/flipkart/status'>Check status</a></p>"
-    )
-
-@app.route('/flipkart/status')
-def flipkart_status():
-    statuses = {}
-    for account in FLIPKART_ACCOUNTS:
-        token_path = _fk_token_path(account)
-        if os.path.exists(token_path):
-            try:
-                with open(token_path) as f:
-                    t = json.load(f)
-                statuses[account] = {
-                    "status":       "connected",
-                    "connected_at": t.get("connected_at", "unknown"),
-                    "expires_in":   t.get("expires_in", "unknown"),
-                }
-            except Exception:
-                statuses[account] = {"status": "token_corrupt"}
-        else:
-            statuses[account] = {
-                "status":      "not_connected",
-                "connect_url": f"https://wynx.up.railway.app/flipkart/connect/{account}",
-            }
-    return jsonify(statuses)
 
 if __name__ == '__main__':
     import os
