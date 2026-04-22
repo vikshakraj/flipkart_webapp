@@ -2336,7 +2336,7 @@ def debug():
 def test_flipkart():
     """Temporary endpoint — tests Flipkart API connectivity from Railway's IP."""
     import requests as _req, base64
-    aid = '1a2a799b87b87b29364484257003874727b0a'
+    aid = '2424704ab1637b72290b7959232545231160'
     sec = '2e144ad479623b4ca3f4585b24a4d4d20'
     creds = base64.b64encode((aid + ':' + sec).encode()).decode()
     try:
