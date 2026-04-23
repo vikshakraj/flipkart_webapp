@@ -3704,6 +3704,84 @@ def auto_dispatch_cron():
     print(f'[AutoDispatch Cron] Result: {json.dumps(result)}')
     return jsonify(result)
 
+
+@app.route('/api/reports/probe', methods=['POST'])
+def reports_probe():
+    """
+    Diagnostic: tries a list of candidate reportTypeIdentifiers against
+    the Flipkart Reports API and returns what each one responds with.
+    PIN-protected.
+    """
+    import requests as _req, uuid as _uuid
+
+    data = request.get_json() or {}
+    if data.get('pin') != '848424':
+        return jsonify({'error': 'Invalid PIN'}), 403
+
+    try:
+        token = fk_get_token('CUTEST CLUB')
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 500
+
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    base    = FK_API_BASE + '/sellers'
+
+    # Candidate report type identifiers to probe — common names used in
+    # Flipkart seller portal and seen in various SDK references
+    candidates = [
+        'consolidated_daily_report',
+        'consolidated_daily',
+        'ads_consolidated_daily',
+        'ads_consolidated',
+        'ads_fsn_report',
+        'fsn_report',
+        'campaign_order_report',
+        'campaign_order',
+        'ads_campaign_order',
+        'search_term_report',
+        'ads_search_term',
+        'keyword_report',
+        'ads_keyword',
+        'product_listing_ads',
+        'pla_report',
+        'pca_report',
+        'order_report',
+        'sale_report',
+        'sales_report',
+        'settlement_report',
+        'return_report',
+        'returns_report',
+        'inventory_report',
+        'tax_report',
+    ]
+
+    results = {}
+    today = datetime.datetime.now(tz=IST)
+    from_date = (today - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
+
+    for rtype in candidates:
+        try:
+            payload = {
+                'correlation_id': str(_uuid.uuid4()),
+                'parameters': {
+                    'from_date': from_date,
+                },
+            }
+            r = _req.post(
+                f'{base}/reports/{rtype}',
+                json=payload,
+                headers=headers,
+                timeout=15,
+            )
+            results[rtype] = {
+                'status_code': r.status_code,
+                'response':    r.text[:300],
+            }
+        except Exception as e:
+            results[rtype] = {'status_code': None, 'response': str(e)}
+
+    return jsonify({'ok': True, 'results': results})
+
 @app.route('/api/debug')
 def debug():
     import datetime
