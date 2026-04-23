@@ -1339,20 +1339,7 @@
 
       <!-- ── RIGHT: Latest Outputs Panel ── -->
       <div class="ls-right">
-        <!-- ── Auto Dispatch ── -->
-        <div class="ls-card" style="margin-bottom:0;border-radius:12px 12px 0 0;border-bottom:none;">
-          <h2 style="margin-bottom:4px;">⚡ Auto Dispatch — Cutest Club</h2>
-          <p class="hint" style="margin-bottom:14px;">Runs automatically at 8:30am, 11:30am, 2pm &amp; 5pm IST. Fetches APPROVED orders → generates labels → marks RTD → updates downloads below.</p>
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-            <button class="ls-btn ls-btn-primary" id="autoDispatchBtn" onclick="triggerAutoDispatch()" style="display:inline-flex;align-items:center;gap:6px;">
-              ▶ Run Now
-            </button>
-            <span id="autoDispatchStatus" style="font-size:.78rem;color:var(--muted);"></span>
-          </div>
-          <div id="autoDispatchResult" style="display:none;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:var(--accent);"></div>
-        </div>
-
-        <div class="ls-right-header" style="border-radius:0;">
+        <div class="ls-right-header">
           <div style="font-weight:700; font-size:1rem; color:var(--text);">📦 Latest Sorted Outputs</div>
           <div style="font-size:0.75rem; color:var(--muted); margin-top:3px;">Ground team: download directly from here</div>
         </div>
@@ -1366,6 +1353,19 @@
               <a id="dlConSummary" class="dl-btn dl-summary" style="font-size:0.78rem;padding:7px 12px;" href="#" download>&#11015; Summary</a>
             </div>
           </div>
+        </div>
+
+        <!-- ── Auto Dispatch ── -->
+        <div class="ls-card" style="margin-top:16px;">
+          <h2 style="margin-bottom:4px;">⚡ Auto Dispatch — Cutest Club</h2>
+          <p class="hint" style="margin-bottom:14px;">Runs automatically at 8:30am, 11:30am, 2pm &amp; 5pm IST. Fetches APPROVED orders → generates labels → marks RTD → updates downloads above.</p>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button class="ls-btn ls-btn-primary" id="autoDispatchBtn" onclick="triggerAutoDispatch()" style="display:inline-flex;align-items:center;gap:6px;">
+              ▶ Run Now
+            </button>
+            <span id="autoDispatchStatus" style="font-size:.78rem;color:var(--muted);"></span>
+          </div>
+          <div id="autoDispatchResult" style="display:none;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:var(--accent);"></div>
         </div>
       </div>
 
