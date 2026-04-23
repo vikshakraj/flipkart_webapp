@@ -3281,13 +3281,19 @@ def _fk_auto_dispatch(test_mode=False):
                     })
 
             # Build sub-shipment entries with default dimensions
+            # Skip any SS-* IDs (Flipkart placeholder values that the pack API rejects)
             sub_shipments = []
-            for sub in s.get('subShipments', [s]):
-                sub_id = sub.get('subShipmentId') or sub.get('shipmentId') or sid
-                sub_shipments.append({
-                    'subShipmentId': sub_id,
-                    'dimensions':    FK_DEFAULT_DIMS,
-                })
+            for sub in s.get('subShipments', []):
+                sub_id = sub.get('subShipmentId', '')
+                # Skip placeholder SS-* IDs
+                if sub_id and not sub_id.startswith('SS-'):
+                    sub_shipments.append({
+                        'subShipmentId': sub_id,
+                        'dimensions':    FK_DEFAULT_DIMS,
+                    })
+            # If no valid sub-shipment IDs, use the shipmentId itself
+            if not sub_shipments:
+                sub_shipments = [{'subShipmentId': sid, 'dimensions': FK_DEFAULT_DIMS}]
 
             pack_payload['shipments'].append({
                 'shipmentId':   sid,
