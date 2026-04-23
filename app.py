@@ -3048,6 +3048,354 @@ def listings_by_skus(account):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
+# ─────────────────────────────────────────────
+# AUTO-DISPATCH PIPELINE
+# Runs on cron: 8:30am, 11:30am, 2pm, 5pm IST
+# For Cutest Club only (the only API-configured account).
+#
+# Flow:
+#   1. Fetch all APPROVED shipments
+#   2. Trigger label generation (pack) with default/existing dimensions
+#   3. Download combined labels PDF from API
+#   4. Run through Label Sorter pipeline → save to OUTPUT_DIR
+#   5. Mark all as READY_TO_DISPATCH
+#   6. Telegram notification + update OUTPUTS_META
+# ─────────────────────────────────────────────
+
+FK_AUTO_DISPATCH_ACCOUNT  = 'CUTEST CLUB'
+FK_AUTO_DISPATCH_LOCATION = 'LOC87f71f39207645b9b9427c976d4a7da1'
+
+# Default package dimensions for orders with no pre-existing dimensions
+FK_DEFAULT_DIMS = {'length': 10, 'breadth': 5, 'height': 5, 'weight': 0.2}
+
+
+def _fk_auto_dispatch():
+    """
+    Core auto-dispatch pipeline. Called by the cron route and the
+    manual trigger route. Returns a result dict.
+    """
+    import requests as _req
+
+    account  = FK_AUTO_DISPATCH_ACCOUNT
+    location = FK_AUTO_DISPATCH_LOCATION
+
+    try:
+        token   = fk_get_token(account)
+    except RuntimeError as e:
+        return {'ok': False, 'error': str(e)}
+
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    base    = FK_API_BASE + '/sellers'
+
+    # ── Step 1: Fetch all APPROVED shipments ──────────────────────────────────
+    approved_shipments = []   # list of {shipmentId, subShipments}
+    next_url = f'{base}/v3/shipments/filter/'
+    payload  = {
+        'filter': {
+            'type':   'preDispatch',
+            'states': ['APPROVED'],
+            'locationId': location,
+        },
+        'pagination': {'pageSize': 20},
+    }
+    fetched = 0
+    while next_url and fetched < 2000:
+        try:
+            r = (_req.post(next_url, json=payload, headers=headers, timeout=30)
+                 if next_url.endswith('/filter/')
+                 else _req.get(next_url, headers=headers, timeout=30))
+            if r.status_code != 200:
+                return {'ok': False, 'error': f'Shipment filter failed [{r.status_code}]: {r.text[:200]}'}
+            data = r.json()
+            for s in data.get('shipments', []):
+                approved_shipments.append(s)
+                fetched += 1
+            if not data.get('hasMore') or not data.get('nextPageUrl'):
+                break
+            next_url = data['nextPageUrl']
+            payload  = None   # subsequent pages use GET to nextPageUrl
+        except Exception as e:
+            return {'ok': False, 'error': f'Shipment filter error: {e}'}
+
+    if not approved_shipments:
+        return {'ok': True, 'message': 'No APPROVED shipments found — nothing to process.',
+                'total': 0, 'packed': 0, 'rtd': 0}
+
+    print(f'[AutoDispatch] Found {len(approved_shipments)} APPROVED shipments for {account}')
+
+    # ── Step 2: Pack (trigger label generation) in batches of 25 ─────────────
+    pack_url   = f'{base}/v3/shipments/labels'
+    shipment_ids_packed = []
+    pack_errors = []
+
+    for i in range(0, len(approved_shipments), 25):
+        batch = approved_shipments[i:i+25]
+        pack_payload = {'shipments': []}
+        for s in batch:
+            sid = s.get('shipmentId') or s.get('shipment_id', '')
+            # Build sub-shipment entries with default dimensions
+            sub_shipments = []
+            for sub in s.get('subShipments', [s]):   # fall back to shipment itself
+                sub_id = sub.get('subShipmentId') or sub.get('shipmentId') or sid
+                sub_shipments.append({
+                    'subShipmentId': sub_id,
+                    'dimensions': FK_DEFAULT_DIMS,
+                })
+            pack_payload['shipments'].append({
+                'shipmentId':  sid,
+                'locationId':  location,
+                'subShipments': sub_shipments,
+            })
+        try:
+            r = _req.post(pack_url, json=pack_payload, headers=headers, timeout=60)
+            if r.status_code == 200:
+                for result in r.json().get('shipments', []):
+                    if result.get('status', '').upper() in ('SUCCESS', 'PACKED', ''):
+                        shipment_ids_packed.append(result['shipmentId'])
+                    else:
+                        pack_errors.append(f"{result['shipmentId']}: {result.get('errorMessage','')}")
+            else:
+                pack_errors.append(f'Batch {i//25+1} HTTP {r.status_code}: {r.text[:150]}')
+        except Exception as e:
+            pack_errors.append(f'Batch {i//25+1} error: {e}')
+
+    # Include any IDs from original list not explicitly failed (API may return empty list on full success)
+    if not shipment_ids_packed:
+        shipment_ids_packed = [s.get('shipmentId') or s.get('shipment_id', '')
+                               for s in approved_shipments]
+
+    print(f'[AutoDispatch] Packed {len(shipment_ids_packed)} shipments. Errors: {len(pack_errors)}')
+    if pack_errors:
+        for e in pack_errors[:5]:
+            print(f'  [PackError] {e}')
+
+    if not shipment_ids_packed:
+        return {'ok': False, 'error': 'All shipments failed to pack.',
+                'pack_errors': pack_errors}
+
+    # ── Step 3: Download labels PDF ───────────────────────────────────────────
+    # Flipkart accepts comma-separated shipment IDs in the URL path.
+    # Batch into groups of 25 and concatenate the PDFs.
+    label_pdf_parts = []
+    for i in range(0, len(shipment_ids_packed), 25):
+        batch_ids = ','.join(shipment_ids_packed[i:i+25])
+        try:
+            r = _req.get(
+                f'{base}/v3/shipments/{batch_ids}/labels',
+                headers={**headers, 'Accept': 'application/pdf'},
+                timeout=60,
+            )
+            if r.status_code == 200 and r.content:
+                label_pdf_parts.append(r.content)
+            else:
+                print(f'[AutoDispatch] Label download batch {i//25+1} failed [{r.status_code}]')
+        except Exception as e:
+            print(f'[AutoDispatch] Label download error: {e}')
+
+    if not label_pdf_parts:
+        return {'ok': False, 'error': 'Failed to download labels PDF from Flipkart API.',
+                'pack_errors': pack_errors}
+
+    # Merge all label PDF bytes into one (simple concatenation via PdfWriter)
+    combined_writer = PdfWriter()
+    for pdf_bytes in label_pdf_parts:
+        try:
+            reader = PdfReader(io.BytesIO(pdf_bytes))
+            for page in reader.pages:
+                combined_writer.add_page(page)
+            del reader
+        except Exception as e:
+            print(f'[AutoDispatch] PDF merge error: {e}')
+
+    # ── Step 4: Run Label Sorter pipeline ─────────────────────────────────────
+    req_tmp = tempfile.mkdtemp(prefix='fk_auto_')
+    try:
+        # Save combined PDF to temp file
+        tmp_pdf_path = os.path.join(req_tmp, 'auto_labels.pdf')
+        with open(tmp_pdf_path, 'wb') as f:
+            combined_writer.write(f)
+        del combined_writer
+        gc.collect()
+
+        if not os.path.exists(MASTER_SKU_PATH):
+            return {'ok': False, 'error': 'Master SKU file not found — cannot sort labels.'}
+
+        with open(MASTER_SKU_PATH, 'rb') as f:
+            master = load_sku_master(f.read())
+
+        # Extract pages
+        account_pages = defaultdict(list)
+        seen_keys     = set()
+        reader = PdfReader(tmp_pdf_path)
+        for i, page in enumerate(reader.pages):
+            text       = page.extract_text() or ''
+            acct       = detect_account(text)
+            skus       = extract_skus_from_page(text)
+            order_ids  = extract_order_ids(text)
+            page_awb   = extract_awb(text)
+            page_key   = (tuple(sorted(order_ids)), page_awb)
+            if page_key in seen_keys:
+                del text; continue
+            seen_keys.add(page_key)
+            account_pages[acct].append({
+                'orig_path': tmp_pdf_path,
+                'orig_idx':  i,
+                'skus':      skus,
+                'text':      text,
+                'order_ids': order_ids,
+            })
+            del text
+        del reader
+        gc.collect()
+
+        sort_results = []
+        for acct, pages in account_pages.items():
+            acct_master = get_account_master(master, acct)
+            normal, dual, mixed, unknown = classify_pages(pages, acct_master)
+            sorted_normal = sort_normal(normal)
+            sorted_dual   = sort_normal(dual)
+            ordered       = sorted_normal + sorted_dual + unknown + mixed
+
+            safe_name    = re.sub(r'[^A-Za-z0-9_]', '_', acct)
+            labels_path  = os.path.join(req_tmp, f'{safe_name}_labels.pdf')
+            summary_path = os.path.join(req_tmp, f'{safe_name}_summary.pdf')
+
+            # Write sorted labels PDF
+            pages_by_pdf = defaultdict(list)
+            for pos, pd_item in enumerate(ordered):
+                pages_by_pdf[pd_item['orig_path']].append((pos, pd_item['orig_idx']))
+            page_slots = [None] * len(ordered)
+            readers_open = {}
+            for pdf_src, idx_pairs in pages_by_pdf.items():
+                r2 = PdfReader(pdf_src)
+                readers_open[pdf_src] = r2
+                for pos, page_idx in idx_pairs:
+                    page_slots[pos] = r2.pages[page_idx]
+            writer = PdfWriter()
+            for page in page_slots:
+                writer.add_page(page)
+            with open(labels_path, 'wb') as f:
+                writer.write(f)
+            del writer, page_slots
+            for r2 in readers_open.values():
+                del r2
+            gc.collect()
+
+            # Build summary
+            build_summary_pdf(acct, normal, dual, mixed, unknown, acct_master, summary_path)
+
+            # Persist to Railway Volume
+            persist_labels  = os.path.join(OUTPUT_DIR, f'{safe_name}_labels.pdf')
+            persist_summary = os.path.join(OUTPUT_DIR, f'{safe_name}_summary.pdf')
+            _atomic_copy(labels_path,  persist_labels)
+            _atomic_copy(summary_path, persist_summary)
+
+            # Update OUTPUTS_META
+            meta = {}
+            if os.path.exists(OUTPUTS_META):
+                with open(OUTPUTS_META, 'r') as mf:
+                    try: meta = json.load(mf)
+                    except: pass
+            meta[acct] = {
+                'timestamp':    datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST'),
+                'total':        len(pages),
+                'sku_count':    len(normal),
+                'labels_file':  f'{safe_name}_labels.pdf',
+                'summary_file': f'{safe_name}_summary.pdf',
+            }
+            with open(OUTPUTS_META, 'w') as mf:
+                json.dump(meta, mf)
+
+            # Telegram
+            try:
+                tg_notify_sort_done(
+                    account=acct, total=len(pages),
+                    normal_count=len(normal), mixed_count=len(mixed),
+                    unknown_count=len(unknown),
+                    labels_path=persist_labels, summary_path=persist_summary,
+                )
+            except Exception as tg_err:
+                print(f'[AutoDispatch Telegram] {tg_err}')
+
+            sort_results.append({
+                'account':     acct,
+                'total':       len(pages),
+                'sku_count':   len(normal),
+                'mixed':       len(mixed),
+                'unknown':     len(unknown),
+            })
+            del normal, dual, mixed, unknown, ordered, pages
+            gc.collect()
+
+    finally:
+        shutil.rmtree(req_tmp, ignore_errors=True)
+
+    # ── Step 5: Mark RTD in batches of 25 ────────────────────────────────────
+    dispatch_url = f'{base}/v3/shipments/dispatch'
+    rtd_count    = 0
+    rtd_errors   = []
+    for i in range(0, len(shipment_ids_packed), 25):
+        batch = shipment_ids_packed[i:i+25]
+        try:
+            r = _req.post(dispatch_url,
+                          json={'shipmentIds': batch, 'locationId': location},
+                          headers=headers, timeout=30)
+            if r.status_code == 200:
+                for result in r.json().get('shipments', []):
+                    if result.get('status', '').upper() in ('SUCCESS', 'READY_TO_DISPATCH', ''):
+                        rtd_count += 1
+                    else:
+                        rtd_errors.append(f"{result['shipmentId']}: {result.get('errorMessage','')}")
+            else:
+                rtd_errors.append(f'RTD batch {i//25+1} HTTP {r.status_code}: {r.text[:150]}')
+        except Exception as e:
+            rtd_errors.append(f'RTD batch {i//25+1} error: {e}')
+
+    # If API returns empty shipments list, count all as RTD (some API versions do this on full success)
+    if rtd_count == 0 and not rtd_errors:
+        rtd_count = len(shipment_ids_packed)
+
+    print(f'[AutoDispatch] RTD: {rtd_count} marked, {len(rtd_errors)} errors')
+
+    timestamp = datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST')
+    return {
+        'ok':           True,
+        'timestamp':    timestamp,
+        'total':        len(approved_shipments),
+        'packed':       len(shipment_ids_packed),
+        'rtd':          rtd_count,
+        'sort_results': sort_results,
+        'pack_errors':  pack_errors[:10],
+        'rtd_errors':   rtd_errors[:10],
+    }
+
+
+@app.route('/api/auto-dispatch', methods=['POST'])
+def auto_dispatch_trigger():
+    """
+    Manual trigger for the auto-dispatch pipeline.
+    Also called by Railway cron at 08:30, 11:30, 14:00, 17:00 IST.
+    PIN-protected to prevent accidental triggers.
+    """
+    data = request.get_json() or {}
+    if data.get('pin') != '848424':
+        return jsonify({'error': 'Invalid PIN'}), 403
+    result = _fk_auto_dispatch()
+    return jsonify(result)
+
+
+@app.route('/api/auto-dispatch/cron', methods=['GET', 'POST'])
+def auto_dispatch_cron():
+    """
+    Called by Railway cron job — no PIN required (Railway internal only).
+    Logs result to stdout (visible in Railway logs).
+    """
+    print(f'[AutoDispatch Cron] Triggered at {datetime.datetime.now(tz=IST).strftime("%d %b %Y, %H:%M IST")}')
+    result = _fk_auto_dispatch()
+    print(f'[AutoDispatch Cron] Result: {json.dumps(result)}')
+    return jsonify(result)
+
 @app.route('/api/debug')
 def debug():
     import datetime
