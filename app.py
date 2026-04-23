@@ -3164,9 +3164,14 @@ def _fk_auto_dispatch():
     next_url = f'{base}/v3/shipments/filter/'
     payload  = {
         'filter': {
-            'type':   'preDispatch',
-            'states': ['APPROVED'],
+            'type':       'preDispatch',
+            'states':     ['APPROVED'],
             'locationId': location,
+            # Only orders whose dispatch window has opened (excludes Upcoming Orders)
+            'dispatchAfterDate': {
+                'from': '2000-01-01T00:00:00+05:30',
+                'to':   datetime.datetime.now(tz=IST).strftime('%Y-%m-%dT%H:%M:%S+05:30'),
+            },
         },
         'pagination': {'pageSize': 20},
     }
@@ -3228,20 +3233,24 @@ def _fk_auto_dispatch():
         try:
             r = _req.post(pack_url, json=pack_payload, headers=headers, timeout=60)
             if r.status_code == 200:
-                for result in r.json().get('shipments', []):
-                    if result.get('status', '').upper() in ('SUCCESS', 'PACKED', ''):
+                resp_json = r.json()
+                print(f'[AutoDispatch] Pack batch {i//25+1} response: {json.dumps(resp_json)[:300]}')
+                for result in resp_json.get('shipments', []):
+                    status = result.get('status', '').upper()
+                    if status in ('SUCCESS', 'PACKED', ''):
                         shipment_ids_packed.append(result['shipmentId'])
                     else:
                         pack_errors.append(f"{result['shipmentId']}: {result.get('errorMessage','')}")
+                # If API returned empty shipments list, all succeeded — add original IDs
+                if not resp_json.get('shipments'):
+                    for s in batch:
+                        sid = s.get('shipmentId') or s.get('shipment_id', '')
+                        if sid:
+                            shipment_ids_packed.append(sid)
             else:
                 pack_errors.append(f'Batch {i//25+1} HTTP {r.status_code}: {r.text[:150]}')
         except Exception as e:
             pack_errors.append(f'Batch {i//25+1} error: {e}')
-
-    # Include any IDs from original list not explicitly failed (API may return empty list on full success)
-    if not shipment_ids_packed:
-        shipment_ids_packed = [s.get('shipmentId') or s.get('shipment_id', '')
-                               for s in approved_shipments]
 
     print(f'[AutoDispatch] Packed {len(shipment_ids_packed)} shipments. Errors: {len(pack_errors)}')
     if pack_errors:
@@ -3252,16 +3261,59 @@ def _fk_auto_dispatch():
         return {'ok': False, 'error': 'All shipments failed to pack.',
                 'pack_errors': pack_errors}
 
-    # ── Step 3: Download labels PDF ───────────────────────────────────────────
-    # Give Flipkart 10 seconds to finish generating labels server-side
+    # ── Step 3a: Re-fetch PACKED shipment IDs to get the exact IDs the download endpoint expects ──
+    # The pack API sometimes returns empty/different IDs. Re-querying for PACKED state
+    # gives us the canonical IDs that the label download endpoint will accept.
     import time as _time
     _time.sleep(10)
+
+    packed_ids_verified = []
+    try:
+        next_url2 = f'{base}/v3/shipments/filter/'
+        payload2  = {
+            'filter': {
+                'type':       'preDispatch',
+                'states':     ['PACKED', 'READY_TO_DISPATCH'],
+                'locationId': location,
+            },
+            'pagination': {'pageSize': 20},
+        }
+        fetched2 = 0
+        while next_url2 and fetched2 < 2000:
+            r2 = (_req.post(next_url2, json=payload2, headers=headers, timeout=30)
+                  if next_url2.endswith('/filter/')
+                  else _req.get(next_url2, headers=headers, timeout=30))
+            if r2.status_code == 200:
+                data2 = r2.json()
+                for s in data2.get('shipments', []):
+                    sid = s.get('shipmentId', '')
+                    if sid:
+                        packed_ids_verified.append(sid)
+                        fetched2 += 1
+                if not data2.get('hasMore') or not data2.get('nextPageUrl'):
+                    break
+                raw_next2 = data2['nextPageUrl']
+                if raw_next2.startswith('/'):
+                    next_url2 = f'{FK_API_BASE}/sellers{raw_next2}' if not raw_next2.startswith('/sellers') else f'{FK_API_BASE}{raw_next2}'
+                elif not raw_next2.startswith('http'):
+                    next_url2 = f'{FK_API_BASE}/sellers/{raw_next2}'
+                else:
+                    next_url2 = raw_next2
+                payload2 = None
+            else:
+                break
+    except Exception as e:
+        print(f'[AutoDispatch] Re-fetch PACKED error: {e}')
+
+    # Use re-fetched IDs if we got them, else fall back to pack response IDs
+    download_ids = packed_ids_verified if packed_ids_verified else shipment_ids_packed
+    print(f'[AutoDispatch] Using {len(download_ids)} IDs for label download (re-fetched: {len(packed_ids_verified)})')
 
     # Download in batches of 25 IDs
     label_pdf_parts = []
     label_dl_errors = []
-    for i in range(0, len(shipment_ids_packed), 25):
-        batch_ids = ','.join(shipment_ids_packed[i:i+25])
+    for i in range(0, len(download_ids), 25):
+        batch_ids = ','.join(download_ids[i:i+25])
         # Try the combined labels+invoice endpoint first, fall back to labelOnly
         for endpoint_path in [
             f'{base}/v3/shipments/{batch_ids}/labels',
@@ -3494,9 +3546,14 @@ def auto_dispatch_preview():
     next_url = f'{base}/v3/shipments/filter/'
     payload  = {
         'filter': {
-            'type':      'preDispatch',
-            'states':    ['APPROVED'],
+            'type':       'preDispatch',
+            'states':     ['APPROVED'],
             'locationId': location,
+            # Only orders whose dispatch window has opened (excludes Upcoming Orders)
+            'dispatchAfterDate': {
+                'from': '2000-01-01T00:00:00+05:30',
+                'to':   datetime.datetime.now(tz=IST).strftime('%Y-%m-%dT%H:%M:%S+05:30'),
+            },
         },
         'pagination': {'pageSize': 20},
     }
