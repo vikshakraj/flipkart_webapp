@@ -3258,7 +3258,8 @@ def _fk_auto_dispatch():
             print(f'  [PackError] {e}')
 
     if not shipment_ids_packed:
-        return {'ok': False, 'error': 'All shipments failed to pack.',
+        error_detail = '; '.join(pack_errors[:3]) if pack_errors else 'No detail available'
+        return {'ok': False, 'error': f'All shipments failed to pack. Details: {error_detail}',
                 'pack_errors': pack_errors}
 
     # ── Step 3a: Re-fetch PACKED shipment IDs to get the exact IDs the download endpoint expects ──
