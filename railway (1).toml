@@ -1,0 +1,9 @@
+[deploy]
+startCommand = "python app.py"
+
+# Cron fires every 30 minutes — the Python handler checks the stored
+# schedule config (cron_config.json) and skips if it's not a scheduled time.
+# Edit timings via the "Edit Timings" button in the Label Sorter tab.
+[[crons]]
+schedule = "*/30 * * * *"
+command  = "curl -s -X POST https://wynx.up.railway.app/api/auto-dispatch/cron"
