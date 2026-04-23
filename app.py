@@ -3298,8 +3298,6 @@ def _fk_auto_dispatch(test_mode=False):
             pack_payload['shipments'].append({
                 'shipmentId':   sid,
                 'locationId':   location,
-                'invoices':     invoices,
-                'taxItems':     tax_items,
                 'subShipments': sub_shipments,
             })
         try:
