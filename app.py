@@ -3287,10 +3287,11 @@ def _fk_auto_dispatch():
                 print(f'[AutoDispatch] Label download error: {e}')
 
     if not label_pdf_parts:
+        error_detail = '; '.join(label_dl_errors[:3]) if label_dl_errors else 'No response from API'
         return {
             'ok': False,
-            'error': 'Failed to download labels PDF from Flipkart API.',
-            'label_errors': label_dl_errors[:5],
+            'error': f'Failed to download labels PDF. Details: {error_detail}',
+            'label_errors': label_dl_errors,
             'pack_errors':  pack_errors,
         }
 
