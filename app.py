@@ -3243,7 +3243,7 @@ def _fk_auto_dispatch(test_mode=False):
     for i in range(0, len(approved_shipments), 25):
         batch = approved_shipments[i:i+25]
         pack_payload = {'shipments': []}
-        now_iso = datetime.datetime.now(tz=datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        now_iso = datetime.datetime.now(tz=IST).strftime('%Y-%m-%dT%H:%M:%S')
         for s in batch:
             sid        = s.get('shipmentId') or s.get('shipment_id', '')
             order_items = s.get('orderItems', [])
