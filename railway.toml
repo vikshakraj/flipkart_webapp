@@ -1,0 +1,18 @@
+[deploy]
+startCommand = "python app.py"
+
+[[crons]]
+schedule  = "0 3 * * *"   # 08:30 IST = 03:00 UTC
+command   = "curl -s -X POST https://wynx.up.railway.app/api/auto-dispatch/cron"
+
+[[crons]]
+schedule  = "0 6 * * *"   # 11:30 IST = 06:00 UTC
+command   = "curl -s -X POST https://wynx.up.railway.app/api/auto-dispatch/cron"
+
+[[crons]]
+schedule  = "30 8 * * *"  # 14:00 IST = 08:30 UTC
+command   = "curl -s -X POST https://wynx.up.railway.app/api/auto-dispatch/cron"
+
+[[crons]]
+schedule  = "30 11 * * *" # 17:00 IST = 11:30 UTC
+command   = "curl -s -X POST https://wynx.up.railway.app/api/auto-dispatch/cron"
