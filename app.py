@@ -3141,10 +3141,11 @@ def cron_config_save():
     return jsonify({'ok': True, 'config': cfg})
 
 
-def _fk_auto_dispatch():
+def _fk_auto_dispatch(test_mode=False):
     """
-    Core auto-dispatch pipeline. Called by the cron route and the
-    manual trigger route. Returns a result dict.
+    Core auto-dispatch pipeline.
+    If test_mode=True: processes only 1 shipment, skips RTD marking.
+    Used to verify invoice generation before enabling for all orders.
     """
     import requests as _req
 
@@ -3205,6 +3206,10 @@ def _fk_auto_dispatch():
         return {'ok': True, 'message': 'No APPROVED shipments found — nothing to process.',
                 'total': 0, 'packed': 0, 'rtd': 0}
 
+    if test_mode:
+        approved_shipments = approved_shipments[:1]
+        print(f'[AutoDispatch TEST MODE] Limiting to 1 shipment: {approved_shipments[0].get("shipmentId")}')
+
     print(f'[AutoDispatch] Found {len(approved_shipments)} APPROVED shipments for {account}')
 
     # ── Step 2: Pack (trigger label generation) in batches of 25 ─────────────
@@ -3212,22 +3217,83 @@ def _fk_auto_dispatch():
     shipment_ids_packed = []
     pack_errors = []
 
+    # Product → GST rate mapping (IGST %)
+    # All products default to 5% except the ones listed below
+    FK_PRODUCT_TAX_RATES = {
+        'Japanese Massager':          18,
+        'Retinal Shot':               18,
+        'Perfectx':                   18,
+        'Bee Venom Cream':            18,
+    }
+    FK_DEFAULT_TAX_RATE = 5
+
+    # Build SKU → product name map from Master SKU file for tax rate lookup
+    sku_to_product = {}
+    if os.path.exists(MASTER_SKU_PATH):
+        try:
+            with open(MASTER_SKU_PATH, 'rb') as f:
+                _master = load_sku_master(f.read())
+            _acct_master = get_account_master(_master, account)
+            for _sku, _info in _acct_master.items():
+                if _info.get('product'):
+                    sku_to_product[_sku] = _info['product'].strip().title()
+        except Exception as _me:
+            print(f'[AutoDispatch] Master SKU load failed: {_me}')
+
     for i in range(0, len(approved_shipments), 25):
         batch = approved_shipments[i:i+25]
         pack_payload = {'shipments': []}
+        now_iso = datetime.datetime.now(tz=IST).strftime('%Y-%m-%dT%H:%M:%S+05:30')
         for s in batch:
-            sid = s.get('shipmentId') or s.get('shipment_id', '')
+            sid        = s.get('shipmentId') or s.get('shipment_id', '')
+            order_items = s.get('orderItems', [])
+
+            # Build invoices — one entry per unique orderId in this shipment
+            seen_orders = {}
+            for item in order_items:
+                oid = item.get('orderId', '')
+                if oid and oid not in seen_orders:
+                    seen_orders[oid] = True
+            invoices = [{'orderId': oid, 'invoiceDate': now_iso} for oid in seen_orders]
+
+            # Build taxItems — one entry per orderItem with correct GST rate per product
+            tax_items = []
+            for item in order_items:
+                oiid     = item.get('orderItemId', '')
+                qty      = int(item.get('quantity', 1))
+                price    = float((item.get('priceComponents') or {}).get('sellingPrice') or 0)
+                sku_raw  = item.get('sku', '')
+                sku_clean = re.sub(r'^"""SKU:|"""$', '', sku_raw).strip().strip('"')
+                # Resolve product name via master SKU map
+                product  = sku_to_product.get(sku_clean, '')
+                if not product:
+                    stripped = re.sub(r'\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$', '', sku_clean, flags=re.IGNORECASE).strip()
+                    product  = sku_to_product.get(stripped, stripped)
+                # Look up tax rate from mapping
+                tax_rate = FK_PRODUCT_TAX_RATES.get(product, FK_DEFAULT_TAX_RATE)
+                print(f'[AutoDispatch] SKU "{sku_clean}" → product "{product}" → taxRate {tax_rate}%')
+                if oiid:
+                    tax_items.append({
+                        'orderItemId':   oiid,
+                        'purchasePrice': price,
+                        'taxRate':       tax_rate,
+                        'quantity':      qty,
+                    })
+
             # Build sub-shipment entries with default dimensions
             sub_shipments = []
-            for sub in s.get('subShipments', [s]):   # fall back to shipment itself
+            for sub in s.get('subShipments', [s]):
                 sub_id = sub.get('subShipmentId') or sub.get('shipmentId') or sid
                 sub_shipments.append({
                     'subShipmentId': sub_id,
-                    'dimensions': FK_DEFAULT_DIMS,
+                    'dimensions':    FK_DEFAULT_DIMS,
                 })
+
             pack_payload['shipments'].append({
-                'shipmentId':  sid,
-                'locationId':  location,
+                'shipmentId':   sid,
+                'locationId':   location,
+                'invoices':     invoices,
+                'taxItems':     tax_items,
                 'subShipments': sub_shipments,
             })
         try:
@@ -3483,6 +3549,22 @@ def _fk_auto_dispatch():
         shutil.rmtree(req_tmp, ignore_errors=True)
 
     # ── Step 5: Mark RTD in batches of 25 ────────────────────────────────────
+    if test_mode:
+        print(f'[AutoDispatch TEST MODE] Skipping RTD — verify the invoice PDF before proceeding.')
+        timestamp = datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST')
+        return {
+            'ok':           True,
+            'test_mode':    True,
+            'timestamp':    timestamp,
+            'total':        1,
+            'packed':       len(shipment_ids_packed),
+            'rtd':          0,
+            'rtd_skipped':  True,
+            'message':      'TEST MODE: 1 order packed and label generated. RTD was NOT marked — check the invoice in Label Sorter downloads, then run full dispatch if correct.',
+            'sort_results': sort_results,
+            'pack_errors':  pack_errors[:10],
+        }
+
     dispatch_url = f'{base}/v3/shipments/dispatch'
     rtd_count    = 0
     rtd_errors   = []
@@ -3586,13 +3668,13 @@ def auto_dispatch_preview():
 def auto_dispatch_trigger():
     """
     Manual trigger for the auto-dispatch pipeline.
-    Also called by Railway cron at 08:30, 11:30, 14:00, 17:00 IST.
-    PIN-protected to prevent accidental triggers.
+    Pass test_mode: true to process only 1 order without marking RTD.
     """
     data = request.get_json() or {}
     if data.get('pin') != '848424':
         return jsonify({'error': 'Invalid PIN'}), 403
-    result = _fk_auto_dispatch()
+    test_mode = bool(data.get('test_mode', False))
+    result = _fk_auto_dispatch(test_mode=test_mode)
     return jsonify(result)
 
 
