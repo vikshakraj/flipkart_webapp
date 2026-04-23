@@ -6669,21 +6669,25 @@ window.switchTab = function(name, btn) {
 
 
 
-// ── Auto Dispatch manual trigger ──
+// ── Auto Dispatch manual trigger — two-step: preview then confirm ──
+let _autoDispatchPin = null;
+
 function triggerAutoDispatch() {
   const btn    = document.getElementById('autoDispatchBtn');
   const status = document.getElementById('autoDispatchStatus');
   const result = document.getElementById('autoDispatchResult');
 
-  const pin = prompt('Enter PIN to trigger Auto Dispatch:');
+  const pin = prompt('Enter PIN to continue:');
   if (!pin) return;
+  _autoDispatchPin = pin;
 
+  // Step 1: fetch count preview
   btn.disabled    = true;
-  btn.textContent = '⏳ Running…';
-  status.textContent = 'Fetching orders, generating labels, marking RTD…';
+  btn.textContent = '⏳ Checking…';
+  status.textContent = 'Fetching pending order count…';
   result.style.display = 'none';
 
-  fetch('/api/auto-dispatch', {
+  fetch('/api/auto-dispatch/preview', {
     method:  'POST',
     headers: {'Content-Type': 'application/json'},
     body:    JSON.stringify({ pin }),
@@ -6692,6 +6696,67 @@ function triggerAutoDispatch() {
   .then(data => {
     btn.disabled    = false;
     btn.textContent = '▶ Run Now';
+
+    if (data.error) {
+      status.textContent = '⚠ ' + data.error;
+      return;
+    }
+
+    const count = data.count || 0;
+    if (count === 0) {
+      status.textContent = '';
+      const result = document.getElementById('autoDispatchResult');
+      result.style.cssText = 'display:block;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:var(--accent);';
+      result.textContent = 'No orders in Pending Labels right now — nothing to process.';
+      return;
+    }
+
+    // Step 2: show confirmation modal
+    status.textContent = '';
+    document.getElementById('autoDispatchModalBody').innerHTML =
+      `<b style="color:var(--text);font-size:1rem;">${count} order${count>1?'s':''}</b> found in Pending Labels.<br><br>` +
+      `Proceeding will:<br>` +
+      `&nbsp;&nbsp;• Generate labels for all ${count} order${count>1?'s':''}<br>` +
+      `&nbsp;&nbsp;• Sort and save the labels PDF<br>` +
+      `&nbsp;&nbsp;• Mark all as Ready to Dispatch<br>` +
+      `&nbsp;&nbsp;• Send Telegram notification`;
+    document.getElementById('autoDispatchModal').style.display = 'flex';
+
+    // Wire up confirm button
+    const confirmBtn = document.getElementById('autoDispatchConfirmBtn');
+    confirmBtn.onclick = () => {
+      document.getElementById('autoDispatchModal').style.display = 'none';
+      _executeAutoDispatch();
+    };
+  })
+  .catch(e => {
+    btn.disabled    = false;
+    btn.textContent = '▶ Run Now';
+    status.textContent = '⚠ Network error: ' + e.message;
+  });
+}
+
+function _executeAutoDispatch() {
+  const btn    = document.getElementById('autoDispatchBtn');
+  const status = document.getElementById('autoDispatchStatus');
+  const result = document.getElementById('autoDispatchResult');
+
+  btn.disabled    = true;
+  btn.textContent = '⏳ Running…';
+  status.textContent = 'Generating labels, sorting, marking RTD…';
+  result.style.display = 'none';
+
+  fetch('/api/auto-dispatch', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/json'},
+    body:    JSON.stringify({ pin: _autoDispatchPin }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    btn.disabled    = false;
+    btn.textContent = '▶ Run Now';
+    _autoDispatchPin = null;
+
     if (data.error) {
       status.textContent = '⚠ ' + data.error;
       result.style.cssText = 'display:block;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(255,68,102,.07);border:1px solid rgba(255,68,102,.25);color:#ff6688;';
@@ -6699,9 +6764,9 @@ function triggerAutoDispatch() {
       return;
     }
     if (data.total === 0) {
-      status.textContent = 'No APPROVED orders to process.';
+      status.textContent = '';
       result.style.cssText = 'display:block;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:var(--accent);';
-      result.textContent  = data.message || 'Nothing to process right now.';
+      result.textContent  = data.message || 'Nothing to process.';
       return;
     }
     status.textContent = `Done · ${data.timestamp}`;
@@ -6714,12 +6779,12 @@ function triggerAutoDispatch() {
       `<b>${data.packed}</b> labels generated &nbsp;·&nbsp; ` +
       `<b>${data.rtd}</b> marked RTD` +
       (errSummary ? `<br><span style="color:#fbbf24;">⚠ ${errSummary} error(s) — check Railway logs</span>` : '');
-    // Refresh the outputs panel so new PDFs appear immediately
     loadLatestOutputs();
   })
   .catch(e => {
     btn.disabled    = false;
     btn.textContent = '▶ Run Now';
+    _autoDispatchPin = null;
     status.textContent = '⚠ Network error: ' + e.message;
   });
 }
@@ -6757,5 +6822,24 @@ function triggerAutoDispatch() {
     </div>
   </div>
 </div>
+
+<!-- ── Auto Dispatch Confirm Modal ── -->
+<div id="autoDispatchModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 32px;width:420px;max-width:94%;box-shadow:0 20px 60px rgba(0,0,0,.5);">
+    <h3 style="font-size:1.05rem;font-weight:700;color:var(--text);margin-bottom:8px;">⚡ Confirm Auto Dispatch</h3>
+    <p id="autoDispatchModalBody" style="font-size:.88rem;color:var(--muted);margin-bottom:22px;line-height:1.6;"></p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button onclick="document.getElementById('autoDispatchModal').style.display='none'"
+        style="padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-size:.85rem;cursor:pointer;font-family:inherit;">
+        Cancel
+      </button>
+      <button id="autoDispatchConfirmBtn"
+        style="padding:8px 20px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);font-size:.85rem;font-weight:700;cursor:pointer;font-family:inherit;">
+        Yes, proceed
+      </button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
