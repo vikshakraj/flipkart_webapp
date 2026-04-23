@@ -1358,7 +1358,7 @@
         <!-- ── Auto Dispatch ── -->
         <div class="ls-card" style="margin-top:16px;">
           <h2 style="margin-bottom:4px;">⚡ Auto Dispatch — Cutest Club</h2>
-          <p class="hint" style="margin-bottom:14px;">Runs automatically at 8:30am, 11:30am, 2pm &amp; 5pm IST. Fetches APPROVED orders → generates labels → marks RTD → updates downloads above.</p>
+          <p class="hint" style="margin-bottom:14px;">Runs automatically at <span id="autoDispatchTimingText">8:30am, 11:30am, 2pm &amp; 5pm</span> IST. Fetches APPROVED orders → generates labels → marks RTD → updates downloads above.</p>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <button class="ls-btn ls-btn-primary" id="autoDispatchBtn" onclick="triggerAutoDispatch()" style="display:inline-flex;align-items:center;gap:6px;">
               ▶ Run Now
@@ -6852,11 +6852,27 @@ function _loadCronStatusBadge() {
     .then(r => r.json())
     .then(cfg => {
       const badge = document.getElementById('cronStatusBadge');
+      const timingText = document.getElementById('autoDispatchTimingText');
+      const times = cfg.times || [];
+
+      // Update the hint text in the card
+      if (timingText) {
+        if (!cfg.enabled) {
+          timingText.textContent = '— (cron disabled)';
+          timingText.style.color = '#ff4466';
+        } else {
+          // Format times nicely: "08:30, 11:30, 14:00, 17:00"
+          timingText.textContent = times.join(', ');
+          timingText.style.color = '';
+        }
+      }
+
+      // Update the status badge below the buttons
       if (!badge) return;
       if (!cfg.enabled) {
         badge.innerHTML = '<span style="color:#ff4466;">● Cron OFF</span>';
       } else {
-        badge.innerHTML = `<span style="color:var(--muted);">● Cron ON &nbsp;·&nbsp; ${(cfg.times||[]).join(', ')} IST</span>`;
+        badge.innerHTML = `<span style="color:var(--muted);">● Cron ON &nbsp;·&nbsp; ${times.join(', ')} IST</span>`;
       }
     })
     .catch(() => {});
