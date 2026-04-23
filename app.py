@@ -3069,6 +3069,77 @@ FK_AUTO_DISPATCH_LOCATION = 'LOC87f71f39207645b9b9427c976d4a7da1'
 # Default package dimensions for orders with no pre-existing dimensions
 FK_DEFAULT_DIMS = {'length': 10, 'breadth': 5, 'height': 5, 'weight': 0.2}
 
+# ── Cron schedule config — stored in /data so editable at runtime ────────────
+CRON_CONFIG_PATH = os.path.join(_data_dir, 'cron_config.json')
+CRON_DEFAULT = {
+    'enabled': True,
+    'times':   ['08:30', '11:30', '14:00', '17:00'],  # IST, HH:MM 24h
+}
+CRON_WINDOW_MINUTES = 10   # fire if within ±10 min of a scheduled time
+
+def _load_cron_config():
+    if not os.path.exists(CRON_CONFIG_PATH):
+        return CRON_DEFAULT.copy()
+    try:
+        with open(CRON_CONFIG_PATH) as f:
+            cfg = json.load(f)
+        # Ensure required keys exist
+        cfg.setdefault('enabled', True)
+        cfg.setdefault('times',   CRON_DEFAULT['times'])
+        return cfg
+    except Exception:
+        return CRON_DEFAULT.copy()
+
+def _save_cron_config(cfg):
+    tmp = CRON_CONFIG_PATH + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(cfg, f)
+    os.replace(tmp, CRON_CONFIG_PATH)
+
+def _cron_should_fire(cfg):
+    """Return True if current IST time is within CRON_WINDOW_MINUTES of any configured time."""
+    if not cfg.get('enabled'):
+        return False
+    now  = datetime.datetime.now(tz=IST)
+    now_minutes = now.hour * 60 + now.minute
+    for t in cfg.get('times', []):
+        try:
+            h, m = map(int, t.split(':'))
+            sched_minutes = h * 60 + m
+            if abs(now_minutes - sched_minutes) <= CRON_WINDOW_MINUTES:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+@app.route('/api/auto-dispatch/cron-config', methods=['GET'])
+def cron_config_get():
+    """Return current cron schedule config."""
+    return jsonify(_load_cron_config())
+
+@app.route('/api/auto-dispatch/cron-config', methods=['POST'])
+def cron_config_save():
+    """Save cron schedule config. PIN protected."""
+    body = request.get_json() or {}
+    if body.get('pin') != '848424':
+        return jsonify({'error': 'Invalid PIN'}), 403
+    times   = body.get('times', [])
+    enabled = bool(body.get('enabled', True))
+    # Validate: 1–6 times, each HH:MM format
+    if not (1 <= len(times) <= 6):
+        return jsonify({'error': 'Must have between 1 and 6 times.'}), 400
+    for t in times:
+        try:
+            h, m = map(int, t.split(':'))
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError()
+        except Exception:
+            return jsonify({'error': f'Invalid time format: {t}. Use HH:MM (24h).'}), 400
+    cfg = {'enabled': enabled, 'times': times}
+    _save_cron_config(cfg)
+    return jsonify({'ok': True, 'config': cfg})
+
 
 def _fk_auto_dispatch():
     """
@@ -3450,10 +3521,18 @@ def auto_dispatch_trigger():
 @app.route('/api/auto-dispatch/cron', methods=['GET', 'POST'])
 def auto_dispatch_cron():
     """
-    Called by Railway cron job — no PIN required (Railway internal only).
-    Logs result to stdout (visible in Railway logs).
+    Called by Railway cron every 30 minutes — no PIN required.
+    Checks the stored schedule config before firing.
     """
-    print(f'[AutoDispatch Cron] Triggered at {datetime.datetime.now(tz=IST).strftime("%d %b %Y, %H:%M IST")}')
+    now_str = datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST')
+    cfg = _load_cron_config()
+    if not cfg.get('enabled'):
+        print(f'[AutoDispatch Cron] {now_str} — skipped (cron disabled)')
+        return jsonify({'ok': True, 'skipped': True, 'reason': 'cron disabled'})
+    if not _cron_should_fire(cfg):
+        print(f'[AutoDispatch Cron] {now_str} — skipped (not a scheduled time; schedule: {cfg["times"]})')
+        return jsonify({'ok': True, 'skipped': True, 'reason': 'not a scheduled time'})
+    print(f'[AutoDispatch Cron] {now_str} — FIRING (matched schedule: {cfg["times"]})')
     result = _fk_auto_dispatch()
     print(f'[AutoDispatch Cron] Result: {json.dumps(result)}')
     return jsonify(result)
