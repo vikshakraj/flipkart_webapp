@@ -1363,8 +1363,10 @@
             <button class="ls-btn ls-btn-primary" id="autoDispatchBtn" onclick="triggerAutoDispatch()" style="display:inline-flex;align-items:center;gap:6px;">
               ▶ Run Now
             </button>
+            <button class="ls-btn" onclick="openCronConfig()" style="font-size:.78rem;">⏱ Edit Timings</button>
             <span id="autoDispatchStatus" style="font-size:.78rem;color:var(--muted);"></span>
           </div>
+          <div id="cronStatusBadge" style="margin-top:10px;font-size:.75rem;color:var(--muted);"></div>
           <div id="autoDispatchResult" style="display:none;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:var(--accent);"></div>
         </div>
       </div>
@@ -6789,6 +6791,147 @@ function _executeAutoDispatch() {
   });
 }
 
+
+// ── Cron Config ──────────────────────────────────────────────────────────────
+let _cronPin       = null;
+let _cronEnabled   = true;
+let _cronTimes     = [];
+
+function _setCronToggleUI(enabled) {
+  _cronEnabled = enabled;
+  const track = document.getElementById('cronToggleTrack');
+  const thumb = document.getElementById('cronToggleThumb');
+  const label = document.getElementById('cronEnabledLabel');
+  const check = document.getElementById('cronEnabledCheck');
+  if (!track) return;
+  if (enabled) {
+    track.style.background = 'var(--accent)';
+    thumb.style.transform  = 'translateX(20px)';
+    label.textContent      = 'ON';
+    label.style.color      = 'var(--accent)';
+  } else {
+    track.style.background = 'var(--border)';
+    thumb.style.transform  = 'translateX(0)';
+    label.textContent      = 'OFF';
+    label.style.color      = 'var(--muted)';
+  }
+  if (check) check.checked = enabled;
+}
+
+function toggleCronEnabled() {
+  _setCronToggleUI(!_cronEnabled);
+}
+
+function _renderCronSlots() {
+  const container = document.getElementById('cronTimeSlots');
+  const addBtn    = document.getElementById('cronAddBtn');
+  container.innerHTML = _cronTimes.map((t, i) => `
+    <div style="display:flex;align-items:center;gap:8px;">
+      <input type="time" value="${t}" onchange="_cronTimes[${i}]=this.value"
+        style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);
+               padding:7px 10px;border-radius:8px;font-size:.88rem;font-family:'JetBrains Mono',monospace;">
+      <button onclick="_removeCronSlot(${i})"
+        style="background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;padding:4px 6px;border-radius:5px;"
+        title="Remove">✕</button>
+    </div>`).join('');
+  if (addBtn) addBtn.style.display = _cronTimes.length >= 6 ? 'none' : '';
+}
+
+function _removeCronSlot(i) {
+  if (_cronTimes.length <= 1) return;  // keep at least 1
+  _cronTimes.splice(i, 1);
+  _renderCronSlots();
+}
+
+window.addCronSlot = function() {
+  if (_cronTimes.length >= 6) return;
+  _cronTimes.push('09:00');
+  _renderCronSlots();
+};
+
+function _loadCronStatusBadge() {
+  fetch('/api/auto-dispatch/cron-config')
+    .then(r => r.json())
+    .then(cfg => {
+      const badge = document.getElementById('cronStatusBadge');
+      if (!badge) return;
+      if (!cfg.enabled) {
+        badge.innerHTML = '<span style="color:#ff4466;">● Cron OFF</span>';
+      } else {
+        badge.innerHTML = `<span style="color:var(--muted);">● Cron ON &nbsp;·&nbsp; ${(cfg.times||[]).join(', ')} IST</span>`;
+      }
+    })
+    .catch(() => {});
+}
+
+window.openCronConfig = function() {
+  const pin = prompt('Enter PIN to edit cron timings:');
+  if (!pin) return;
+  _cronPin = pin;
+
+  // Quick PIN check via a dry-run save with current config won't work cleanly,
+  // so we load config first (public endpoint) and PIN is checked on save.
+  fetch('/api/auto-dispatch/cron-config')
+    .then(r => r.json())
+    .then(cfg => {
+      _cronTimes   = [...(cfg.times || ['08:30'])];
+      _setCronToggleUI(cfg.enabled !== false);
+      _renderCronSlots();
+      document.getElementById('cronConfigError').style.display = 'none';
+      document.getElementById('cronConfigModal').style.display = 'flex';
+    })
+    .catch(e => alert('Could not load config: ' + e.message));
+};
+
+window.closeCronConfig = function() {
+  document.getElementById('cronConfigModal').style.display = 'none';
+  _cronPin = null;
+};
+
+window.saveCronConfig = function() {
+  const errEl  = document.getElementById('cronConfigError');
+  const saveBtn = document.getElementById('cronSaveBtn');
+
+  // Read current time values from inputs
+  const inputs = document.querySelectorAll('#cronTimeSlots input[type=time]');
+  _cronTimes = Array.from(inputs).map(el => el.value).filter(Boolean);
+
+  if (_cronTimes.length < 1 || _cronTimes.length > 6) {
+    errEl.textContent = 'Must have between 1 and 6 times.';
+    errEl.style.display = 'block'; return;
+  }
+
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving…';
+  errEl.style.display = 'none';
+
+  fetch('/api/auto-dispatch/cron-config', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/json'},
+    body:    JSON.stringify({ pin: _cronPin, enabled: _cronEnabled, times: _cronTimes }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save';
+    if (data.error) {
+      errEl.textContent = data.error;
+      errEl.style.display = 'block'; return;
+    }
+    closeCronConfig();
+    _loadCronStatusBadge();
+  })
+  .catch(e => {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save';
+    errEl.textContent = 'Network error: ' + e.message;
+    errEl.style.display = 'block';
+  });
+};
+
+// Load status badge on page load
+document.addEventListener('DOMContentLoaded', _loadCronStatusBadge);
+
 </script>
 
 
@@ -6836,6 +6979,51 @@ function _executeAutoDispatch() {
       <button id="autoDispatchConfirmBtn"
         style="padding:8px 20px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);font-size:.85rem;font-weight:700;cursor:pointer;font-family:inherit;">
         Yes, proceed
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── Cron Config Modal ── -->
+<div id="cronConfigModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1001;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 32px;width:460px;max-width:94%;box-shadow:0 20px 60px rgba(0,0,0,.5);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+      <h3 style="font-size:1.05rem;font-weight:700;color:var(--text);margin:0;">⏱ Edit Cron Timings</h3>
+      <button onclick="closeCronConfig()" style="background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;line-height:1;">×</button>
+    </div>
+
+    <!-- On/Off toggle -->
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding:12px 14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">
+      <span style="font-size:.88rem;font-weight:600;color:var(--text);flex:1;">Auto Dispatch Cron</span>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <div style="position:relative;width:44px;height:24px;" onclick="toggleCronEnabled()">
+          <input type="checkbox" id="cronEnabledCheck" style="opacity:0;width:0;height:0;position:absolute;">
+          <div id="cronToggleTrack" style="position:absolute;inset:0;border-radius:12px;background:var(--border);transition:background .2s;"></div>
+          <div id="cronToggleThumb" style="position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .2s;"></div>
+        </div>
+        <span id="cronEnabledLabel" style="font-size:.82rem;color:var(--muted);min-width:28px;">OFF</span>
+      </label>
+    </div>
+
+    <!-- Time slots -->
+    <div style="font-size:.78rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;">Run Times (IST, 24h format)</div>
+    <div id="cronTimeSlots" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
+    <button onclick="addCronSlot()" id="cronAddBtn"
+      style="font-size:.78rem;color:var(--accent);background:none;border:1px dashed var(--accent);border-radius:7px;padding:6px 14px;cursor:pointer;font-family:inherit;width:100%;opacity:.8;">
+      + Add time
+    </button>
+
+    <div id="cronConfigError" style="display:none;margin-top:12px;font-size:.78rem;color:#ff4466;"></div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
+      <button onclick="closeCronConfig()"
+        style="padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-size:.85rem;cursor:pointer;font-family:inherit;">
+        Cancel
+      </button>
+      <button onclick="saveCronConfig()" id="cronSaveBtn"
+        style="padding:8px 20px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);font-size:.85rem;font-weight:700;cursor:pointer;font-family:inherit;">
+        Save
       </button>
     </div>
   </div>
