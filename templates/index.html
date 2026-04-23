@@ -1339,7 +1339,20 @@
 
       <!-- ── RIGHT: Latest Outputs Panel ── -->
       <div class="ls-right">
-        <div class="ls-right-header">
+        <!-- ── Auto Dispatch ── -->
+        <div class="ls-card" style="margin-bottom:0;border-radius:12px 12px 0 0;border-bottom:none;">
+          <h2 style="margin-bottom:4px;">⚡ Auto Dispatch — Cutest Club</h2>
+          <p class="hint" style="margin-bottom:14px;">Runs automatically at 8:30am, 11:30am, 2pm &amp; 5pm IST. Fetches APPROVED orders → generates labels → marks RTD → updates downloads below.</p>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button class="ls-btn ls-btn-primary" id="autoDispatchBtn" onclick="triggerAutoDispatch()" style="display:inline-flex;align-items:center;gap:6px;">
+              ▶ Run Now
+            </button>
+            <span id="autoDispatchStatus" style="font-size:.78rem;color:var(--muted);"></span>
+          </div>
+          <div id="autoDispatchResult" style="display:none;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:var(--accent);"></div>
+        </div>
+
+        <div class="ls-right-header" style="border-radius:0;">
           <div style="font-weight:700; font-size:1rem; color:var(--text);">📦 Latest Sorted Outputs</div>
           <div style="font-size:0.75rem; color:var(--muted); margin-top:3px;">Ground team: download directly from here</div>
         </div>
@@ -6654,6 +6667,62 @@ window.switchTab = function(name, btn) {
 
 })(); // end IIFE
 
+
+
+// ── Auto Dispatch manual trigger ──
+function triggerAutoDispatch() {
+  const btn    = document.getElementById('autoDispatchBtn');
+  const status = document.getElementById('autoDispatchStatus');
+  const result = document.getElementById('autoDispatchResult');
+
+  const pin = prompt('Enter PIN to trigger Auto Dispatch:');
+  if (!pin) return;
+
+  btn.disabled    = true;
+  btn.textContent = '⏳ Running…';
+  status.textContent = 'Fetching orders, generating labels, marking RTD…';
+  result.style.display = 'none';
+
+  fetch('/api/auto-dispatch', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/json'},
+    body:    JSON.stringify({ pin }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    btn.disabled    = false;
+    btn.textContent = '▶ Run Now';
+    if (data.error) {
+      status.textContent = '⚠ ' + data.error;
+      result.style.cssText = 'display:block;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(255,68,102,.07);border:1px solid rgba(255,68,102,.25);color:#ff6688;';
+      result.textContent  = data.error;
+      return;
+    }
+    if (data.total === 0) {
+      status.textContent = 'No APPROVED orders to process.';
+      result.style.cssText = 'display:block;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:var(--accent);';
+      result.textContent  = data.message || 'Nothing to process right now.';
+      return;
+    }
+    status.textContent = `Done · ${data.timestamp}`;
+    const errSummary = (data.pack_errors||[]).length + (data.rtd_errors||[]).length;
+    result.style.cssText = errSummary
+      ? 'display:block;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(255,191,36,.07);border:1px solid rgba(255,191,36,.25);color:#fbbf24;'
+      : 'display:block;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:var(--accent);';
+    result.innerHTML =
+      `✓ <b>${data.total}</b> orders found &nbsp;·&nbsp; ` +
+      `<b>${data.packed}</b> labels generated &nbsp;·&nbsp; ` +
+      `<b>${data.rtd}</b> marked RTD` +
+      (errSummary ? `<br><span style="color:#fbbf24;">⚠ ${errSummary} error(s) — check Railway logs</span>` : '');
+    // Refresh the outputs panel so new PDFs appear immediately
+    loadLatestOutputs();
+  })
+  .catch(e => {
+    btn.disabled    = false;
+    btn.textContent = '▶ Run Now';
+    status.textContent = '⚠ Network error: ' + e.message;
+  });
+}
 
 </script>
 
