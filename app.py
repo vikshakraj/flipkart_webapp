@@ -3253,27 +3253,46 @@ def _fk_auto_dispatch():
                 'pack_errors': pack_errors}
 
     # ── Step 3: Download labels PDF ───────────────────────────────────────────
-    # Flipkart accepts comma-separated shipment IDs in the URL path.
-    # Batch into groups of 25 and concatenate the PDFs.
+    # Give Flipkart 10 seconds to finish generating labels server-side
+    import time as _time
+    _time.sleep(10)
+
+    # Download in batches of 25 IDs
     label_pdf_parts = []
+    label_dl_errors = []
     for i in range(0, len(shipment_ids_packed), 25):
         batch_ids = ','.join(shipment_ids_packed[i:i+25])
-        try:
-            r = _req.get(
-                f'{base}/v3/shipments/{batch_ids}/labels',
-                headers={**headers, 'Accept': 'application/pdf'},
-                timeout=60,
-            )
-            if r.status_code == 200 and r.content:
-                label_pdf_parts.append(r.content)
-            else:
-                print(f'[AutoDispatch] Label download batch {i//25+1} failed [{r.status_code}]')
-        except Exception as e:
-            print(f'[AutoDispatch] Label download error: {e}')
+        # Try the combined labels+invoice endpoint first, fall back to labelOnly
+        for endpoint_path in [
+            f'{base}/v3/shipments/{batch_ids}/labels',
+            f'{base}/v3/shipments/{batch_ids}/labelOnly/pdf',
+        ]:
+            try:
+                r = _req.get(
+                    endpoint_path,
+                    headers={**headers, 'Accept': 'application/pdf'},
+                    timeout=60,
+                )
+                if r.status_code == 200 and r.content and r.content[:4] == b'%PDF':
+                    label_pdf_parts.append(r.content)
+                    print(f'[AutoDispatch] Label batch {i//25+1} downloaded ({len(r.content)} bytes) via {endpoint_path}')
+                    break
+                else:
+                    label_dl_errors.append(
+                        f'Batch {i//25+1} [{r.status_code}] {endpoint_path}: {r.text[:200]}'
+                    )
+                    print(f'[AutoDispatch] Label batch {i//25+1} failed [{r.status_code}]: {r.text[:200]}')
+            except Exception as e:
+                label_dl_errors.append(f'Batch {i//10+1} error: {e}')
+                print(f'[AutoDispatch] Label download error: {e}')
 
     if not label_pdf_parts:
-        return {'ok': False, 'error': 'Failed to download labels PDF from Flipkart API.',
-                'pack_errors': pack_errors}
+        return {
+            'ok': False,
+            'error': 'Failed to download labels PDF from Flipkart API.',
+            'label_errors': label_dl_errors[:5],
+            'pack_errors':  pack_errors,
+        }
 
     # Merge all label PDF bytes into one (simple concatenation via PdfWriter)
     combined_writer = PdfWriter()
