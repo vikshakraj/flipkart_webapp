@@ -3243,7 +3243,7 @@ def _fk_auto_dispatch(test_mode=False):
     for i in range(0, len(approved_shipments), 25):
         batch = approved_shipments[i:i+25]
         pack_payload = {'shipments': []}
-        now_iso = datetime.datetime.now(tz=datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        now_iso = datetime.datetime.now(tz=datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
         for s in batch:
             sid        = s.get('shipmentId') or s.get('shipment_id', '')
             order_items = s.get('orderItems', [])
@@ -3274,10 +3274,10 @@ def _fk_auto_dispatch(test_mode=False):
                 print(f'[AutoDispatch] SKU "{sku_clean}" → product "{product}" → taxRate {tax_rate}%')
                 if oiid:
                     tax_items.append({
-                        'orderItemId':   oiid,
-                        'purchasePrice': price,
-                        'taxRate':       tax_rate,
-                        'quantity':      qty,
+                        'orderItemId': oiid,
+                        'taxRate':     tax_rate,
+                        'quantity':    qty,
+                        # purchasePrice intentionally omitted — only for refurbished products
                     })
 
             # Build sub-shipment entries with default dimensions
@@ -3298,6 +3298,8 @@ def _fk_auto_dispatch(test_mode=False):
             pack_payload['shipments'].append({
                 'shipmentId':   sid,
                 'locationId':   location,
+                'invoices':     invoices,
+                'taxItems':     tax_items,
                 'subShipments': sub_shipments,
             })
         try:
@@ -3337,7 +3339,7 @@ def _fk_auto_dispatch(test_mode=False):
     # The pack API sometimes returns empty/different IDs. Re-querying for PACKED state
     # gives us the canonical IDs that the label download endpoint will accept.
     import time as _time
-    _time.sleep(10)
+    _time.sleep(15)
 
     packed_ids_verified = []
     try:
