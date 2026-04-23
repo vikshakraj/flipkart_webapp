@@ -1363,6 +1363,9 @@
             <button class="ls-btn ls-btn-primary" id="autoDispatchBtn" onclick="triggerAutoDispatch()" style="display:inline-flex;align-items:center;gap:6px;">
               ▶ Run Now
             </button>
+            <button class="ls-btn" id="autoDispatchTestBtn" onclick="triggerAutoDispatch(true)" style="display:inline-flex;align-items:center;gap:6px;" title="Pack 1 order only, no RTD — for verifying invoice">
+              🧪 Test (1 order)
+            </button>
             <button class="ls-btn" onclick="openCronConfig()" style="font-size:.78rem;">⏱ Edit Timings</button>
             <span id="autoDispatchStatus" style="font-size:.78rem;color:var(--muted);"></span>
           </div>
@@ -6674,7 +6677,7 @@ window.switchTab = function(name, btn) {
 // ── Auto Dispatch manual trigger — two-step: preview then confirm ──
 let _autoDispatchPin = null;
 
-function triggerAutoDispatch() {
+function triggerAutoDispatch(testMode) {
   const btn    = document.getElementById('autoDispatchBtn');
   const status = document.getElementById('autoDispatchStatus');
   const result = document.getElementById('autoDispatchResult');
@@ -6686,6 +6689,8 @@ function triggerAutoDispatch() {
   // Step 1: fetch count preview
   btn.disabled    = true;
   btn.textContent = '⏳ Checking…';
+  if (document.getElementById('autoDispatchTestBtn'))
+    document.getElementById('autoDispatchTestBtn').disabled = true;
   status.textContent = 'Fetching pending order count…';
   result.style.display = 'none';
 
@@ -6698,6 +6703,8 @@ function triggerAutoDispatch() {
   .then(data => {
     btn.disabled    = false;
     btn.textContent = '▶ Run Now';
+    if (document.getElementById('autoDispatchTestBtn'))
+      document.getElementById('autoDispatchTestBtn').disabled = false;
 
     if (data.error) {
       status.textContent = '⚠ ' + data.error;
@@ -6707,7 +6714,6 @@ function triggerAutoDispatch() {
     const count = data.count || 0;
     if (count === 0) {
       status.textContent = '';
-      const result = document.getElementById('autoDispatchResult');
       result.style.cssText = 'display:block;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:var(--accent);';
       result.textContent = 'No orders in Pending Labels right now — nothing to process.';
       return;
@@ -6715,48 +6721,61 @@ function triggerAutoDispatch() {
 
     // Step 2: show confirmation modal
     status.textContent = '';
-    document.getElementById('autoDispatchModalBody').innerHTML =
-      `<b style="color:var(--text);font-size:1rem;">${count} order${count>1?'s':''}</b> found in Pending Labels.<br><br>` +
-      `Proceeding will:<br>` +
-      `&nbsp;&nbsp;• Generate labels for all ${count} order${count>1?'s':''}<br>` +
-      `&nbsp;&nbsp;• Sort and save the labels PDF<br>` +
-      `&nbsp;&nbsp;• Mark all as Ready to Dispatch<br>` +
-      `&nbsp;&nbsp;• Send Telegram notification`;
+    const isTest = !!testMode;
+    document.getElementById('autoDispatchModalBody').innerHTML = isTest
+      ? `<b style="color:var(--text);font-size:1rem;">🧪 Test Mode</b><br><br>` +
+        `Will process <b style="color:var(--text);">1 order</b> out of ${count} pending.<br><br>` +
+        `This will:<br>` +
+        `&nbsp;&nbsp;• Generate label + invoice for 1 order<br>` +
+        `&nbsp;&nbsp;• Save the PDF to Label Sorter downloads<br>` +
+        `&nbsp;&nbsp;• <b style="color:#fbbf24;">NOT mark it as RTD</b> — order stays in Pending Labels<br><br>` +
+        `Check the downloaded invoice before running full dispatch.`
+      : `<b style="color:var(--text);font-size:1rem;">${count} order${count>1?'s':''}</b> found in Pending Labels.<br><br>` +
+        `Proceeding will:<br>` +
+        `&nbsp;&nbsp;• Generate labels for all ${count} order${count>1?'s':''}<br>` +
+        `&nbsp;&nbsp;• Sort and save the labels PDF<br>` +
+        `&nbsp;&nbsp;• Mark all as Ready to Dispatch<br>` +
+        `&nbsp;&nbsp;• Send Telegram notification`;
     document.getElementById('autoDispatchModal').style.display = 'flex';
 
-    // Wire up confirm button
     const confirmBtn = document.getElementById('autoDispatchConfirmBtn');
+    confirmBtn.textContent = isTest ? '🧪 Run Test' : 'Yes, proceed';
     confirmBtn.onclick = () => {
       document.getElementById('autoDispatchModal').style.display = 'none';
-      _executeAutoDispatch();
+      _executeAutoDispatch(isTest);
     };
   })
   .catch(e => {
     btn.disabled    = false;
     btn.textContent = '▶ Run Now';
+    if (document.getElementById('autoDispatchTestBtn'))
+      document.getElementById('autoDispatchTestBtn').disabled = false;
     status.textContent = '⚠ Network error: ' + e.message;
   });
 }
 
-function _executeAutoDispatch() {
+function _executeAutoDispatch(testMode) {
   const btn    = document.getElementById('autoDispatchBtn');
+  const testBtn = document.getElementById('autoDispatchTestBtn');
   const status = document.getElementById('autoDispatchStatus');
   const result = document.getElementById('autoDispatchResult');
 
   btn.disabled    = true;
   btn.textContent = '⏳ Running…';
-  status.textContent = 'Generating labels, sorting, marking RTD…';
+  if (testBtn) testBtn.disabled = true;
+  status.textContent = testMode ? '🧪 Test run in progress…' : 'Generating labels, sorting, marking RTD…';
   result.style.display = 'none';
 
   fetch('/api/auto-dispatch', {
     method:  'POST',
     headers: {'Content-Type': 'application/json'},
-    body:    JSON.stringify({ pin: _autoDispatchPin }),
+    body:    JSON.stringify({ pin: _autoDispatchPin, test_mode: !!testMode }),
   })
   .then(r => r.json())
   .then(data => {
     btn.disabled    = false;
     btn.textContent = '▶ Run Now';
+    if (testBtn) testBtn.disabled = false;
     _autoDispatchPin = null;
 
     if (data.error) {
@@ -6771,6 +6790,17 @@ function _executeAutoDispatch() {
       result.textContent  = data.message || 'Nothing to process.';
       return;
     }
+
+    if (data.test_mode) {
+      status.textContent = `🧪 Test done · ${data.timestamp}`;
+      result.style.cssText = 'display:block;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.3);color:#fbbf24;';
+      result.innerHTML =
+        `🧪 <b>Test complete.</b> 1 order packed, label generated, RTD skipped.<br>` +
+        `<span style="color:var(--muted);">Check the invoice in Label Sorter downloads above. If it looks correct, run <b>▶ Run Now</b> for full dispatch.</span>`;
+      loadLatestOutputs();
+      return;
+    }
+
     status.textContent = `Done · ${data.timestamp}`;
     const errSummary = (data.pack_errors||[]).length + (data.rtd_errors||[]).length;
     result.style.cssText = errSummary
@@ -6786,6 +6816,7 @@ function _executeAutoDispatch() {
   .catch(e => {
     btn.disabled    = false;
     btn.textContent = '▶ Run Now';
+    if (testBtn) testBtn.disabled = false;
     _autoDispatchPin = null;
     status.textContent = '⚠ Network error: ' + e.message;
   });
