@@ -3113,7 +3113,14 @@ def _fk_auto_dispatch():
                 fetched += 1
             if not data.get('hasMore') or not data.get('nextPageUrl'):
                 break
-            next_url = data['nextPageUrl']
+            raw_next = data['nextPageUrl']
+            # Flipkart sometimes returns a relative path — prepend base if needed
+            if raw_next.startswith('/'):
+                next_url = f'{FK_API_BASE}/sellers{raw_next}' if not raw_next.startswith('/sellers') else f'{FK_API_BASE}{raw_next}'
+            elif not raw_next.startswith('http'):
+                next_url = f'{FK_API_BASE}/sellers/{raw_next}'
+            else:
+                next_url = raw_next
             payload  = None   # subsequent pages use GET to nextPageUrl
         except Exception as e:
             return {'ok': False, 'error': f'Shipment filter error: {e}'}
