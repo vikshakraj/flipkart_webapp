@@ -3378,6 +3378,61 @@ def _fk_auto_dispatch():
     }
 
 
+
+@app.route('/api/auto-dispatch/preview', methods=['POST'])
+def auto_dispatch_preview():
+    """
+    Returns count of APPROVED shipments without doing anything.
+    Used by the frontend confirmation step.
+    """
+    import requests as _req
+    data = request.get_json() or {}
+    if data.get('pin') != '848424':
+        return jsonify({'error': 'Invalid PIN'}), 403
+
+    account  = FK_AUTO_DISPATCH_ACCOUNT
+    location = FK_AUTO_DISPATCH_LOCATION
+    try:
+        token = fk_get_token(account)
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 500
+
+    headers  = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    base     = FK_API_BASE + '/sellers'
+    count    = 0
+    next_url = f'{base}/v3/shipments/filter/'
+    payload  = {
+        'filter': {
+            'type':      'preDispatch',
+            'states':    ['APPROVED'],
+            'locationId': location,
+        },
+        'pagination': {'pageSize': 20},
+    }
+    try:
+        while next_url and count < 2000:
+            r = (_req.post(next_url, json=payload, headers=headers, timeout=30)
+                 if next_url.endswith('/filter/')
+                 else _req.get(next_url, headers=headers, timeout=30))
+            if r.status_code != 200:
+                return jsonify({'error': f'API error [{r.status_code}]: {r.text[:200]}'}), 502
+            resp_data = r.json()
+            count += len(resp_data.get('shipments', []))
+            if not resp_data.get('hasMore') or not resp_data.get('nextPageUrl'):
+                break
+            raw_next = resp_data['nextPageUrl']
+            if raw_next.startswith('/'):
+                next_url = f'{FK_API_BASE}/sellers{raw_next}' if not raw_next.startswith('/sellers') else f'{FK_API_BASE}{raw_next}'
+            elif not raw_next.startswith('http'):
+                next_url = f'{FK_API_BASE}/sellers/{raw_next}'
+            else:
+                next_url = raw_next
+            payload = None
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'ok': True, 'count': count})
+
 @app.route('/api/auto-dispatch', methods=['POST'])
 def auto_dispatch_trigger():
     """
