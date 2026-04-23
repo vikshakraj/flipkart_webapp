@@ -6799,23 +6799,21 @@ let _cronTimes     = [];
 
 function _setCronToggleUI(enabled) {
   _cronEnabled = enabled;
-  const track = document.getElementById('cronToggleTrack');
+  const btn   = document.getElementById('cronToggleBtn');
   const thumb = document.getElementById('cronToggleThumb');
   const label = document.getElementById('cronEnabledLabel');
-  const check = document.getElementById('cronEnabledCheck');
-  if (!track) return;
+  if (!btn) return;
   if (enabled) {
-    track.style.background = 'var(--accent)';
-    thumb.style.transform  = 'translateX(20px)';
-    label.textContent      = 'ON';
-    label.style.color      = 'var(--accent)';
+    btn.style.background  = 'var(--accent)';
+    thumb.style.transform = 'translateX(20px)';
+    label.textContent     = 'ON';
+    label.style.color     = 'var(--accent)';
   } else {
-    track.style.background = 'var(--border)';
-    thumb.style.transform  = 'translateX(0)';
-    label.textContent      = 'OFF';
-    label.style.color      = 'var(--muted)';
+    btn.style.background  = 'var(--border)';
+    thumb.style.transform = 'translateX(0)';
+    label.textContent     = 'OFF';
+    label.style.color     = 'var(--muted)';
   }
-  if (check) check.checked = enabled;
 }
 
 function toggleCronEnabled() {
@@ -6996,12 +6994,13 @@ document.addEventListener('DOMContentLoaded', _loadCronStatusBadge);
     <!-- On/Off toggle -->
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding:12px 14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">
       <span style="font-size:.88rem;font-weight:600;color:var(--text);flex:1;">Auto Dispatch Cron</span>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-        <div style="position:relative;width:44px;height:24px;" onclick="toggleCronEnabled()">
-          <input type="checkbox" id="cronEnabledCheck" style="opacity:0;width:0;height:0;position:absolute;">
-          <div id="cronToggleTrack" style="position:absolute;inset:0;border-radius:12px;background:var(--border);transition:background .2s;"></div>
-          <div id="cronToggleThumb" style="position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .2s;"></div>
-        </div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="toggleCronEnabled(); return false;">
+        <button id="cronToggleBtn"
+          style="width:44px;height:24px;border-radius:12px;border:none;background:var(--border);position:relative;cursor:pointer;transition:background .2s;flex-shrink:0;"
+          type="button">
+          <span id="cronToggleThumb"
+            style="position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .2s;display:block;"></span>
+        </button>
         <span id="cronEnabledLabel" style="font-size:.82rem;color:var(--muted);min-width:28px;">OFF</span>
       </label>
     </div>
