@@ -3801,18 +3801,6 @@ def debug():
     return jsonify(info)
 
 
-@app.route('/api/fk-token-expose', methods=['POST'])
-def fk_token_expose():
-    """Temporary: expose full token for support ticket. PIN protected."""
-    data = request.get_json() or {}
-    if data.get('pin') != '848424':
-        return jsonify({'error': 'Invalid PIN'}), 403
-    try:
-        token = fk_get_token('CUTEST CLUB')
-        return jsonify({'token': token})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 def fk_token_status():
     """
     Check Flipkart API token status for all configured accounts.
