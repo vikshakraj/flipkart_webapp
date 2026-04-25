@@ -1650,6 +1650,13 @@ def _fk_sync_sales(account, full_resync=False):
             data = r.json()
             for shipment in data.get('shipments', []):
                 shipment_date = str(shipment.get('orderDate', ''))[:10]
+                # Handle Unix ms timestamps
+                raw_sd = shipment.get('orderDate', '')
+                if isinstance(raw_sd, (int, float)) or (isinstance(raw_sd, str) and raw_sd.isdigit()):
+                    import datetime as _dt
+                    shipment_date = _dt.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
+                if fetched < 3:
+                    print(f'[FKSync] Sample shipment orderDate raw={repr(raw_sd)} parsed={shipment_date}')
                 for item in shipment.get('orderItems', []):
                     # Inject shipment-level orderDate if item-level is missing
                     if not item.get('orderDate') and shipment_date:
