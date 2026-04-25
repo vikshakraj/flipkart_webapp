@@ -2047,6 +2047,17 @@ def sales_data(account):
         result = _compute_analytics(clean)
         if result and meta.get('updated_at'):
             result['updated_at'] = meta['updated_at']
+        # Add order IDs for cross-referencing with ads campaign order data
+        if result:
+            order_ids = set()
+            for rows in clean.values():
+                for r in rows:
+                    oid = r.get('order_item_id', '')
+                    if oid:
+                        # Campaign Order uses OD prefix, our store uses numeric ID
+                        order_ids.add(oid)
+                        order_ids.add('OD' + oid)
+            result['order_ids'] = list(order_ids)
         return jsonify(result or {'empty': True})
 
 
