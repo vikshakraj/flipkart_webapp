@@ -1487,10 +1487,11 @@
           <!-- API sync button shown here when store is empty but API is configured -->
           <div id="saUploadSyncArea" style="display:none;margin-top:14px;">
             <p style="font-size:.8rem;color:var(--muted);margin-bottom:8px;">Or fetch data directly from Flipkart API:</p>
-            <button class="sa-filter-btn" onclick="triggerSaSync(true)"
+            <button class="sa-filter-btn" id="saUploadSyncBtn" onclick="triggerSaUploadSync()"
               style="background:linear-gradient(135deg,var(--accent),#0099cc);color:#0a0e1a;font-weight:700;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-family:inherit;">
               ⚡ Full Sync from API
             </button>
+            <span id="saUploadSyncStatus" style="font-size:.78rem;color:var(--muted);display:block;margin-top:8px;"></span>
           </div>
           <div class="sa-error" id="saError" style="display:none;"></div>
         </div>
@@ -6078,6 +6079,48 @@ function _applySyncStatus(data) {
     if (uploadSync) uploadSync.style.display = 'none';
   }
 }
+
+function triggerSaUploadSync() {
+  const btn    = document.getElementById('saUploadSyncBtn');
+  const status = document.getElementById('saUploadSyncStatus');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Starting sync…'; }
+  if (status) status.textContent = 'Fetching 60 days of data from Flipkart API…';
+  fetch('/api/sales-sync/' + _saAccount.replace(/ /g, '-'), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({full_resync: true}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) {
+      if (btn) { btn.disabled = false; btn.textContent = '⚡ Full Sync from API'; }
+      if (status) status.textContent = '⚠ ' + d.error;
+      return;
+    }
+    if (btn) btn.textContent = '⏳ Syncing in background…';
+    if (status) status.textContent = 'Sync running — this takes 1-2 minutes. Page will refresh automatically.';
+    // Poll every 5 seconds until sync completes
+    const poll = setInterval(() => {
+      fetch('/api/sales-data/' + _saAccount.replace(/ /g, '-'))
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.kpis) {
+            clearInterval(poll);
+            _saData[_saAccount] = data;
+            renderSaDashboard(data);
+            _checkSaSyncAvailable();
+          }
+        }).catch(() => {});
+    }, 5000);
+    // Stop polling after 5 minutes
+    setTimeout(() => { clearInterval(poll); }, 300000);
+  })
+  .catch(e => {
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Full Sync from API'; }
+    if (status) status.textContent = '⚠ Network error: ' + e.message;
+  });
+}
+
 
 function triggerSaSync(fullResync) {
   const syncBtn    = document.getElementById('saSyncBtn');
