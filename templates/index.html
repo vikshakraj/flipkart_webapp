@@ -5044,8 +5044,8 @@ function renderSaDashboard(d){
     { label:'Total Units',         val: d.kpis.total_units.toLocaleString(),   sub:'across all SKUs',                           color:'#00d4ff' },
     ...(hasRevenue ? [{ label:'Total Revenue', val: fmtRev(d.kpis.total_revenue), sub:'active orders only', color:'#00ff88' }] : []),
     { label:'Delivered',           val: d.kpis.delivered_pct+'%',              sub: d.kpis.delivered.toLocaleString()+' units', color:'#00ff88' },
-    { label:'Returned / RTO',      val: d.kpis.returned_pct+'%',              sub: d.kpis.returned.toLocaleString()+' units',  color:'#fbbf24' },
-    { label:'Cancelled',           val: d.kpis.cancelled_pct+'%',             sub: d.kpis.cancelled.toLocaleString()+' units', color:'#ff3366' },
+    { label:'Returned + Cancelled', val: (d.kpis.returned_pct + d.kpis.cancelled_pct).toFixed(1)+'%', sub: (d.kpis.returned + d.kpis.cancelled).toLocaleString()+' units', color:'#fbbf24' },
+    { label:'Cancelled',           val: d.kpis.cancelled_pct+'%',             sub: d.kpis.cancelled.toLocaleString()+' units', color:'#ff3366', hidden: true },
     { label:'Dispatch SLA Breach', val: d.kpis.dispatch_breach_pct+'%',       sub:'of dispatched orders',                      color:'#a855f7', hidden: true },
     { label:'Delivery SLA Breach', val: d.kpis.delivery_breach_pct+'%',       sub:'of delivered orders',                       color:'#fb923c', hidden: true },
   ];
