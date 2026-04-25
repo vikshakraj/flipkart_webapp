@@ -1651,14 +1651,24 @@ def _fk_sync_sales(account, full_resync=False):
                 break
             data = r.json()
             for shipment in data.get('shipments', []):
-                shipment_date = str(shipment.get('orderDate', ''))[:10]
-                # Handle Unix ms timestamps
-                raw_sd = shipment.get('orderDate', '')
-                if isinstance(raw_sd, (int, float)) or (isinstance(raw_sd, str) and raw_sd.isdigit()):
-                    import datetime as _dt
-                    shipment_date = _dt.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
-                if fetched < 3:
-                    print(f'[FKSync] Sample shipment orderDate raw={repr(raw_sd)} parsed={shipment_date}')
+                for shipment in data.get('shipments', []):
+                    raw_sd = shipment.get('orderDate', '')
+                    if isinstance(raw_sd, (int, float)) or (isinstance(raw_sd, str) and str(raw_sd).isdigit() and len(str(raw_sd)) > 10):
+                        shipment_date = datetime.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
+                    else:
+                        shipment_date = str(raw_sd)[:10] if raw_sd else ''
+                    # preDispatch shipments often have no orderDate — try other date fields
+                    if not shipment_date:
+                        for date_field in ['dispatchAfterDate', 'createdAt', 'updatedAt']:
+                            alt = str(shipment.get(date_field, ''))
+                            if alt and len(alt) >= 10:
+                                shipment_date = alt[:10]
+                                break
+                    # Final fallback: use today — preDispatch orders are always current
+                    if not shipment_date:
+                        shipment_date = datetime.datetime.now(tz=IST).strftime('%Y-%m-%d')
+                    if fetched < 3:
+                        print(f'[FKSync] preDispatch sample orderDate={repr(raw_sd)} resolved={shipment_date} keys={list(shipment.keys())[:8]}')
                 for item in shipment.get('orderItems', []):
                     # Inject shipment-level orderDate if item-level is missing
                     if not item.get('orderDate') and shipment_date:
@@ -2040,17 +2050,19 @@ def sales_sync(account):
             s[sync_key] = True
             _save_sales_store(account, s)
             _fk_sync_sales(account, full_resync=full_resync)
+            print(f'[BgSync] {account} completed successfully')
         except Exception as e:
             print(f'[BgSync] {account} error: {e}')
             traceback.print_exc()
         finally:
-            # Clear sync flag
+            # Always clear sync flag
             try:
                 s = _load_sales_store(account)
                 s.pop(sync_key, None)
                 _save_sales_store(account, s)
-            except Exception:
-                pass
+                print(f'[BgSync] {account} sync flag cleared')
+            except Exception as fe:
+                print(f'[BgSync] {account} failed to clear flag: {fe}')
 
     t = threading.Thread(target=_bg_sync, daemon=True)
     t.start()
