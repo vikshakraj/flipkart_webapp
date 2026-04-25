@@ -1303,7 +1303,7 @@ def _fk_item_to_store_row(item, product_resolver):
         item.get('dispatchByDate'), item.get('dispatchedDate'),
         item.get('deliverByDate'),  item.get('deliveryDate'),
     )
-    order_date = item.get('orderDate', '')
+    order_date = item.get('orderDate', '') or item.get('order_date', '')
     # Handle Unix ms timestamps (13-digit numbers)
     if isinstance(order_date, (int, float)) or (isinstance(order_date, str) and str(order_date).isdigit() and len(str(order_date)) > 10):
         date_str = datetime.datetime.fromtimestamp(int(order_date)/1000, tz=IST).strftime('%Y-%m-%d')
@@ -1331,7 +1331,7 @@ def _compute_analytics(store):
 
     ACTIVE    = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD'}
     RETURNED  = {'RETURNED'}
-    CANCELLED = {'CANCELLED','RETURN_REQUESTED'}
+    CANCELLED = {'CANCELLED','RETURN_REQUESTED','REJECTED'}
     # Only these return reasons count as genuine returns; all others → cancellation
     VALID_RETURN_REASONS = {
         'orc_validated with customer',
@@ -1634,7 +1634,7 @@ def _fk_sync_sales(account, full_resync=False):
     payload = {
         'filter': {
             'type':   'preDispatch',
-            'states': ['APPROVED', 'READY_TO_DISPATCH', 'PACKED', 'PACKING_IN_PROGRESS'],
+            'states': ['APPROVED', 'READY_TO_DISPATCH', 'PACKED', 'PACKING_IN_PROGRESS', 'READY_TO_SHIP'],
             'locationId': FK_AUTO_DISPATCH_LOCATION,
         },
         'pagination': {'pageSize': 20},
@@ -1657,21 +1657,29 @@ def _fk_sync_sales(account, full_resync=False):
                         shipment_date = datetime.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
                     else:
                         shipment_date = str(raw_sd)[:10] if raw_sd else ''
-                    # preDispatch shipments often have no orderDate — try other date fields
+                    # preDispatch shipments often have no orderDate — use dispatchAfterDate - 1 day as proxy
                     if not shipment_date:
-                        for date_field in ['dispatchAfterDate', 'createdAt', 'updatedAt']:
+                        for date_field in ['dispatchAfterDate', 'dispatchByDate', 'updatedAt']:
                             alt = str(shipment.get(date_field, ''))
                             if alt and len(alt) >= 10:
-                                shipment_date = alt[:10]
+                                try:
+                                    proxy = (datetime.datetime.strptime(alt[:10], '%Y-%m-%d')
+                                             - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                                    shipment_date = proxy
+                                except Exception:
+                                    shipment_date = alt[:10]
                                 break
-                    # Final fallback: use today — preDispatch orders are always current
+                    # Final fallback: use today
                     if not shipment_date:
                         shipment_date = datetime.datetime.now(tz=IST).strftime('%Y-%m-%d')
                     if fetched < 3:
-                        print(f'[FKSync] preDispatch sample orderDate={repr(raw_sd)} resolved={shipment_date} keys={list(shipment.keys())[:8]}')
+                        print(f'[FKSync] preDispatch sample orderDate={repr(raw_sd)} resolved={shipment_date}')
                 for item in shipment.get('orderItems', []):
+                    # Log first item keys to see what date fields are available
+                    if fetched == 0:
+                        print(f'[FKSync] preDispatch item keys: {list(item.keys())[:12]}')
                     # Inject shipment-level orderDate if item-level is missing
-                    if not item.get('orderDate') and shipment_date:
+                    if not item.get('orderDate') and not item.get('order_date') and shipment_date:
                         item = {**item, 'orderDate': shipment_date}
                     ds, row = _fk_item_to_store_row(item, resolve_product)
                     if ds and ds >= cutoff:
