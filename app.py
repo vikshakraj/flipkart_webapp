@@ -1233,6 +1233,19 @@ def _extract_product(sku):
     s = re.sub(r'\s+(ES|RW|CC|HH)\s*$', '', s, flags=re.IGNORECASE).strip()
     return s or sku
 
+
+def _fix_next_url(raw):
+    """Normalise Flipkart's nextPageUrl which is sometimes a relative path."""
+    if not raw:
+        return None
+    if raw.startswith('http'):
+        return raw
+    if raw.startswith('/sellers'):
+        return f'{FK_API_BASE}{raw}'
+    if raw.startswith('/'):
+        return f'{FK_API_BASE}/sellers{raw}'
+    return f'{FK_API_BASE}/sellers/{raw}'
+
 def _df_to_store_rows(df):
     """Convert a filtered DataFrame to a {date_str: [row,...]} dict."""
     import pandas as pd
@@ -1633,14 +1646,18 @@ def _fk_sync_sales(account, full_resync=False):
                 break
             data = r.json()
             for shipment in data.get('shipments', []):
+                shipment_date = str(shipment.get('orderDate', ''))[:10]
                 for item in shipment.get('orderItems', []):
+                    # Inject shipment-level orderDate if item-level is missing
+                    if not item.get('orderDate') and shipment_date:
+                        item = {**item, 'orderDate': shipment_date}
                     ds, row = _fk_item_to_store_row(item, resolve_product)
                     if ds and ds >= cutoff:
                         new_rows[ds].append(row)
                         fetched += 1
             if not data.get('hasMore') or not data.get('nextPageUrl'):
                 break
-            next_url = data['nextPageUrl']
+            next_url = _fix_next_url(data['nextPageUrl'])
         except Exception as e:
             print(f'[FKSync] preDispatch error: {e}')
             break
@@ -1671,14 +1688,17 @@ def _fk_sync_sales(account, full_resync=False):
                     break
                 data = r.json()
                 for shipment in data.get('shipments', []):
+                    shipment_date = str(shipment.get('orderDate', ''))[:10]
                     for item in shipment.get('orderItems', []):
+                        if not item.get('orderDate') and shipment_date:
+                            item = {**item, 'orderDate': shipment_date}
                         ds, row = _fk_item_to_store_row(item, resolve_product)
                         if ds and ds >= cutoff:
                             new_rows[ds].append(row)
                             fetched += 1
                 if not data.get('hasMore') or not data.get('nextPageUrl'):
                     break
-                next_url = data['nextPageUrl']
+                next_url = _fix_next_url(data['nextPageUrl'])
             except Exception as e:
                 print(f'[FKSync] postDispatch error: {e}')
                 break
@@ -1708,14 +1728,17 @@ def _fk_sync_sales(account, full_resync=False):
                 if r.status_code != 200: break
                 data = r.json()
                 for shipment in data.get('shipments', []):
+                    shipment_date = str(shipment.get('orderDate', ''))[:10]
                     for item in shipment.get('orderItems', []):
+                        if not item.get('orderDate') and shipment_date:
+                            item = {**item, 'orderDate': shipment_date}
                         ds, row = _fk_item_to_store_row(item, resolve_product)
                         if ds and ds >= cutoff:
                             new_rows[ds].append(row)
                             fetched += 1
                 if not data.get('hasMore') or not data.get('nextPageUrl'):
                     break
-                next_url = data['nextPageUrl']
+                next_url = _fix_next_url(data['nextPageUrl'])
             except Exception as e:
                 print(f'[FKSync] {ctype} error: {e}')
                 break
