@@ -1635,7 +1635,7 @@ def _fk_sync_sales(account, full_resync=False):
                 'to':   f'{fetch_to}T23:59:59+05:30',
             },
         },
-        'pagination': {'pageSize': 200},
+        'pagination': {'pageSize': 20},
     }
     next_url = base_url
     fetched  = 0
@@ -1684,7 +1684,7 @@ def _fk_sync_sales(account, full_resync=False):
                     'to':   f'{fetch_to}T23:59:59+05:30',
                 },
             },
-            'pagination': {'pageSize': 200},
+            'pagination': {'pageSize': 20},
         }
         next_url = base_url
         fetched  = 0
@@ -1726,7 +1726,7 @@ def _fk_sync_sales(account, full_resync=False):
                     'to':   f'{fetch_to}T23:59:59+05:30',
                 },
             },
-            'pagination': {'pageSize': 200},
+            'pagination': {'pageSize': 20},
         }
         next_url = base_url
         fetched  = 0
