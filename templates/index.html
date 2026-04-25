@@ -5833,26 +5833,27 @@ function renderSaSkuAnalysis(d) {
       if (!adsResult.empty && !adsResult.error && adsResult.data) {
         const ad = adsResult.data;
 
-        // Build FSN → SKU ID map from consolidatedFSN, but only for SKUs in our sales data
-        // This filters out cross-account SKUs
+        // Build set of order IDs from THIS account's sales data for verification
+        const accountOrderIds = new Set(d.order_ids || []);
+        const hasOrderIdFilter = accountOrderIds.size > 0;
+
+        // Step 1: Build Product Name (long title) → Sku Id map from consolidatedFSN
         const salesSkuIds = new Set(Object.keys(salesMap));
-        const fsnToSkuId = {};
         const titleToSkuId = {};
+        const fsnToSkuId   = {};
         (ad.consolidatedFSN || []).forEach(row => {
           const skuId = (row['Sku Id'] || '').trim();
           const title = (row['Product Name'] || '').trim();
-          const fsn   = (row['FSN'] || row['Fsn'] || row['fsn'] || '').trim();
-          // Only include this SKU if it exists in our account's sales data
-          if (skuId && salesSkuIds.has(skuId)) {
-            if (title) titleToSkuId[title.toLowerCase()] = skuId;
-            if (fsn)   fsnToSkuId[fsn] = skuId;
+          if (skuId && title) {
+            titleToSkuId[title.toLowerCase()] = skuId;
           }
         });
-        // Also map FSN from campaignOrder directly to SKU via sales data
-        // by matching Advertised FSN ID against any FSN stored in sales rows
-        Object.entries(salesMap).forEach(([skuId, sales]) => {
-          titleToSkuId[skuId.toLowerCase()] = skuId;
-          if (sales.product) titleToSkuId[sales.product.toLowerCase()] = skuId;
+
+        // Step 2: Build FSN → Sku Id from consolidatedFSN if FSN column exists
+        (ad.consolidatedFSN || []).forEach(row => {
+          const skuId = (row['Sku Id'] || '').trim();
+          const fsn   = (row['FSN'] || row['Fsn'] || row['fsn'] || '').trim();
+          if (skuId && fsn) fsnToSkuId[fsn] = skuId;
         });
 
         const campNames = {};
@@ -5863,11 +5864,15 @@ function renderSaSkuAnalysis(d) {
           const productName    = (row['Product Name'] || '').trim();
           const advertisedFSN  = (row['Advertised FSN ID'] || '').trim();
           const purchasedFSN   = (row['Purchased FSN ID'] || '').trim();
-          // Try: exact title match → FSN match → skip
+          // Match: long title → SKU ID via FSN report bridge
           let skuId = titleToSkuId[productName.toLowerCase()]
                    || fsnToSkuId[advertisedFSN]
                    || fsnToSkuId[purchasedFSN];
-          if (!skuId) return;
+          // Only include if this SKU exists in THIS account's sales data
+          if (!skuId || !salesSkuIds.has(skuId)) return;
+          // If we have order IDs from sales data, verify this campaign order belongs to this account
+          const orderId = (row['order_id'] || '').trim();
+          if (hasOrderIdFilter && orderId && !accountOrderIds.has(orderId)) return;
           const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
           const units   = (parseInt(row['Direct Units Sold']) || 0) + (parseInt(row['Indirect Units Sold']) || 0);
           const cid     = row['Campaign ID'];
