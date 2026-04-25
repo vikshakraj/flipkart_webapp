@@ -5833,29 +5833,26 @@ function renderSaSkuAnalysis(d) {
       if (!adsResult.empty && !adsResult.error && adsResult.data) {
         const ad = adsResult.data;
 
-        // Build Product Name → SKU ID map from sales data (account-specific, no cross-account pollution)
-        // This replaces the consolidatedFSN-based lookup which was cross-account
+        // Build FSN → SKU ID map from consolidatedFSN, but only for SKUs in our sales data
+        // This filters out cross-account SKUs
+        const salesSkuIds = new Set(Object.keys(salesMap));
+        const fsnToSkuId = {};
         const titleToSkuId = {};
-        // From sales sku_by_product — keys are SKU IDs, values have product name
-        Object.entries(d.sku_by_product || {}).forEach(([product, skus]) => {
-          Object.keys(skus).forEach(skuId => {
-            // Try to match campaign order product names to our SKU IDs
-            titleToSkuId[skuId.toLowerCase()] = skuId;
-          });
-        });
-        // Also build from salesMap (skuId → product title variations)
-        Object.entries(salesMap).forEach(([skuId, sales]) => {
-          titleToSkuId[skuId.toLowerCase()] = skuId;
-          if (sales.product) titleToSkuId[sales.product.toLowerCase()] = skuId;
-        });
-        // Fallback: still use consolidatedFSN for title matching but only if it has SKU Id column
         (ad.consolidatedFSN || []).forEach(row => {
           const skuId = (row['Sku Id'] || '').trim();
           const title = (row['Product Name'] || '').trim();
-          if (skuId && title) {
-            titleToSkuId[title.toLowerCase()] = skuId;
-            titleToSkuId[skuId.toLowerCase()] = skuId;
+          const fsn   = (row['FSN'] || row['Fsn'] || row['fsn'] || '').trim();
+          // Only include this SKU if it exists in our account's sales data
+          if (skuId && salesSkuIds.has(skuId)) {
+            if (title) titleToSkuId[title.toLowerCase()] = skuId;
+            if (fsn)   fsnToSkuId[fsn] = skuId;
           }
+        });
+        // Also map FSN from campaignOrder directly to SKU via sales data
+        // by matching Advertised FSN ID against any FSN stored in sales rows
+        Object.entries(salesMap).forEach(([skuId, sales]) => {
+          titleToSkuId[skuId.toLowerCase()] = skuId;
+          if (sales.product) titleToSkuId[sales.product.toLowerCase()] = skuId;
         });
 
         const campNames = {};
@@ -5863,17 +5860,13 @@ function renderSaSkuAnalysis(d) {
         (ad.pla || []).forEach(r => { if (r['Campaign ID'] && r['Campaign Name']) campNames[r['Campaign ID']] = r['Campaign Name']; });
 
         (ad.campaignOrder || []).forEach(row => {
-          const productName = (row['Product Name'] || '').trim();
-          const advertisedFSN = (row['Advertised FSN ID'] || '').trim();
-          // Try matching by product name first, then by FSN
-          let skuId = titleToSkuId[productName.toLowerCase()];
-          if (!skuId) {
-            // Try partial match — campaign order product names are often longer than our SKU names
-            const matchKey = Object.keys(titleToSkuId).find(k =>
-              k.length > 5 && (productName.toLowerCase().includes(k) || k.includes(productName.toLowerCase()))
-            );
-            if (matchKey) skuId = titleToSkuId[matchKey];
-          }
+          const productName    = (row['Product Name'] || '').trim();
+          const advertisedFSN  = (row['Advertised FSN ID'] || '').trim();
+          const purchasedFSN   = (row['Purchased FSN ID'] || '').trim();
+          // Try: exact title match → FSN match → skip
+          let skuId = titleToSkuId[productName.toLowerCase()]
+                   || fsnToSkuId[advertisedFSN]
+                   || fsnToSkuId[purchasedFSN];
           if (!skuId) return;
           const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
           const units   = (parseInt(row['Direct Units Sold']) || 0) + (parseInt(row['Indirect Units Sold']) || 0);
