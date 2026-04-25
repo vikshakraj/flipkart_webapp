@@ -1632,7 +1632,7 @@ def _fk_sync_sales(account, full_resync=False):
                 'to':   f'{fetch_to}T23:59:59+05:30',
             },
         },
-        'pagination': {'pageSize': 20},
+        'pagination': {'pageSize': 200},
     }
     next_url = base_url
     fetched  = 0
@@ -1674,7 +1674,7 @@ def _fk_sync_sales(account, full_resync=False):
                     'to':   f'{fetch_to}T23:59:59+05:30',
                 },
             },
-            'pagination': {'pageSize': 20},
+            'pagination': {'pageSize': 200},
         }
         next_url = base_url
         fetched  = 0
@@ -1716,7 +1716,7 @@ def _fk_sync_sales(account, full_resync=False):
                     'to':   f'{fetch_to}T23:59:59+05:30',
                 },
             },
-            'pagination': {'pageSize': 20},
+            'pagination': {'pageSize': 200},
         }
         next_url = base_url
         fetched  = 0
@@ -1991,8 +1991,9 @@ def sales_data(account):
 def sales_sync(account):
     """
     Trigger a Flipkart API sync for the given account.
-    Only works for accounts with FK credentials configured.
+    Runs in a background thread to avoid HTTP timeout on large syncs.
     """
+    import threading
     account = account.upper().replace('-', ' ')
     if account not in SALES_ACCOUNTS:
         return jsonify({'error': f'Unknown account: {account}'}), 400
@@ -2000,27 +2001,39 @@ def sales_sync(account):
     if not app_id:
         return jsonify({'error': f'No Flipkart API credentials configured for {account}. '
                                   f'Set {_fk_env_key(account)}_APP_ID and _APP_SECRET in Railway.'}), 400
-    try:
-        body = request.get_json() or {}
-        full_resync = bool(body.get('full_resync', False))
-        result = _fk_sync_sales(account, full_resync=full_resync)
-        # Return fresh analytics immediately after sync
-        store  = _load_sales_store(account)
-        store  = _prune_old_dates(store)
-        meta   = store.pop('__meta__', {})
-        clean  = {k: v for k, v in store.items() if not k.startswith('__')}
-        analytics = _compute_analytics(clean)
-        if analytics and meta.get('updated_at'):
-            analytics['updated_at'] = meta['updated_at']
-        return jsonify({
-            'sync':      result,
-            'analytics': analytics or {},
-        })
-    except RuntimeError as e:
-        return jsonify({'error': str(e)}), 500
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+    body = request.get_json() or {}
+    full_resync = bool(body.get('full_resync', False))
+
+    # Check if a sync is already running for this account
+    sync_key = f'__syncing_{account}__'
+    store_check = _load_sales_store(account)
+    if store_check.get(sync_key):
+        return jsonify({'ok': True, 'status': 'already_running',
+                        'message': 'Sync already in progress for this account.'})
+
+    def _bg_sync():
+        try:
+            # Mark sync in progress
+            s = _load_sales_store(account)
+            s[sync_key] = True
+            _save_sales_store(account, s)
+            _fk_sync_sales(account, full_resync=full_resync)
+        except Exception as e:
+            print(f'[BgSync] {account} error: {e}')
+            traceback.print_exc()
+        finally:
+            # Clear sync flag
+            try:
+                s = _load_sales_store(account)
+                s.pop(sync_key, None)
+                _save_sales_store(account, s)
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_bg_sync, daemon=True)
+    t.start()
+    return jsonify({'ok': True, 'status': 'started',
+                    'message': f'{"Full re-sync" if full_resync else "Sync"} started in background for {account}. Refresh in 30–60 seconds.'})
 
 
 @app.route('/api/sales-sync-status', methods=['GET'])
@@ -2031,12 +2044,14 @@ def sales_sync_status():
         app_id, _ = _fk_credentials(account)
         store = _load_sales_store(account)
         meta  = store.get('__meta__', {})
+        sync_key = f'__syncing_{account}__'
         results[account] = {
             'api_configured': bool(app_id),
             'sync_method':    meta.get('sync_method', 'xlsx'),
             'updated_at':     meta.get('updated_at', 'never'),
             'fetch_from':     meta.get('fetch_from', ''),
             'fetch_to':       meta.get('fetch_to', ''),
+            'syncing':        bool(store.get(sync_key, False)),
         }
     return jsonify(results)
 
