@@ -4893,7 +4893,8 @@ const SA_COLORS = [
 ];
 
 function switchSaAccount(account, btn){
-  _saAccount = account;
+  // Normalise to space-separated for consistency with backend keys
+  _saAccount = account.replace(/-/g, ' ');
   _saSkuAnalysisData = null;
   document.getElementById('saSkuAnalysisSection').style.display = 'none';
   document.querySelectorAll('.sa-acct-tab').forEach(b=>b.classList.remove('active'));
@@ -4905,12 +4906,18 @@ function switchSaAccount(account, btn){
   document.getElementById('saFileName').textContent = 'Drop Orders XLSX here or click to browse';
   document.getElementById('saAnalyseBtn').disabled = true;
   // Update upload prompt text
-  const friendly = account === 'CONSOLIDATED' ? 'Consolidated' : account.replace('-',' ');
+  const friendly = account === 'CONSOLIDATED' ? 'Consolidated' : account.replace(/-/g,' ');
   document.getElementById('saUploadTitle').textContent = friendly + ' — Sales Analytics';
   document.getElementById('saUploadSub').textContent =
     account === 'CONSOLIDATED'
       ? 'Upload data for each account first to see consolidated view'
       : 'Upload the Flipkart Orders XLSX for ' + friendly;
+  // Re-check sync button availability for this account
+  if (_saSyncStatusCache) {
+    _applySyncStatus(_saSyncStatusCache);
+  } else {
+    _checkSaSyncAvailable();
+  }
   // Try loading cached / stored data
   loadSaData(account);
 }
