@@ -1810,15 +1810,13 @@ def _fk_sync_sales(account, full_resync=False):
         print(f'[FKSync] {ctype} → {fetched} items')
 
     # --- returns via postDispatch filter with RETURNED/RETURN_REQUESTED states ---
+    # Note: don't filter by orderDate for returns — return date != order date
+    # Fetch all returns and filter by order date in Python
     for ret_state in [['RETURNED', 'RETURN_REQUESTED']]:
         payload = {
             'filter': {
-                'type': 'postDispatch',
+                'type':   'postDispatch',
                 'states': ret_state,
-                'orderDate': {
-                    'from': f'{fetch_from}T00:00:00+05:30',
-                    'to':   f'{fetch_to}T23:59:59+05:30',
-                },
             },
             'pagination': {'pageSize': 20},
         }
