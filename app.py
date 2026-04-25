@@ -1329,7 +1329,7 @@ def _compute_analytics(store):
     # Filter out internal __ keys before processing
     store = {k: v for k, v in store.items() if not k.startswith('__')}
 
-    ACTIVE    = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD'}
+    ACTIVE    = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD','SHIPPED','READY_TO_DISPATCH','PACKED','PACKING_IN_PROGRESS'}
     RETURNED  = {'RETURNED'}
     CANCELLED = {'CANCELLED','RETURN_REQUESTED','REJECTED'}
     # Only these return reasons count as genuine returns; all others → cancellation
