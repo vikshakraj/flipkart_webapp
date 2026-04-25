@@ -6077,15 +6077,25 @@ function triggerSaSync(fullResync) {
         alert('Sync failed: ' + result.error);
         syncBtn.textContent = '⚡ Sync Now';
         syncBtn.disabled = false;
+        syncStatus.textContent = '';
         return;
       }
-      const s = result.sync;
-      syncStatus.textContent = `Synced ${s.total_fetched} orders · ${s.new_dates} dates updated`;
+      // Background sync started — poll until the sync flag clears
+      if (result.status === 'started' || result.status === 'already_running') {
+        syncStatus.textContent = fullResync
+          ? 'Full re-sync running in background… this may take 1–2 minutes.'
+          : 'Sync running in background…';
+        _pollSaSync(apiAcct, syncBtn, syncStatus, 0);
+        return;
+      }
+      // Legacy: sync returned inline (shouldn't happen now but handle gracefully)
+      const s = result.sync || {};
+      syncStatus.textContent = s.total_fetched != null
+        ? `Synced ${s.total_fetched} orders · ${s.new_dates} dates updated`
+        : 'Sync complete.';
       syncBtn.textContent = '⚡ Sync Now';
       syncBtn.disabled = false;
-      // Invalidate sync cache so next render re-fetches
       _saSyncStatusCache = null;
-      // Update dashboard with fresh analytics
       if (result.analytics && result.analytics.kpis) {
         _saData[_saAccount] = result.analytics;
         renderSaDashboard(result.analytics);
@@ -6095,8 +6105,53 @@ function triggerSaSync(fullResync) {
       alert('Sync error: ' + e.message);
       syncBtn.textContent = '⚡ Sync Now';
       syncBtn.disabled = false;
+      syncStatus.textContent = '';
     });
 }
+
+function _pollSaSync(apiAcct, syncBtn, syncStatus, attempts) {
+  // Poll the analytics endpoint — when the sync flag clears, updated_at will change
+  if (attempts > 60) {
+    // Give up after ~3 minutes
+    syncBtn.textContent = '⚡ Sync Now';
+    syncBtn.disabled = false;
+    syncStatus.textContent = 'Sync may still be running. Refresh the page to check.';
+    return;
+  }
+  setTimeout(() => {
+    fetch('/api/sales-analytics/' + apiAcct)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          // Still syncing (sync flag present) — keep polling
+          _pollSaSync(apiAcct, syncBtn, syncStatus, attempts + 1);
+          return;
+        }
+        // Check if sync is still in progress via sync-status endpoint
+        fetch('/api/sales-sync-status')
+          .then(r => r.json())
+          .then(statusData => {
+            const acctStatus = statusData[_saAccount] || {};
+            if (acctStatus.syncing) {
+              _pollSaSync(apiAcct, syncBtn, syncStatus, attempts + 1);
+              return;
+            }
+            // Sync done
+            syncBtn.textContent = '⚡ Sync Now';
+            syncBtn.disabled = false;
+            _saSyncStatusCache = null;
+            if (data.kpis) {
+              _saData[_saAccount] = data;
+              renderSaDashboard(data);
+              syncStatus.textContent = `Sync complete · ${data.updated_at || ''}`;
+            } else {
+              syncStatus.textContent = 'Sync complete. Reload to see updated data.';
+            }
+          })
+          .catch(() => _pollSaSync(apiAcct, syncBtn, syncStatus, attempts + 1));
+      })
+      .catch(() => _pollSaSync(apiAcct, syncBtn, syncStatus, attempts + 1));
+  }, 3000); // poll every 3 seconds
 /* ═══════════════════════════════════════════════════════════
    LISTINGS MODULE
 ═══════════════════════════════════════════════════════════ */
