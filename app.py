@@ -1651,29 +1651,28 @@ def _fk_sync_sales(account, full_resync=False):
                 break
             data = r.json()
             for shipment in data.get('shipments', []):
-                for shipment in data.get('shipments', []):
-                    raw_sd = shipment.get('orderDate', '')
-                    if isinstance(raw_sd, (int, float)) or (isinstance(raw_sd, str) and str(raw_sd).isdigit() and len(str(raw_sd)) > 10):
-                        shipment_date = datetime.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
-                    else:
-                        shipment_date = str(raw_sd)[:10] if raw_sd else ''
-                    # preDispatch shipments often have no orderDate — use dispatchAfterDate - 1 day as proxy
-                    if not shipment_date:
-                        for date_field in ['dispatchAfterDate', 'dispatchByDate', 'updatedAt']:
-                            alt = str(shipment.get(date_field, ''))
-                            if alt and len(alt) >= 10:
-                                try:
-                                    proxy = (datetime.datetime.strptime(alt[:10], '%Y-%m-%d')
-                                             - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-                                    shipment_date = proxy
-                                except Exception:
-                                    shipment_date = alt[:10]
-                                break
-                    # Final fallback: use today
-                    if not shipment_date:
-                        shipment_date = datetime.datetime.now(tz=IST).strftime('%Y-%m-%d')
-                    if fetched < 3:
-                        print(f'[FKSync] preDispatch sample orderDate={repr(raw_sd)} resolved={shipment_date}')
+                raw_sd = shipment.get('orderDate', '')
+                if isinstance(raw_sd, (int, float)) or (isinstance(raw_sd, str) and str(raw_sd).isdigit() and len(str(raw_sd)) > 10):
+                    shipment_date = datetime.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
+                else:
+                    shipment_date = str(raw_sd)[:10] if raw_sd else ''
+                # preDispatch shipments often have no orderDate — use dispatchAfterDate - 1 day as proxy
+                if not shipment_date:
+                    for date_field in ['dispatchAfterDate', 'dispatchByDate', 'updatedAt']:
+                        alt = str(shipment.get(date_field, ''))
+                        if alt and len(alt) >= 10:
+                            try:
+                                proxy = (datetime.datetime.strptime(alt[:10], '%Y-%m-%d')
+                                         - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                                shipment_date = proxy
+                            except Exception:
+                                shipment_date = alt[:10]
+                            break
+                # Final fallback: use today
+                if not shipment_date:
+                    shipment_date = datetime.datetime.now(tz=IST).strftime('%Y-%m-%d')
+                if fetched < 3:
+                    print(f'[FKSync] preDispatch sample orderDate={repr(raw_sd)} resolved={shipment_date}')
                 for item in shipment.get('orderItems', []):
                     # Log first item keys to see what date fields are available
                     if fetched == 0:
