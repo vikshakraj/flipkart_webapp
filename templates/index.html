@@ -4931,7 +4931,7 @@ async function loadSaData(account){
   document.getElementById('saUploadCard').style.display = 'none';
   document.getElementById('saLoading').style.display = 'block';
   try{
-    const apiAcct = account.replace(' ','-');
+    const apiAcct = account.replace(/ /g,'-');
     const resp = await fetch('/api/sales-data/' + apiAcct);
     const d    = await resp.json();
     document.getElementById('saLoading').style.display = 'none';
@@ -4963,7 +4963,7 @@ async function runSalesUpload(){
   const fd = new FormData();
   fd.append('xlsx', fileInput.files[0]);
   try{
-    const apiAcct = _saAccount.replace(' ','-');
+    const apiAcct = _saAccount.replace(/ /g,'-');
     const resp = await fetch('/api/sales-upload/' + apiAcct, {method:'POST', body:fd});
     const d    = await resp.json();
     if(!resp.ok || d.error) throw new Error(d.error || 'Server error');
@@ -4993,7 +4993,7 @@ function hideSaDashboard(){
 
 async function clearSaData(){
   if(!confirm('This will delete all stored data for ' + _saAccount + '. Are you sure?')) return;
-  const apiAcct = _saAccount.replace(' ','-');
+  const apiAcct = _saAccount.replace(/ /g,'-');
   try{
     await fetch('/api/sales-clear/' + apiAcct, {method:'POST'});
     delete _saData[_saAccount];
