@@ -1809,56 +1809,9 @@ def _fk_sync_sales(account, full_resync=False):
         total_fetched += fetched
         print(f'[FKSync] {ctype} → {fetched} items')
 
-    # --- returns via postDispatch filter with RETURNED/RETURN_REQUESTED states ---
-    # Note: don't filter by orderDate for returns — return date != order date
-    # Fetch all returns and filter by order date in Python
-    for ret_state in [['RETURNED', 'RETURN_REQUESTED']]:
-        payload = {
-            'filter': {
-                'type':   'postDispatch',
-                'states': ret_state,
-            },
-            'pagination': {'pageSize': 20},
-        }
-        next_url2 = base_url
-        ret_fetched = 0
-        while next_url2 and ret_fetched < 5000:
-            try:
-                r = (_req.post(next_url2, json=payload, headers=headers, timeout=30)
-                     if next_url2 == base_url
-                     else _req.get(next_url2, headers=headers, timeout=30))
-                if r.status_code != 200:
-                    print(f'[FKSync] returns {r.status_code}: {r.text[:200]}')
-                    break
-                data = r.json()
-                for shipment in data.get('shipments', []):
-                    raw_sd = shipment.get('orderDate', '')
-                    if isinstance(raw_sd, (int, float)) or (isinstance(raw_sd, str) and str(raw_sd).isdigit() and len(str(raw_sd)) > 10):
-                        shipment_date = datetime.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
-                    else:
-                        shipment_date = str(raw_sd)[:10] if raw_sd else ''
-                    for item in shipment.get('orderItems', []):
-                        inject = {}
-                        if not item.get('orderDate') and not item.get('order_date') and shipment_date:
-                            inject['orderDate'] = shipment_date
-                        for sla_field in ['dispatchByDate','dispatchedDate','deliverByDate','deliveryDate']:
-                            if not item.get(sla_field) and shipment.get(sla_field):
-                                inject[sla_field] = shipment[sla_field]
-                        if inject:
-                            item = {**item, **inject}
-                        ds, row = _fk_item_to_store_row(item, resolve_product)
-                        if ds and ds >= cutoff:
-                            new_rows[ds].append(row)
-                            ret_fetched += 1
-                if not data.get('hasMore') or not data.get('nextPageUrl'):
-                    break
-                raw_next = data['nextPageUrl']
-                next_url2 = _fix_next_url(raw_next)
-            except Exception as e:
-                print(f'[FKSync] returns error: {e}')
-                break
-        total_fetched += ret_fetched
-        print(f'[FKSync] returns → {ret_fetched} items')
+    # Note: RETURNED status is not supported by the postDispatch filter API.
+    # Returns data comes from the XLSX upload. Skipping returns API fetch.
+    print(f'[FKSync] returns → skipped (not supported by API)')
 
     # Merge new_rows into store — upsert by order_item_id so we never lose existing orders.
     # For each date: build a map of existing rows keyed by order_item_id, then overwrite
