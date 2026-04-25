@@ -2036,7 +2036,17 @@ def sales_sync(account):
                     'message': f'{"Full re-sync" if full_resync else "Sync"} started in background for {account}. Refresh in 30–60 seconds.'})
 
 
-@app.route('/api/sales-sync-status', methods=['GET'])
+@app.route('/api/sales-sync-clear/<account>', methods=['POST'])
+def sales_sync_clear(account):
+    """Clear a stuck sync flag."""
+    account = account.upper().replace('-', ' ')
+    store = _load_sales_store(account)
+    sync_key = f'__syncing_{account}__'
+    store.pop(sync_key, None)
+    _save_sales_store(account, store)
+    return jsonify({'ok': True, 'message': f'Sync flag cleared for {account}'})
+
+
 def sales_sync_status():
     """Return sync status for all accounts — which have API credentials, last sync time."""
     results = {}
