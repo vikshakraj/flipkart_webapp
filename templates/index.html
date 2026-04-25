@@ -5046,10 +5046,10 @@ function renderSaDashboard(d){
     { label:'Delivered',           val: d.kpis.delivered_pct+'%',              sub: d.kpis.delivered.toLocaleString()+' units', color:'#00ff88' },
     { label:'Returned / RTO',      val: d.kpis.returned_pct+'%',              sub: d.kpis.returned.toLocaleString()+' units',  color:'#fbbf24' },
     { label:'Cancelled',           val: d.kpis.cancelled_pct+'%',             sub: d.kpis.cancelled.toLocaleString()+' units', color:'#ff3366' },
-    { label:'Dispatch SLA Breach', val: d.kpis.dispatch_breach_pct+'%',       sub:'of dispatched orders',                      color:'#a855f7' },
-    { label:'Delivery SLA Breach', val: d.kpis.delivery_breach_pct+'%',       sub:'of delivered orders',                       color:'#fb923c' },
+    { label:'Dispatch SLA Breach', val: d.kpis.dispatch_breach_pct+'%',       sub:'of dispatched orders',                      color:'#a855f7', hidden: true },
+    { label:'Delivery SLA Breach', val: d.kpis.delivery_breach_pct+'%',       sub:'of delivered orders',                       color:'#fb923c', hidden: true },
   ];
-  kGrid.innerHTML = kpis.map(k=>`
+  kGrid.innerHTML = kpis.filter(k=>!k.hidden).map(k=>`
     <div class="sa-kpi">
       <div class="sa-kpi-accent" style="background:${k.color};"></div>
       <div class="sa-kpi-val">${k.val}</div>
