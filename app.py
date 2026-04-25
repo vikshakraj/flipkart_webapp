@@ -1634,7 +1634,7 @@ def _fk_sync_sales(account, full_resync=False):
     payload = {
         'filter': {
             'type':   'preDispatch',
-            'states': ['APPROVED', 'READY_TO_DISPATCH', 'PACKED', 'PACKING_IN_PROGRESS', 'READY_TO_SHIP'],
+            'states': ['APPROVED', 'READY_TO_DISPATCH', 'PACKED', 'PACKING_IN_PROGRESS'],
             'locationId': FK_AUTO_DISPATCH_LOCATION,
         },
         'pagination': {'pageSize': 20},
@@ -1695,7 +1695,7 @@ def _fk_sync_sales(account, full_resync=False):
     print(f'[FKSync] preDispatch → {fetched} items')
 
     # --- postDispatch: SHIPPED + DELIVERED ---
-    for state_list in [['SHIPPED', 'DELIVERED']]:
+    for state_list in [['SHIPPED', 'DELIVERED', 'READY_TO_SHIP']]:
         payload  = {
             'filter': {
                 'type': 'postDispatch', 'states': state_list,
