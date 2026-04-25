@@ -1304,7 +1304,11 @@ def _fk_item_to_store_row(item, product_resolver):
         item.get('deliverByDate'),  item.get('deliveryDate'),
     )
     order_date = item.get('orderDate', '')
-    date_str   = str(order_date)[:10] if order_date else ''
+    # Handle Unix ms timestamps (13-digit numbers)
+    if isinstance(order_date, (int, float)) or (isinstance(order_date, str) and str(order_date).isdigit() and len(str(order_date)) > 10):
+        date_str = datetime.datetime.fromtimestamp(int(order_date)/1000, tz=IST).strftime('%Y-%m-%d')
+    else:
+        date_str = str(order_date)[:10] if order_date else ''
     return date_str, {
         'order_item_id': item.get('orderItemId', ''),   # for deduplication on merge
         'sku': sku_clean, 'product': product, 'qty': qty, 'status': status,
@@ -1626,14 +1630,12 @@ def _fk_sync_sales(account, full_resync=False):
     total_fetched = 0
 
     # --- preDispatch: APPROVED, READY_TO_DISPATCH, PACKED (active unfulfilled orders) ---
+    # Note: preDispatch filter does not support orderDate filter — fetch all and filter in Python
     payload = {
         'filter': {
-            'type': 'preDispatch',
+            'type':   'preDispatch',
             'states': ['APPROVED', 'READY_TO_DISPATCH', 'PACKED', 'PACKING_IN_PROGRESS'],
-            'orderDate': {
-                'from': f'{fetch_from}T00:00:00+05:30',
-                'to':   f'{fetch_to}T23:59:59+05:30',
-            },
+            'locationId': FK_AUTO_DISPATCH_LOCATION,
         },
         'pagination': {'pageSize': 20},
     }
@@ -1698,7 +1700,12 @@ def _fk_sync_sales(account, full_resync=False):
                     break
                 data = r.json()
                 for shipment in data.get('shipments', []):
-                    shipment_date = str(shipment.get('orderDate', ''))[:10]
+                    raw_sd = shipment.get('orderDate', '')
+                    if isinstance(raw_sd, (int, float)) or (isinstance(raw_sd, str) and str(raw_sd).isdigit() and len(str(raw_sd)) > 10):
+                        import datetime as _dt
+                        shipment_date = _dt.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
+                    else:
+                        shipment_date = str(raw_sd)[:10] if raw_sd else ''
                     for item in shipment.get('orderItems', []):
                         if not item.get('orderDate') and shipment_date:
                             item = {**item, 'orderDate': shipment_date}
@@ -1738,7 +1745,12 @@ def _fk_sync_sales(account, full_resync=False):
                 if r.status_code != 200: break
                 data = r.json()
                 for shipment in data.get('shipments', []):
-                    shipment_date = str(shipment.get('orderDate', ''))[:10]
+                    raw_sd = shipment.get('orderDate', '')
+                    if isinstance(raw_sd, (int, float)) or (isinstance(raw_sd, str) and str(raw_sd).isdigit() and len(str(raw_sd)) > 10):
+                        import datetime as _dt
+                        shipment_date = _dt.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
+                    else:
+                        shipment_date = str(raw_sd)[:10] if raw_sd else ''
                     for item in shipment.get('orderItems', []):
                         if not item.get('orderDate') and shipment_date:
                             item = {**item, 'orderDate': shipment_date}
