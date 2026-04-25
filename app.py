@@ -1300,8 +1300,10 @@ def _fk_item_to_store_row(item, product_resolver):
     ret_reason = (item.get('cancellationReason', '') or '').lower()
     ret_sub    = item.get('cancellationSubReason', '') or ''
     disp_breach, dlv_breach = _fk_compute_sla_breach(
-        item.get('dispatchByDate'), item.get('dispatchedDate'),
-        item.get('deliverByDate'),  item.get('deliveryDate'),
+        item.get('dispatchByDate') or item.get('dispatch_by_date') or item.get('__dispatchByDate'),
+        item.get('dispatchedDate') or item.get('dispatched_date') or item.get('__dispatchedDate'),
+        item.get('deliverByDate')  or item.get('deliver_by_date') or item.get('__deliverByDate'),
+        item.get('deliveryDate')   or item.get('order_delivery_date') or item.get('__deliveryDate'),
     )
     order_date = item.get('orderDate', '') or item.get('order_date', '')
     # Handle Unix ms timestamps (13-digit numbers)
@@ -1330,14 +1332,16 @@ def _compute_analytics(store):
     store = {k: v for k, v in store.items() if not k.startswith('__')}
 
     ACTIVE    = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD','SHIPPED','READY_TO_DISPATCH','PACKED','PACKING_IN_PROGRESS'}
-    RETURNED  = {'RETURNED'}
+    RETURNED  = {'RETURNED', 'RETURN_REQUESTED'}
     CANCELLED = {'CANCELLED','RETURN_REQUESTED','REJECTED'}
     # Only these return reasons count as genuine returns; all others → cancellation
+    # For API-sourced data where ret_reason is empty, treat all RETURNED status as genuine
     VALID_RETURN_REASONS = {
         'orc_validated with customer',
         'quality_issue',
         'missing_item',
         'customer rejection',
+        '',  # API data often has no reason — count RETURNED status as genuine return
     }
 
     all_rows = [r for rows in store.values() for r in rows]
@@ -1677,9 +1681,15 @@ def _fk_sync_sales(account, full_resync=False):
                     # Log first item keys to see what date fields are available
                     if fetched == 0:
                         print(f'[FKSync] preDispatch item keys: {list(item.keys())[:12]}')
-                    # Inject shipment-level orderDate if item-level is missing
+                    # Inject shipment-level fields if item-level is missing
+                    inject = {}
                     if not item.get('orderDate') and not item.get('order_date') and shipment_date:
-                        item = {**item, 'orderDate': shipment_date}
+                        inject['orderDate'] = shipment_date
+                    for sla_field in ['dispatchByDate','dispatchedDate','deliverByDate','deliveryDate']:
+                        if not item.get(sla_field) and shipment.get(sla_field):
+                            inject[sla_field] = shipment[sla_field]
+                    if inject:
+                        item = {**item, **inject}
                     ds, row = _fk_item_to_store_row(item, resolve_product)
                     if ds and ds >= cutoff:
                         new_rows[ds].append(row)
@@ -1723,9 +1733,18 @@ def _fk_sync_sales(account, full_resync=False):
                         shipment_date = _dt.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
                     else:
                         shipment_date = str(raw_sd)[:10] if raw_sd else ''
+                    if fetched < 2:
+                        print(f'[FKSync] postDispatch shipment keys: {list(shipment.keys())}')
+                        print(f'[FKSync] postDispatch SLA fields: { {f: shipment.get(f) for f in ["dispatchByDate","dispatchedDate","deliverByDate","deliveryDate"]} }')
                     for item in shipment.get('orderItems', []):
+                        inject = {}
                         if not item.get('orderDate') and shipment_date:
-                            item = {**item, 'orderDate': shipment_date}
+                            inject['orderDate'] = shipment_date
+                        for sla_field in ['dispatchByDate','dispatchedDate','deliverByDate','deliveryDate']:
+                            if not item.get(sla_field) and shipment.get(sla_field):
+                                inject[sla_field] = shipment[sla_field]
+                        if inject:
+                            item = {**item, **inject}
                         ds, row = _fk_item_to_store_row(item, resolve_product)
                         if ds and ds >= cutoff:
                             new_rows[ds].append(row)
@@ -1769,8 +1788,14 @@ def _fk_sync_sales(account, full_resync=False):
                     else:
                         shipment_date = str(raw_sd)[:10] if raw_sd else ''
                     for item in shipment.get('orderItems', []):
+                        inject = {}
                         if not item.get('orderDate') and shipment_date:
-                            item = {**item, 'orderDate': shipment_date}
+                            inject['orderDate'] = shipment_date
+                        for sla_field in ['dispatchByDate','dispatchedDate','deliverByDate','deliveryDate']:
+                            if not item.get(sla_field) and shipment.get(sla_field):
+                                inject[sla_field] = shipment[sla_field]
+                        if inject:
+                            item = {**item, **inject}
                         ds, row = _fk_item_to_store_row(item, resolve_product)
                         if ds and ds >= cutoff:
                             new_rows[ds].append(row)
@@ -1784,34 +1809,58 @@ def _fk_sync_sales(account, full_resync=False):
         total_fetched += fetched
         print(f'[FKSync] {ctype} → {fetched} items')
 
-    # --- returns via /v2/returns ---
-    try:
-        r = _req.get(f'{FK_API_BASE}/sellers/v2/returns', headers=headers, timeout=30)
-        if r.status_code == 200:
-            ret_fetched = 0
-            for ret in r.json().get('returnItems', []):
-                oi         = ret.get('orderItem', {}) or {}
-                sku_raw    = oi.get('sku', '')
-                sku_clean  = re.sub(r'^\"\"\"SKU:|\"\"\"$', '', sku_raw).strip().strip('"')
-                product    = resolve_product(sku_clean)
-                qty        = int(oi.get('quantity', 1))
-                order_date = oi.get('orderDate', '')
-                ds         = str(order_date)[:10] if order_date else ''
-                pc         = oi.get('priceComponents', {}) or {}
-                revenue    = float(pc.get('sellingPrice') or 0) * qty
-                if ds and ds >= cutoff:
-                    new_rows[ds].append({
-                        'sku': sku_clean, 'product': product, 'qty': qty,
-                        'status': 'RETURNED',
-                        'ret_reason': (ret.get('returnReason') or '').lower(),
-                        'ret_sub': ret.get('returnSubReason') or '',
-                        'disp_breach': '', 'dlv_breach': '', 'revenue': revenue,
-                    })
-                    ret_fetched += 1
-            total_fetched += ret_fetched
-            print(f'[FKSync] returns → {ret_fetched} items')
-    except Exception as e:
-        print(f'[FKSync] Returns fetch error: {e}')
+    # --- returns via postDispatch filter with RETURNED/RETURN_REQUESTED states ---
+    for ret_state in [['RETURNED', 'RETURN_REQUESTED']]:
+        payload = {
+            'filter': {
+                'type': 'postDispatch',
+                'states': ret_state,
+                'orderDate': {
+                    'from': f'{fetch_from}T00:00:00+05:30',
+                    'to':   f'{fetch_to}T23:59:59+05:30',
+                },
+            },
+            'pagination': {'pageSize': 20},
+        }
+        next_url2 = base_url
+        ret_fetched = 0
+        while next_url2 and ret_fetched < 5000:
+            try:
+                r = (_req.post(next_url2, json=payload, headers=headers, timeout=30)
+                     if next_url2 == base_url
+                     else _req.get(next_url2, headers=headers, timeout=30))
+                if r.status_code != 200:
+                    print(f'[FKSync] returns {r.status_code}: {r.text[:200]}')
+                    break
+                data = r.json()
+                for shipment in data.get('shipments', []):
+                    raw_sd = shipment.get('orderDate', '')
+                    if isinstance(raw_sd, (int, float)) or (isinstance(raw_sd, str) and str(raw_sd).isdigit() and len(str(raw_sd)) > 10):
+                        shipment_date = datetime.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
+                    else:
+                        shipment_date = str(raw_sd)[:10] if raw_sd else ''
+                    for item in shipment.get('orderItems', []):
+                        inject = {}
+                        if not item.get('orderDate') and not item.get('order_date') and shipment_date:
+                            inject['orderDate'] = shipment_date
+                        for sla_field in ['dispatchByDate','dispatchedDate','deliverByDate','deliveryDate']:
+                            if not item.get(sla_field) and shipment.get(sla_field):
+                                inject[sla_field] = shipment[sla_field]
+                        if inject:
+                            item = {**item, **inject}
+                        ds, row = _fk_item_to_store_row(item, resolve_product)
+                        if ds and ds >= cutoff:
+                            new_rows[ds].append(row)
+                            ret_fetched += 1
+                if not data.get('hasMore') or not data.get('nextPageUrl'):
+                    break
+                raw_next = data['nextPageUrl']
+                next_url2 = _fix_next_url(raw_next)
+            except Exception as e:
+                print(f'[FKSync] returns error: {e}')
+                break
+        total_fetched += ret_fetched
+        print(f'[FKSync] returns → {ret_fetched} items')
 
     # Merge new_rows into store — upsert by order_item_id so we never lose existing orders.
     # For each date: build a map of existing rows keyed by order_item_id, then overwrite
