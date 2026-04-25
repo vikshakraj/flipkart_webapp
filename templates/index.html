@@ -1484,6 +1484,14 @@
             <span id="saFileName">Drop Orders XLSX here or click to browse</span>
           </label>
           <button class="sa-analyse-btn" id="saAnalyseBtn" onclick="runSalesUpload()" disabled>Upload & Analyse →</button>
+          <!-- API sync button shown here when store is empty but API is configured -->
+          <div id="saUploadSyncArea" style="display:none;margin-top:14px;">
+            <p style="font-size:.8rem;color:var(--muted);margin-bottom:8px;">Or fetch data directly from Flipkart API:</p>
+            <button class="sa-filter-btn" onclick="triggerSaSync(true)"
+              style="background:linear-gradient(135deg,var(--accent),#0099cc);color:#0a0e1a;font-weight:700;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-family:inherit;">
+              ⚡ Full Sync from API
+            </button>
+          </div>
           <div class="sa-error" id="saError" style="display:none;"></div>
         </div>
 
@@ -6051,6 +6059,7 @@ function _applySyncStatus(data) {
   const syncBtn       = document.getElementById('saSyncBtn');
   const fullResyncBtn = document.getElementById('saFullResyncBtn');
   const syncStatus    = document.getElementById('saSyncStatus');
+  const uploadSync    = document.getElementById('saUploadSyncArea');
   if (!syncBtn) return;
   const apiKey   = _saAccount.replace(/-/g, ' ');
   const acctInfo = data ? (data[apiKey] || data[_saAccount]) : null;
@@ -6061,10 +6070,12 @@ function _applySyncStatus(data) {
     syncStatus.textContent   = acctInfo.updated_at && acctInfo.updated_at !== 'never'
       ? `Last sync: ${acctInfo.updated_at}`
       : 'Never synced via API';
+    if (uploadSync) uploadSync.style.display = 'block';
   } else {
     syncBtn.style.display    = 'none';
     if (fullResyncBtn) fullResyncBtn.style.display = 'none';
     syncStatus.style.display = 'none';
+    if (uploadSync) uploadSync.style.display = 'none';
   }
 }
 
