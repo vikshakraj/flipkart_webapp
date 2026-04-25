@@ -6119,7 +6119,7 @@ function _pollSaSync(apiAcct, syncBtn, syncStatus, attempts) {
     return;
   }
   setTimeout(() => {
-    fetch('/api/sales-analytics/' + apiAcct)
+    fetch('/api/sales-data/' + apiAcct)
       .then(r => r.json())
       .then(data => {
         if (data.error) {
