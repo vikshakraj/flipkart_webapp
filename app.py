@@ -1976,7 +1976,31 @@ def sales_debug(account):
         'meta': store.get('__meta__', {}),
     })
 
-@app.route('/api/sales-clear/<account>', methods=['POST'])
+@app.route('/api/sales-debug/<account>/dates', methods=['GET'])
+def sales_debug_dates(account):
+    """Debug: show raw rows for specific dates."""
+    account = account.upper().replace('-', ' ')
+    dates = request.args.get('dates', '').split(',')
+    store = _load_sales_store(account)
+    result = {}
+    for d in dates:
+        d = d.strip()
+        rows = store.get(d, [])
+        result[d] = {
+            'count': len(rows),
+            'statuses': {},
+            'sample': rows[:3],
+        }
+        for r in rows:
+            s = r.get('status', 'unknown')
+            result[d]['statuses'][s] = result[d]['statuses'].get(s, 0) + 1
+    # Also show all keys that look numeric (unix timestamp bug)
+    numeric_keys = [k for k in store if not k.startswith('__') and not k.startswith('2')]
+    result['__numeric_keys__'] = numeric_keys[:10]
+    result['__all_date_keys__'] = sorted([k for k in store if not k.startswith('__')])[-10:]
+    return jsonify(result)
+
+
 def sales_clear(account):
     """Delete stored sales data for an account so it can be re-uploaded cleanly."""
     account = account.upper().replace('-', ' ')
