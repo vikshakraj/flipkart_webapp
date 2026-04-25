@@ -2047,6 +2047,7 @@ def sales_sync_clear(account):
     return jsonify({'ok': True, 'message': f'Sync flag cleared for {account}'})
 
 
+@app.route('/api/sales-sync-status', methods=['GET'])
 def sales_sync_status():
     """Return sync status for all accounts — which have API credentials, last sync time."""
     results = {}
