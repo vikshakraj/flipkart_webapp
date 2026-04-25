@@ -6152,6 +6152,8 @@ function _pollSaSync(apiAcct, syncBtn, syncStatus, attempts) {
       })
       .catch(() => _pollSaSync(apiAcct, syncBtn, syncStatus, attempts + 1));
   }, 3000); // poll every 3 seconds
+}
+
 /* ═══════════════════════════════════════════════════════════
    LISTINGS MODULE
 ═══════════════════════════════════════════════════════════ */
