@@ -4923,6 +4923,8 @@ function switchSaAccount(account, btn){
 }
 
 async function loadSaData(account){
+  // Normalise key to spaces so cache is always consistent with _saAccount
+  account = account.replace(/-/g, ' ');
   // Use cache if available
   if(_saData[account]){
     renderSaDashboard(_saData[account]);
@@ -6130,20 +6132,18 @@ function _pollSaSync(apiAcct, syncBtn, syncStatus, attempts) {
       .then(r => r.json())
       .then(data => {
         if (data.error) {
-          // Still syncing (sync flag present) — keep polling
           _pollSaSync(apiAcct, syncBtn, syncStatus, attempts + 1);
           return;
         }
-        // Check if sync is still in progress via sync-status endpoint
         fetch('/api/sales-sync-status')
-          .then(r => r.json())
+          .then(r => { if (!r.ok) throw new Error('not ok'); return r.json(); })
           .then(statusData => {
-            const acctStatus = statusData[_saAccount] || {};
+            const acctKey = apiAcct.replace(/-/g, ' ');
+            const acctStatus = statusData[acctKey] || {};
             if (acctStatus.syncing) {
               _pollSaSync(apiAcct, syncBtn, syncStatus, attempts + 1);
               return;
             }
-            // Sync done
             syncBtn.textContent = '⚡ Sync Now';
             syncBtn.disabled = false;
             _saSyncStatusCache = null;
@@ -6155,10 +6155,15 @@ function _pollSaSync(apiAcct, syncBtn, syncStatus, attempts) {
               syncStatus.textContent = 'Sync complete. Reload to see updated data.';
             }
           })
-          .catch(() => _pollSaSync(apiAcct, syncBtn, syncStatus, attempts + 1));
+          .catch(() => {
+            // sync-status not available yet — stop polling
+            syncBtn.textContent = '⚡ Sync Now';
+            syncBtn.disabled = false;
+            syncStatus.textContent = 'Sync complete. Reload to see updated data.';
+          });
       })
       .catch(() => _pollSaSync(apiAcct, syncBtn, syncStatus, attempts + 1));
-  }, 3000); // poll every 3 seconds
+  }, 3000);
 }
 
 /* ═══════════════════════════════════════════════════════════
