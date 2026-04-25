@@ -6028,6 +6028,7 @@ function closeSaSkuCampaigns() {
    SALES ANALYTICS — API SYNC
 ═══════════════════════════════════════ */
 let _saSyncStatusCache = null;
+let _syncInProgress    = false;  // prevents orphaned poll loops after page reload
 
 function _checkSaSyncAvailable() {
   const syncBtn    = document.getElementById('saSyncBtn');
@@ -6091,6 +6092,7 @@ function triggerSaSync(fullResync) {
       }
       // Background sync started — poll until the sync flag clears
       if (result.status === 'started' || result.status === 'already_running') {
+        _syncInProgress = true;
         syncStatus.textContent = fullResync
           ? 'Full re-sync running in background… this may take 1–2 minutes.'
           : 'Sync running in background…';
@@ -6119,9 +6121,10 @@ function triggerSaSync(fullResync) {
 }
 
 function _pollSaSync(apiAcct, syncBtn, syncStatus, attempts) {
-  // Poll the analytics endpoint — when the sync flag clears, updated_at will change
+  if (!_syncInProgress) return;  // guard against orphaned loops
   if (attempts > 60) {
     // Give up after ~3 minutes
+    _syncInProgress = false;
     syncBtn.textContent = '⚡ Sync Now';
     syncBtn.disabled = false;
     syncStatus.textContent = 'Sync may still be running. Refresh the page to check.';
@@ -6146,6 +6149,7 @@ function _pollSaSync(apiAcct, syncBtn, syncStatus, attempts) {
             }
             syncBtn.textContent = '⚡ Sync Now';
             syncBtn.disabled = false;
+            _syncInProgress = false;
             _saSyncStatusCache = null;
             if (data.kpis) {
               _saData[_saAccount] = data;
@@ -6156,7 +6160,8 @@ function _pollSaSync(apiAcct, syncBtn, syncStatus, attempts) {
             }
           })
           .catch(() => {
-            // sync-status not available yet — stop polling
+            // sync-status not available — stop polling
+            _syncInProgress = false;
             syncBtn.textContent = '⚡ Sync Now';
             syncBtn.disabled = false;
             syncStatus.textContent = 'Sync complete. Reload to see updated data.';
