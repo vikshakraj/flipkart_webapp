@@ -1322,6 +1322,9 @@ def _is_genuine_return(row, valid_reasons):
 
 def _compute_analytics(store):
     """Compute KPIs + chart data from a {date_str: [row,...]} store dict."""
+    # Filter out internal __ keys before processing
+    store = {k: v for k, v in store.items() if not k.startswith('__')}
+
     ACTIVE    = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD'}
     RETURNED  = {'RETURNED'}
     CANCELLED = {'CANCELLED','RETURN_REQUESTED'}
