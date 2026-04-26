@@ -2080,6 +2080,20 @@
         <span class="lst-status" id="lstStatus"></span>
       </div>
 
+      <!-- Table -->
+      <div class="lst-table-wrap">
+        <div id="lstTableContainer">
+          <div class="lst-empty" style="color:var(--muted);">Select a product from the dropdown above to load its listings.</div>
+        </div>
+        <div class="lst-pagination" id="lstPagination" style="display:none;">
+          <span id="lstPageInfo" style="color:var(--muted);font-size:.8rem;"></span>
+          <div class="lst-page-btns" id="lstPageBtns"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- ── Bulk Action Modal ── -->
   <div id="lstBulkModal" class="lst-modal-overlay" style="display:none;" onclick="if(event.target===this)lstCloseBulkModal()">
     <div class="lst-modal">
