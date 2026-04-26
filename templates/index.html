@@ -287,6 +287,153 @@
   .lst-modal-result.err{background:rgba(255,68,102,.07);border-color:rgba(255,68,102,.25);color:#ff6688;}
   .lst-modal-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;}
 
+  /* ══ Listing Generator (Add New Listing flow) ══ */
+  .lgen-page{display:none;position:absolute;inset:0;background:var(--bg);z-index:10;overflow-y:auto;padding:28px;}
+  .lgen-page.active{display:block;}
+  .lgen-header{display:flex;align-items:center;gap:14px;margin-bottom:28px;}
+  .lgen-back{background:none;border:1px solid var(--border);color:var(--muted);padding:7px 14px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;display:flex;align-items:center;gap:6px;transition:all .2s;}
+  .lgen-back:hover{border-color:var(--accent);color:var(--accent);}
+  .lgen-title{font-size:1.25rem;font-weight:700;color:var(--text);}
+  .lgen-subtitle{font-size:.82rem;color:var(--muted);margin-top:2px;}
+  .lgen-steps{display:flex;align-items:center;gap:0;margin-bottom:32px;}
+  .lgen-step{display:flex;align-items:center;gap:8px;font-size:.8rem;color:var(--muted);font-weight:600;}
+  .lgen-step.active{color:var(--accent);}
+  .lgen-step.done{color:#00ff88;}
+  .lgen-step-num{width:26px;height:26px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;flex-shrink:0;transition:all .2s;}
+  .lgen-step.active .lgen-step-num{border-color:var(--accent);background:var(--accent);color:var(--bg);}
+  .lgen-step.done .lgen-step-num{border-color:#00ff88;background:#00ff88;color:var(--bg);}
+  .lgen-step-line{flex:1;height:1px;background:var(--border);margin:0 10px;min-width:30px;}
+  .lgen-step-line.done{background:#00ff88;}
+  .lgen-content{max-width:860px;margin:0 auto;}
+  .lgen-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:26px 28px;margin-bottom:20px;}
+  .lgen-card-title{font-size:.88rem;font-weight:700;color:var(--text);margin-bottom:18px;display:flex;align-items:center;gap:8px;}
+  .lgen-field{margin-bottom:18px;}
+  .lgen-label{font-size:.75rem;color:var(--muted);font-weight:600;display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px;}
+  .lgen-label span{color:#ff6688;margin-left:2px;}
+  .lgen-input{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 13px;border-radius:8px;font-size:.88rem;font-family:inherit;box-sizing:border-box;transition:border-color .15s;}
+  .lgen-input:focus{outline:none;border-color:var(--accent);}
+  .lgen-input.err{border-color:#ff4466;}
+  .lgen-err{font-size:.72rem;color:#ff4466;margin-top:4px;display:block;}
+  .lgen-hint{font-size:.72rem;color:var(--muted);margin-top:4px;display:block;opacity:.7;}
+  .lgen-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .lgen-select{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 13px;border-radius:8px;font-size:.88rem;font-family:inherit;cursor:pointer;}
+  .lgen-select:focus{outline:none;border-color:var(--accent);}
+  .lgen-textarea{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 13px;border-radius:8px;font-size:.88rem;font-family:inherit;box-sizing:border-box;resize:vertical;min-height:90px;transition:border-color .15s;}
+  .lgen-textarea:focus{outline:none;border-color:var(--accent);}
+  .lgen-range-pair{display:flex;gap:8px;align-items:center;}
+  .lgen-range-pair input{flex:1;}
+  .lgen-range-sep{color:var(--muted);font-size:.8rem;flex-shrink:0;}
+  .lgen-drop{border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;cursor:pointer;transition:all .2s;background:var(--surface2);}
+  .lgen-drop:hover,.lgen-drop.over{border-color:var(--accent);background:rgba(0,212,255,.04);}
+  .lgen-drop-icon{font-size:1.6rem;margin-bottom:6px;}
+  .lgen-drop-text{font-size:.8rem;color:var(--muted);}
+  .lgen-drop-hint{font-size:.72rem;color:var(--muted);opacity:.6;margin-top:3px;}
+  .lgen-img-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
+  .lgen-img-thumb{position:relative;width:68px;height:68px;border-radius:8px;overflow:hidden;border:1px solid var(--border);}
+  .lgen-img-thumb img{width:100%;height:100%;object-fit:cover;}
+  .lgen-img-del{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.7);border:none;color:#fff;border-radius:50%;width:18px;height:18px;font-size:.65rem;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;}
+  .lgen-img-upload-status{font-size:.75rem;margin-top:8px;}
+  .lgen-nav{display:flex;justify-content:space-between;align-items:center;margin-top:28px;}
+  .lgen-btn{padding:10px 22px;border-radius:9px;font-size:.88rem;font-weight:700;cursor:pointer;font-family:inherit;transition:all .2s;border:1px solid var(--border);}
+  .lgen-btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);border-color:transparent;}
+  .lgen-btn-primary:hover{opacity:.88;}
+  .lgen-btn-primary:disabled{opacity:.4;cursor:not-allowed;}
+  .lgen-btn-ghost{background:transparent;color:var(--muted);}
+  .lgen-btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
+  .lgen-generating{text-align:center;padding:60px 20px;}
+  .lgen-gen-spinner{width:48px;height:48px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 20px;}
+  .lgen-gen-msg{font-size:.95rem;color:var(--text);font-weight:600;margin-bottom:8px;}
+  .lgen-gen-sub{font-size:.8rem;color:var(--muted);}
+  .lgen-success{text-align:center;padding:50px 20px;}
+  .lgen-success-icon{font-size:3rem;margin-bottom:16px;}
+  .lgen-success-title{font-size:1.1rem;font-weight:700;color:var(--text);margin-bottom:8px;}
+  .lgen-success-sub{font-size:.82rem;color:var(--muted);margin-bottom:24px;}
+  .lgen-warning-box{background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.25);border-radius:10px;padding:14px 18px;text-align:left;margin:0 auto 20px;max-width:500px;}
+  .lgen-warning-box h4{font-size:.8rem;color:#fbbf24;font-weight:700;margin-bottom:8px;}
+  .lgen-warning-box ul{list-style:disc;padding-left:18px;margin:0;}
+  .lgen-warning-box li{font-size:.78rem;color:var(--muted);margin-bottom:3px;}
+  .lgen-qty-row{display:flex;align-items:center;gap:12px;margin-bottom:10px;}
+  .lgen-qty-label{font-size:.82rem;color:var(--text);width:90px;flex-shrink:0;}
+  .lgen-qty-input{width:80px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:7px;font-size:.88rem;font-family:'JetBrains Mono',monospace;text-align:center;}
+  .lgen-qty-input:focus{outline:none;border-color:var(--accent);}
+  .lgen-qty-sum{font-size:.78rem;color:var(--muted);margin-top:8px;}
+  .lgen-qty-sum.ok{color:#00ff88;}
+  .lgen-qty-sum.err{color:#ff4466;}
+  .lgen-template-status{display:flex;align-items:center;gap:10px;background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.15);border-radius:10px;padding:12px 16px;font-size:.82rem;color:var(--accent);}
+  .lgen-template-status .icon{font-size:1.1rem;}
+
+  /* ══ Listing Generator Full-Page ══ */
+  .lg-page{display:none;position:fixed;inset:0;background:var(--bg);z-index:500;overflow-y:auto;}
+  .lg-page.active{display:block;}
+  .lg-header{display:flex;align-items:center;gap:16px;padding:18px 32px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:10;}
+  .lg-back{background:none;border:1px solid var(--border);color:var(--muted);padding:7px 14px;border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;}
+  .lg-back:hover{border-color:var(--accent);color:var(--accent);}
+  .lg-title{font-size:1.05rem;font-weight:700;color:var(--text);}
+  .lg-steps{display:flex;gap:0;padding:0 32px;background:var(--surface);border-bottom:1px solid var(--border);}
+  .lg-step{display:flex;align-items:center;gap:8px;padding:14px 20px;font-size:.8rem;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;cursor:default;transition:all .2s;}
+  .lg-step.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .lg-step.done{color:var(--text);}
+  .lg-step-num{width:20px;height:20px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;}
+  .lg-step.active .lg-step-num{background:var(--accent);color:var(--bg);border-color:var(--accent);}
+  .lg-step.done .lg-step-num{background:#00ff88;color:var(--bg);border-color:#00ff88;}
+  .lg-step-content{max-width:820px;margin:0 auto;padding:32px 24px;}
+  .lg-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 28px;margin-bottom:20px;}
+  .lg-card-title{font-size:.9rem;font-weight:700;color:var(--text);margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid var(--border);}
+  .lg-field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px;}
+  .lg-field:last-child{margin-bottom:0;}
+  .lg-label{font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+  .lg-label span{color:#ff4466;}
+  .lg-hint{font-size:.72rem;color:var(--muted);opacity:.7;}
+  .lg-input{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-size:.88rem;font-family:inherit;width:100%;box-sizing:border-box;transition:border-color .2s;}
+  .lg-input:focus{outline:none;border-color:var(--accent);}
+  .lg-input.err{border-color:#ff4466;}
+  textarea.lg-input{resize:vertical;min-height:80px;}
+  .lg-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .lg-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
+  .lg-minmax{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .lg-pack-grid{display:flex;gap:10px;flex-wrap:wrap;}
+  .lg-pack-item{display:flex;flex-direction:column;gap:5px;flex:1;min-width:100px;}
+  .lg-pack-label{font-size:.72rem;color:var(--muted);font-weight:600;}
+  .lg-pack-input{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:8px;font-size:.88rem;font-family:inherit;text-align:center;width:100%;box-sizing:border-box;}
+  .lg-pack-input:focus{outline:none;border-color:var(--accent);}
+  .lg-sum-status{padding:8px 12px;border-radius:7px;font-size:.78rem;font-weight:600;margin-top:8px;}
+  .lg-sum-ok{background:rgba(0,255,136,.1);color:#00ff88;border:1px solid rgba(0,255,136,.25);}
+  .lg-sum-err{background:rgba(255,68,102,.1);color:#ff4466;border:1px solid rgba(255,68,102,.25);}
+  .lg-footer{display:flex;justify-content:space-between;align-items:center;padding-top:8px;}
+  .lg-btn{padding:9px 20px;border-radius:9px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.85rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;}
+  .lg-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .lg-btn:disabled{opacity:.4;cursor:not-allowed;}
+  .lg-btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);border-color:transparent;}
+  .lg-btn-primary:hover{opacity:.88;color:var(--bg);}
+  .lg-dropzone{border:2px dashed var(--border);border-radius:12px;padding:28px;text-align:center;cursor:pointer;transition:all .2s;position:relative;}
+  .lg-dropzone:hover,.lg-dropzone.drag-over{border-color:var(--accent);background:rgba(0,212,255,.04);}
+  .lg-dropzone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+  .lg-dropzone-icon{font-size:2rem;margin-bottom:8px;}
+  .lg-dropzone-text{font-size:.82rem;color:var(--muted);}
+  .lg-img-preview{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}
+  .lg-img-thumb{width:64px;height:64px;object-fit:cover;border-radius:7px;border:1px solid var(--border);}
+  .lg-img-count{font-size:.75rem;color:var(--muted);margin-top:8px;}
+  .lg-progress{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:32px 36px;max-width:520px;margin:0 auto;}
+  .lg-progress-title{font-size:1rem;font-weight:700;color:var(--text);margin-bottom:24px;text-align:center;}
+  .lg-progress-steps{display:flex;flex-direction:column;gap:16px;}
+  .lg-progress-step{display:flex;align-items:center;gap:12px;font-size:.85rem;color:var(--muted);padding:12px 16px;border-radius:9px;border:1px solid transparent;transition:all .3s;}
+  .lg-progress-step.active{color:var(--accent);border-color:rgba(0,212,255,.25);background:rgba(0,212,255,.05);}
+  .lg-progress-step.done{color:#00ff88;border-color:rgba(0,255,136,.2);background:rgba(0,255,136,.04);}
+  .lg-progress-step.error{color:#ff4466;border-color:rgba(255,68,102,.25);background:rgba(255,68,102,.05);}
+  .lg-spinner{width:16px;height:16px;min-width:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:lst-spin .7s linear infinite;}
+  .lg-step-icon{width:16px;min-width:16px;text-align:center;font-size:.85rem;}
+  .lg-success-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:40px;text-align:center;max-width:480px;margin:0 auto;}
+  .lg-success-icon{font-size:3rem;margin-bottom:12px;}
+  .lg-success-title{font-size:1.2rem;font-weight:700;color:var(--text);margin-bottom:8px;}
+  .lg-success-sub{font-size:.85rem;color:var(--muted);margin-bottom:24px;}
+  .lg-dl-btn{padding:12px 28px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);border:none;border-radius:10px;font-size:.9rem;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .2s;}
+  .lg-dl-btn:hover{opacity:.88;}
+  .lg-warning-box{margin:20px auto 0;max-width:520px;background:rgba(255,187,0,.07);border:1px solid rgba(255,187,0,.3);border-radius:10px;padding:16px 20px;font-size:.78rem;color:#ffcc44;line-height:1.7;}
+  .lg-warning-box ul{margin:6px 0 0 16px;padding:0;}
+  /* Add New Listing button in toolbar */
+  .lst-btn-new{background:linear-gradient(135deg,var(--accent),var(--accent2));color:var(--bg);border-color:transparent;font-weight:700;}
+  .lst-btn-new:hover{opacity:.88;color:var(--bg);}
+
 </style>
 <style>
 .app {
@@ -1733,40 +1880,205 @@
   <!-- ════════════════════════════════════════════════════════
        LISTINGS PANEL
   ════════════════════════════════════════════════════════ -->
-  <div id="panel-listings" class="tab-panel">
-    <div class="lst-wrap">
+  <div id="panel-listings" class="tab-panel" style="position:relative;">
 
-      <!-- Account tabs -->
+    <!-- ══ Listing Generator Full-Page ══ -->
+    <div id="lgenPage" class="lgen-page">
+      <div class="lgen-content">
+        <div class="lgen-header">
+          <button class="lgen-back" onclick="lgenClose()">← Back to Listings</button>
+          <div>
+            <div class="lgen-title">✨ AI Listing Generator</div>
+            <div class="lgen-subtitle">Generate Flipkart-ready bulk listing XLSX in minutes</div>
+          </div>
+        </div>
+        <div class="lgen-steps">
+          <div class="lgen-step active" id="lgenStepInd1"><div class="lgen-step-num" id="lgenStepNum1">1</div><span>Template & SKUs</span></div>
+          <div class="lgen-step-line" id="lgenLine1"></div>
+          <div class="lgen-step" id="lgenStepInd2"><div class="lgen-step-num" id="lgenStepNum2">2</div><span>Product Details</span></div>
+          <div class="lgen-step-line" id="lgenLine2"></div>
+          <div class="lgen-step" id="lgenStepInd3"><div class="lgen-step-num" id="lgenStepNum3">3</div><span>Images</span></div>
+          <div class="lgen-step-line" id="lgenLine3"></div>
+          <div class="lgen-step" id="lgenStepInd4"><div class="lgen-step-num" id="lgenStepNum4">4</div><span>Generate</span></div>
+        </div>
+
+        <!-- STEP 1 -->
+        <div id="lgenStep1">
+          <div class="lgen-card">
+            <div class="lgen-card-title">📄 Flipkart Bulk Upload Template</div>
+            <div id="lgenTemplateStatus" style="display:none;" class="lgen-template-status">
+              <span>✅</span><span id="lgenTemplateStatusText">Template loaded</span>
+              <button onclick="lgenClearTemplate()" style="margin-left:auto;background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;font-size:.72rem;cursor:pointer;font-family:inherit;">Change</button>
+            </div>
+            <div id="lgenTemplateDrop" class="lgen-drop" onclick="document.getElementById('lgenTemplateFile').click()" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="lgenHandleTemplateDrop(event)">
+              <div class="lgen-drop-icon">📊</div>
+              <div class="lgen-drop-text">Drop your empty Flipkart XLSX template here</div>
+              <div class="lgen-drop-hint">or click to browse · .xlsx files only</div>
+            </div>
+            <input type="file" id="lgenTemplateFile" accept=".xlsx" style="display:none" onchange="lgenHandleTemplateFile(this.files[0])">
+            <div id="lgenTemplateErr" class="lgen-err" style="display:none;"></div>
+          </div>
+          <div class="lgen-card">
+            <div class="lgen-card-title">📦 SKU Configuration</div>
+            <div class="lgen-field">
+              <label class="lgen-label">Number of SKUs <span>*</span></label>
+              <input type="number" class="lgen-input" id="lgenNumSkus" min="2" max="20" placeholder="2–20" oninput="lgenUpdateQtySum()" style="max-width:160px;">
+              <span class="lgen-hint">Total new listing rows to generate (2–20)</span>
+              <span class="lgen-err" id="lgenNumSkusErr" style="display:none;"></span>
+            </div>
+            <div class="lgen-field">
+              <label class="lgen-label">Quantities per Pack Size <span>*</span></label>
+              <div class="lgen-qty-row"><span class="lgen-qty-label">Pack of 1</span><input type="number" class="lgen-qty-input" id="lgenQty1" min="0" placeholder="0" oninput="lgenUpdateQtySum()"></div>
+              <div class="lgen-qty-row"><span class="lgen-qty-label">Pack of 2</span><input type="number" class="lgen-qty-input" id="lgenQty2" min="0" placeholder="0" oninput="lgenUpdateQtySum()"></div>
+              <div class="lgen-qty-row"><span class="lgen-qty-label">Pack of 3</span><input type="number" class="lgen-qty-input" id="lgenQty3" min="0" placeholder="0" oninput="lgenUpdateQtySum()"></div>
+              <div class="lgen-qty-row"><span class="lgen-qty-label">Pack of 4</span><input type="number" class="lgen-qty-input" id="lgenQty4" min="0" placeholder="0" oninput="lgenUpdateQtySum()"></div>
+              <div class="lgen-qty-row"><span class="lgen-qty-label">Pack of 5</span><input type="number" class="lgen-qty-input" id="lgenQty5" min="0" placeholder="0" oninput="lgenUpdateQtySum()"></div>
+              <div class="lgen-qty-sum" id="lgenQtySum">Enter quantities above — must sum to Number of SKUs</div>
+            </div>
+            <div class="lgen-field">
+              <label class="lgen-label">SKU Identifier <span>*</span></label>
+              <input type="text" class="lgen-input" id="lgenSkuIdentifier" placeholder="e.g. Varicose Patch, SP4 Toothpaste">
+              <span class="lgen-hint">Used in SKU ID naming and "Items Included" field</span>
+            </div>
+          </div>
+          <div class="lgen-nav"><span></span><button class="lgen-btn lgen-btn-primary" onclick="lgenGoStep(2)">Next: Product Details →</button></div>
+        </div>
+
+        <!-- STEP 2 -->
+        <div id="lgenStep2" style="display:none;">
+          <div class="lgen-card">
+            <div class="lgen-card-title">🔍 Keywords & Content</div>
+            <div class="lgen-field">
+              <label class="lgen-label">Top Keywords <span>*</span></label>
+              <input type="text" class="lgen-input" id="lgenKeywords" placeholder="teeth whitening, sp4 toothpaste, herbal toothpaste, ...">
+              <span class="lgen-hint">Comma-separated · 2–15 keywords · Used in titles, descriptions, search tags</span>
+              <span class="lgen-err" id="lgenKeywordsErr" style="display:none;"></span>
+            </div>
+            <div class="lgen-field">
+              <label class="lgen-label">Description Content <span>*</span></label>
+              <textarea class="lgen-textarea" id="lgenDescContent" placeholder="Enter raw product information — ingredients, benefits, use cases, claims. Claude will craft unique descriptions from this."></textarea>
+            </div>
+          </div>
+          <div class="lgen-card">
+            <div class="lgen-card-title">💰 Pricing & Dimensions</div>
+            <div class="lgen-row">
+              <div class="lgen-field"><label class="lgen-label">MRP (INR) <span>*</span></label><div class="lgen-range-pair"><input type="number" class="lgen-input" id="lgenMrpMin" placeholder="Min"><span class="lgen-range-sep">to</span><input type="number" class="lgen-input" id="lgenMrpMax" placeholder="Max"></div></div>
+              <div class="lgen-field"><label class="lgen-label">Selling Price (INR) <span>*</span></label><div class="lgen-range-pair"><input type="number" class="lgen-input" id="lgenPriceMin" placeholder="Min"><span class="lgen-range-sep">to</span><input type="number" class="lgen-input" id="lgenPriceMax" placeholder="Max"></div></div>
+            </div>
+            <div class="lgen-row">
+              <div class="lgen-field"><label class="lgen-label">Length (CM) <span>*</span></label><div class="lgen-range-pair"><input type="number" step="0.1" class="lgen-input" id="lgenLenMin" placeholder="Min"><span class="lgen-range-sep">to</span><input type="number" step="0.1" class="lgen-input" id="lgenLenMax" placeholder="Max"></div></div>
+              <div class="lgen-field"><label class="lgen-label">Breadth (CM) <span>*</span></label><div class="lgen-range-pair"><input type="number" step="0.1" class="lgen-input" id="lgenBreMin" placeholder="Min"><span class="lgen-range-sep">to</span><input type="number" step="0.1" class="lgen-input" id="lgenBreMax" placeholder="Max"></div></div>
+            </div>
+            <div class="lgen-row">
+              <div class="lgen-field"><label class="lgen-label">Height (CM) <span>*</span></label><div class="lgen-range-pair"><input type="number" step="0.1" class="lgen-input" id="lgenHeiMin" placeholder="Min"><span class="lgen-range-sep">to</span><input type="number" step="0.1" class="lgen-input" id="lgenHeiMax" placeholder="Max"></div></div>
+              <div class="lgen-field"><label class="lgen-label">Weight (KG) <span>*</span> <span style="color:var(--muted);font-size:.68rem;text-transform:none;letter-spacing:0;">(max 0.49)</span></label><div class="lgen-range-pair"><input type="number" step="0.01" class="lgen-input" id="lgenWgtMin" placeholder="Min"><span class="lgen-range-sep">to</span><input type="number" step="0.01" class="lgen-input" id="lgenWgtMax" placeholder="Max 0.49"></div></div>
+            </div>
+          </div>
+          <div class="lgen-card">
+            <div class="lgen-card-title">🏷️ Product Metadata</div>
+            <div class="lgen-row">
+              <div class="lgen-field"><label class="lgen-label">Brand <span>*</span></label><input type="text" class="lgen-input" id="lgenBrand" placeholder="e.g. SP 4"></div>
+              <div class="lgen-field"><label class="lgen-label">HSN Code <span>*</span></label><input type="text" class="lgen-input" id="lgenHsn" placeholder="e.g. 3004"></div>
+            </div>
+            <div class="lgen-row">
+              <div class="lgen-field"><label class="lgen-label">Country of Origin <span>*</span></label><select class="lgen-select" id="lgenCountry"><option value="India">India</option><option value="China">China</option></select></div>
+              <div class="lgen-field"><label class="lgen-label">Tax Code <span>*</span></label><select class="lgen-select" id="lgenTaxCode"><option value="GST_5">GST_5</option><option value="GST_18">GST_18</option><option value="GST_0">GST_0</option></select></div>
+            </div>
+            <div class="lgen-field"><label class="lgen-label">Manufacturer Details <span>*</span></label><input type="text" class="lgen-input" id="lgenManufacturer" placeholder="e.g. Eonspark Solutions LLP"></div>
+            <div class="lgen-row">
+              <div class="lgen-field"><label class="lgen-label">Packer Details <span>*</span></label><input type="text" class="lgen-input" id="lgenPacker" placeholder="Same as manufacturer or different"></div>
+              <div class="lgen-field"><label class="lgen-label">Importer Details</label><input type="text" class="lgen-input" id="lgenImporter" placeholder="Leave blank if not applicable"></div>
+            </div>
+            <div class="lgen-row">
+              <div class="lgen-field"><label class="lgen-label">Ideal For</label><input type="text" class="lgen-input" id="lgenIdealFor" placeholder="e.g. Men &amp; Women"></div>
+              <div class="lgen-field"><label class="lgen-label">Ingredient Type</label><input type="text" class="lgen-input" id="lgenIngredientType" placeholder="e.g. Herbal, Natural"></div>
+            </div>
+            <div class="lgen-row">
+              <div class="lgen-field"><label class="lgen-label">Product Type</label><input type="text" class="lgen-input" id="lgenProductType" placeholder="e.g. Toothpaste, Foot Patch"></div>
+              <div class="lgen-field"><label class="lgen-label">Shelf Life (Months)</label><input type="number" class="lgen-input" id="lgenShelfLife" placeholder="e.g. 24" value="24"></div>
+            </div>
+            <div class="lgen-row">
+              <div class="lgen-field"><label class="lgen-label">Min Age (Months)</label><input type="number" class="lgen-input" id="lgenMinAge" placeholder="e.g. 3"></div>
+              <div class="lgen-field"><label class="lgen-label">Max Age (Months)</label><input type="number" class="lgen-input" id="lgenMaxAge" placeholder="e.g. 70"></div>
+            </div>
+          </div>
+          <div class="lgen-nav"><button class="lgen-btn lgen-btn-ghost" onclick="lgenGoStep(1)">← Back</button><button class="lgen-btn lgen-btn-primary" onclick="lgenGoStep(3)">Next: Images →</button></div>
+        </div>
+
+        <!-- STEP 3 -->
+        <div id="lgenStep3" style="display:none;">
+          <div class="lgen-card">
+            <div class="lgen-card-title">🖼️ Main Images <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· 3–10 images · Used as primary product image per SKU</span></div>
+            <div class="lgen-drop" onclick="document.getElementById('lgenMainImgInput').click()" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="lgenHandleImgDrop(event,'main')">
+              <div class="lgen-drop-icon">📸</div>
+              <div class="lgen-drop-text">Drop main product images here</div>
+              <div class="lgen-drop-hint">JPEG or PNG · Each distributed evenly as primary image across SKUs</div>
+            </div>
+            <input type="file" id="lgenMainImgInput" accept="image/jpeg,image/jpg,image/png" multiple style="display:none" onchange="lgenAddImages(this.files,'main')">
+            <div class="lgen-img-grid" id="lgenMainImgGrid"></div>
+            <div id="lgenMainImgErr" class="lgen-err" style="display:none;"></div>
+          </div>
+          <div class="lgen-card">
+            <div class="lgen-card-title">🗂️ Gallery Images <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· 5–20 images · Distributed across Other Image slots</span></div>
+            <div class="lgen-drop" onclick="document.getElementById('lgenGalleryImgInput').click()" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="lgenHandleImgDrop(event,'gallery')">
+              <div class="lgen-drop-icon">🗂️</div>
+              <div class="lgen-drop-text">Drop gallery images here</div>
+              <div class="lgen-drop-hint">JPEG or PNG · Used for Other Image URL 1–4 slots</div>
+            </div>
+            <input type="file" id="lgenGalleryImgInput" accept="image/jpeg,image/jpg,image/png" multiple style="display:none" onchange="lgenAddImages(this.files,'gallery')">
+            <div class="lgen-img-grid" id="lgenGalleryImgGrid"></div>
+            <div id="lgenGalleryImgErr" class="lgen-err" style="display:none;"></div>
+          </div>
+          <div class="lgen-nav"><button class="lgen-btn lgen-btn-ghost" onclick="lgenGoStep(2)">← Back</button><button class="lgen-btn lgen-btn-primary" id="lgenGenerateBtn" onclick="lgenGenerate()">✨ Generate Listing →</button></div>
+        </div>
+
+        <!-- STEP 4 -->
+        <div id="lgenStep4" style="display:none;">
+          <div id="lgenGeneratingState" class="lgen-card lgen-generating">
+            <div class="lgen-gen-spinner"></div>
+            <div class="lgen-gen-msg" id="lgenGenMsg">Uploading images…</div>
+            <div class="lgen-gen-sub">This takes about 20–40 seconds</div>
+          </div>
+          <div id="lgenSuccessState" class="lgen-card lgen-success" style="display:none;">
+            <div class="lgen-success-icon">🎉</div>
+            <div class="lgen-success-title">Your listing file is ready!</div>
+            <div class="lgen-success-sub">Download the XLSX and upload it directly to Flipkart Seller Portal.</div>
+            <div id="lgenUnfilledWarning" class="lgen-warning-box" style="display:none;">
+              <h4>⚠️ Mandatory fields left empty</h4>
+              <ul id="lgenUnfilledList"></ul>
+            </div>
+            <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+              <a id="lgenDownloadLink" class="lgen-btn lgen-btn-primary" style="text-decoration:none;">⬇️ Download XLSX</a>
+              <button class="lgen-btn lgen-btn-ghost" onclick="lgenReset()">Generate Another</button>
+            </div>
+          </div>
+          <div id="lgenErrorState" class="lgen-card" style="display:none;text-align:center;padding:40px 20px;">
+            <div style="font-size:2rem;margin-bottom:14px;">❌</div>
+            <div style="font-weight:700;color:var(--text);margin-bottom:8px;">Generation failed</div>
+            <div id="lgenErrorMsg" style="font-size:.82rem;color:var(--muted);margin-bottom:20px;"></div>
+            <button class="lgen-btn lgen-btn-ghost" onclick="lgenGoStep(3)">← Try Again</button>
+          </div>
+        </div>
+
+      </div>
+    </div><!-- end lgenPage -->
+
+    <div class="lst-wrap">
       <div class="lst-account-tabs-bar">
         <button class="lst-acct-tab active" onclick="lstSwitchAccount('CUTEST-CLUB',this)">Cutest Club</button>
         <button class="lst-acct-tab" disabled title="API not configured">Refreshwave</button>
         <button class="lst-acct-tab" disabled title="API not configured">Eonspark</button>
         <button class="lst-acct-tab" disabled title="API not configured">Hellohi</button>
       </div>
-
-      <!-- Toolbar -->
       <div class="lst-toolbar">
         <label style="font-size:.78rem;color:var(--muted);">Product</label>
         <select class="lst-select" id="lstProductFilter" onchange="lstApplyFilter()" style="min-width:180px;">
           <option value="__all__">All Products</option>
         </select>
         <button class="lst-btn" onclick="lstOpenBulkModal()">⚡ Bulk Action</button>
+        <button class="lst-btn lgen-btn-primary" onclick="lgenOpen()" style="margin-left:6px;">✨ Add New Listing</button>
         <span class="lst-status" id="lstStatus"></span>
       </div>
-
-      <!-- Table -->
-      <div class="lst-table-wrap">
-        <div id="lstTableContainer">
-          <div class="lst-empty" style="color:var(--muted);">Select a product from the dropdown above to load its listings.</div>
-        </div>
-        <div class="lst-pagination" id="lstPagination" style="display:none;">
-          <span id="lstPageInfo" style="color:var(--muted);font-size:.8rem;"></span>
-          <div class="lst-page-btns" id="lstPageBtns"></div>
-        </div>
-      </div>
-
-    </div>
-  </div>
 
   <!-- ── Bulk Action Modal ── -->
   <div id="lstBulkModal" class="lst-modal-overlay" style="display:none;" onclick="if(event.target===this)lstCloseBulkModal()">
@@ -6446,6 +6758,330 @@ function lstResolveProduct(skuId) {
   return '—';
 }
 
+// ════════════════════════════════════════════════
+// LISTING GENERATOR (lgen*)
+// ════════════════════════════════════════════════
+(function() {
+  let _lgenStep       = 1;
+  let _lgenTemplate   = null;   // { file, name }
+  let _lgenMainImgs   = [];     // [{file, previewUrl}]
+  let _lgenGalleryImgs= [];
+  let _lgenMainUrls   = [];     // uploaded public URLs
+  let _lgenGalleryUrls= [];
+
+  window.lgenOpen = function() {
+    document.getElementById('lgenPage').classList.add('active');
+    window.scrollTo({top:0});
+    lgenSetStep(1);
+  };
+
+  window.lgenClose = function() {
+    document.getElementById('lgenPage').classList.remove('active');
+  };
+
+  window.lgenReset = function() {
+    // Reset all state and go back to step 1
+    _lgenStep = 1; _lgenTemplate = null;
+    _lgenMainImgs = []; _lgenGalleryImgs = [];
+    _lgenMainUrls = []; _lgenGalleryUrls = [];
+    document.getElementById('lgenTemplateStatus').style.display = 'none';
+    document.getElementById('lgenTemplateDrop').style.display = '';
+    ['lgenNumSkus','lgenSkuIdentifier','lgenKeywords','lgenDescContent',
+     'lgenMrpMin','lgenMrpMax','lgenPriceMin','lgenPriceMax',
+     'lgenLenMin','lgenLenMax','lgenBreMin','lgenBreMax',
+     'lgenHeiMin','lgenHeiMax','lgenWgtMin','lgenWgtMax',
+     'lgenHsn','lgenBrand','lgenManufacturer','lgenPacker','lgenImporter',
+     'lgenIdealFor','lgenIngredientType','lgenProductType','lgenMinAge','lgenMaxAge'
+    ].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
+    document.getElementById('lgenShelfLife').value = '24';
+    [1,2,3,4,5].forEach(n => { const el = document.getElementById('lgenQty'+n); if(el) el.value=''; });
+    document.getElementById('lgenMainImgGrid').innerHTML = '';
+    document.getElementById('lgenGalleryImgGrid').innerHTML = '';
+    document.getElementById('lgenSuccessState').style.display = 'none';
+    document.getElementById('lgenErrorState').style.display = 'none';
+    document.getElementById('lgenGeneratingState').style.display = 'block';
+    lgenSetStep(1);
+  };
+
+  function lgenSetStep(n) {
+    _lgenStep = n;
+    [1,2,3,4].forEach(s => {
+      document.getElementById('lgenStep'+s).style.display = s === n ? '' : 'none';
+      const ind = document.getElementById('lgenStepInd'+s);
+      if(ind) {
+        ind.className = 'lgen-step' + (s === n ? ' active' : s < n ? ' done' : '');
+        const num = document.getElementById('lgenStepNum'+s);
+        if(num) num.textContent = s < n ? '✓' : s;
+      }
+      const line = document.getElementById('lgenLine'+s);
+      if(line) line.className = 'lgen-step-line' + (s < n ? ' done' : '');
+    });
+  }
+
+  window.lgenGoStep = function(n) {
+    // Validate before advancing
+    if(n > _lgenStep) {
+      if(_lgenStep === 1 && !lgenValidateStep1()) return;
+      if(_lgenStep === 2 && !lgenValidateStep2()) return;
+      if(_lgenStep === 3 && !lgenValidateStep3()) return;
+    }
+    lgenSetStep(n);
+    document.getElementById('lgenPage').scrollTop = 0;
+    window.scrollTo({top:0});
+  };
+
+  // ── Template handling ────────────────────────
+  window.lgenHandleTemplateDrop = function(e) {
+    e.preventDefault();
+    document.getElementById('lgenTemplateDrop').classList.remove('over');
+    const f = e.dataTransfer.files[0];
+    if(f) lgenHandleTemplateFile(f);
+  };
+
+  window.lgenHandleTemplateFile = function(f) {
+    if(!f || !f.name.endsWith('.xlsx')) {
+      showErr('lgenTemplateErr', 'Please upload a .xlsx file');
+      return;
+    }
+    _lgenTemplate = { file: f, name: f.name };
+    document.getElementById('lgenTemplateDrop').style.display = 'none';
+    document.getElementById('lgenTemplateStatus').style.display = '';
+    document.getElementById('lgenTemplateStatusText').textContent = f.name + ' loaded ✓';
+    document.getElementById('lgenTemplateErr').style.display = 'none';
+  };
+
+  window.lgenClearTemplate = function() {
+    _lgenTemplate = null;
+    document.getElementById('lgenTemplateDrop').style.display = '';
+    document.getElementById('lgenTemplateStatus').style.display = 'none';
+    document.getElementById('lgenTemplateFile').value = '';
+  };
+
+  // ── Quantity sum ─────────────────────────────
+  window.lgenUpdateQtySum = function() {
+    const n = parseInt(document.getElementById('lgenNumSkus').value) || 0;
+    let sum = 0;
+    [1,2,3,4,5].forEach(i => { sum += parseInt(document.getElementById('lgenQty'+i).value)||0; });
+    const el = document.getElementById('lgenQtySum');
+    if(n === 0) { el.className = 'lgen-qty-sum'; el.textContent = 'Enter quantities above — must sum to Number of SKUs'; return; }
+    el.className = 'lgen-qty-sum ' + (sum === n ? 'ok' : 'err');
+    el.textContent = `Sum: ${sum} / ${n}` + (sum === n ? ' ✓' : ` — need ${n - sum} more`);
+  };
+
+  // ── Image handling ───────────────────────────
+  window.lgenHandleImgDrop = function(e, type) {
+    e.preventDefault();
+    lgenAddImages(e.dataTransfer.files, type);
+  };
+
+  window.lgenAddImages = function(files, type) {
+    const arr   = type === 'main' ? _lgenMainImgs   : _lgenGalleryImgs;
+    const maxN  = type === 'main' ? 10 : 20;
+    const errId = type === 'main' ? 'lgenMainImgErr' : 'lgenGalleryImgErr';
+    Array.from(files).forEach(f => {
+      if(arr.length >= maxN) { showErr(errId, `Maximum ${maxN} images allowed`); return; }
+      if(!f.type.startsWith('image/')) { showErr(errId, `${f.name} is not an image`); return; }
+      const url = URL.createObjectURL(f);
+      arr.push({file: f, previewUrl: url});
+    });
+    lgenRenderImgGrid(type);
+    document.getElementById(errId).style.display = 'none';
+  };
+
+  function lgenRenderImgGrid(type) {
+    const arr    = type === 'main' ? _lgenMainImgs    : _lgenGalleryImgs;
+    const gridId = type === 'main' ? 'lgenMainImgGrid': 'lgenGalleryImgGrid';
+    document.getElementById(gridId).innerHTML = arr.map((img, i) =>
+      `<div class="lgen-img-thumb">
+        <img src="${img.previewUrl}" alt="">
+        <button class="lgen-img-del" onclick="lgenRemoveImg('${type}',${i})">✕</button>
+       </div>`
+    ).join('');
+  }
+
+  window.lgenRemoveImg = function(type, idx) {
+    const arr = type === 'main' ? _lgenMainImgs : _lgenGalleryImgs;
+    arr.splice(idx, 1);
+    lgenRenderImgGrid(type);
+  };
+
+  // ── Validation ───────────────────────────────
+  function showErr(id, msg) {
+    const el = document.getElementById(id);
+    if(el) { el.textContent = msg; el.style.display = 'block'; }
+  }
+  function hideErr(id) {
+    const el = document.getElementById(id);
+    if(el) el.style.display = 'none';
+  }
+
+  function lgenValidateStep1() {
+    let ok = true;
+    if(!_lgenTemplate) {
+      showErr('lgenTemplateErr', 'Please upload a template file'); ok = false;
+    }
+    const n = parseInt(document.getElementById('lgenNumSkus').value);
+    if(!n || n < 2 || n > 20) {
+      showErr('lgenNumSkusErr', 'Number of SKUs must be between 2 and 20'); ok = false;
+    } else {
+      let sum = 0;
+      [1,2,3,4,5].forEach(i => { sum += parseInt(document.getElementById('lgenQty'+i).value)||0; });
+      if(sum !== n) { showErr('lgenNumSkusErr', `Quantities sum (${sum}) must equal Number of SKUs (${n})`); ok = false; }
+      else hideErr('lgenNumSkusErr');
+    }
+    if(!document.getElementById('lgenSkuIdentifier').value.trim()) {
+      showErr('lgenNumSkusErr', 'SKU Identifier is required'); ok = false;
+    }
+    return ok;
+  }
+
+  function lgenValidateStep2() {
+    const required = [
+      ['lgenKeywords','Top Keywords required'],
+      ['lgenDescContent','Description Content required'],
+      ['lgenMrpMin','MRP Min required'],['lgenMrpMax','MRP Max required'],
+      ['lgenPriceMin','Selling Price Min required'],['lgenPriceMax','Selling Price Max required'],
+      ['lgenLenMin','Length Min required'],['lgenLenMax','Length Max required'],
+      ['lgenBreMin','Breadth Min required'],['lgenBreMax','Breadth Max required'],
+      ['lgenHeiMin','Height Min required'],['lgenHeiMax','Height Max required'],
+      ['lgenWgtMin','Weight Min required'],['lgenWgtMax','Weight Max required'],
+      ['lgenHsn','HSN Code required'],['lgenBrand','Brand required'],
+      ['lgenManufacturer','Manufacturer Details required'],['lgenPacker','Packer Details required'],
+    ];
+    for(const [id, msg] of required) {
+      if(!document.getElementById(id).value.trim()) { showErr('lgenKeywordsErr', msg); return false; }
+    }
+    const kw = document.getElementById('lgenKeywords').value.split(',').filter(k => k.trim());
+    if(kw.length < 2 || kw.length > 15) {
+      showErr('lgenKeywordsErr', 'Enter 2–15 comma-separated keywords'); return false;
+    }
+    hideErr('lgenKeywordsErr');
+    return true;
+  }
+
+  function lgenValidateStep3() {
+    if(_lgenMainImgs.length < 3 || _lgenMainImgs.length > 10) {
+      showErr('lgenMainImgErr', 'Upload 3–10 main images'); return false;
+    }
+    if(_lgenGalleryImgs.length < 5 || _lgenGalleryImgs.length > 20) {
+      showErr('lgenGalleryImgErr', 'Upload 5–20 gallery images'); return false;
+    }
+    return true;
+  }
+
+  // ── Generate ──────────────────────────────────
+  window.lgenGenerate = function() {
+    if(!lgenValidateStep3()) return;
+    lgenSetStep(4);
+    document.getElementById('lgenGeneratingState').style.display = 'block';
+    document.getElementById('lgenSuccessState').style.display    = 'none';
+    document.getElementById('lgenErrorState').style.display      = 'none';
+    _doGenerate();
+  };
+
+  async function _doGenerate() {
+    const setMsg = m => { const el = document.getElementById('lgenGenMsg'); if(el) el.textContent = m; };
+
+    try {
+      // Step A: Upload images
+      setMsg('Uploading images to hosting…');
+      const allImages  = [..._lgenMainImgs, ..._lgenGalleryImgs];
+      const formImg    = new FormData();
+      allImages.forEach(img => formImg.append('images', img.file, img.file.name));
+      const imgResp    = await fetch('/api/listing-gen/upload-images', {method:'POST', body: formImg});
+      const imgResult  = await imgResp.json();
+      if(imgResult.error) throw new Error(imgResult.error);
+
+      // Split uploaded URLs back into main and gallery
+      const uploadedUrls = imgResult.urls || [];
+      const mainCount    = _lgenMainImgs.length;
+      _lgenMainUrls      = uploadedUrls.slice(0, mainCount).map(u => u.url);
+      _lgenGalleryUrls   = uploadedUrls.slice(mainCount).map(u => u.url);
+
+      if(_lgenMainUrls.length === 0) throw new Error('Image upload failed — no URLs returned');
+      if(imgResult.errors && imgResult.errors.length > 0) {
+        console.warn('Some images failed to upload:', imgResult.errors);
+      }
+
+      // Step B: Build form data & generate
+      setMsg('Generating listing content with Claude…');
+      const fd = {
+        num_skus:       parseInt(document.getElementById('lgenNumSkus').value),
+        quantities:     { 1: document.getElementById('lgenQty1').value||0, 2: document.getElementById('lgenQty2').value||0, 3: document.getElementById('lgenQty3').value||0, 4: document.getElementById('lgenQty4').value||0, 5: document.getElementById('lgenQty5').value||0 },
+        sku_identifier: document.getElementById('lgenSkuIdentifier').value.trim(),
+        top_keywords:   document.getElementById('lgenKeywords').value,
+        description_content: document.getElementById('lgenDescContent').value,
+        mrp_min:        document.getElementById('lgenMrpMin').value,
+        mrp_max:        document.getElementById('lgenMrpMax').value,
+        price_min:      document.getElementById('lgenPriceMin').value,
+        price_max:      document.getElementById('lgenPriceMax').value,
+        len_min:        document.getElementById('lgenLenMin').value,
+        len_max:        document.getElementById('lgenLenMax').value,
+        bre_min:        document.getElementById('lgenBreMin').value,
+        bre_max:        document.getElementById('lgenBreMax').value,
+        hei_min:        document.getElementById('lgenHeiMin').value,
+        hei_max:        document.getElementById('lgenHeiMax').value,
+        wgt_min:        document.getElementById('lgenWgtMin').value,
+        wgt_max:        document.getElementById('lgenWgtMax').value,
+        hsn:            document.getElementById('lgenHsn').value,
+        country_of_origin: document.getElementById('lgenCountry').value,
+        manufacturer_details: document.getElementById('lgenManufacturer').value,
+        packer_details: document.getElementById('lgenPacker').value,
+        importer_details: document.getElementById('lgenImporter').value,
+        tax_code:       document.getElementById('lgenTaxCode').value,
+        brand:          document.getElementById('lgenBrand').value,
+        ideal_for:      document.getElementById('lgenIdealFor').value,
+        ingredient_type: document.getElementById('lgenIngredientType').value,
+        product_type:   document.getElementById('lgenProductType').value,
+        shelf_life:     document.getElementById('lgenShelfLife').value,
+        min_age:        document.getElementById('lgenMinAge').value,
+        max_age:        document.getElementById('lgenMaxAge').value,
+        main_image_urls:    _lgenMainUrls,
+        gallery_image_urls: _lgenGalleryUrls,
+      };
+
+      setMsg('Filling XLSX template…');
+      const genForm = new FormData();
+      genForm.append('form_data', JSON.stringify(fd));
+      genForm.append('template', _lgenTemplate.file, _lgenTemplate.name);
+
+      const genResp = await fetch('/api/listing-gen/generate', {method:'POST', body: genForm});
+      if(!genResp.ok) {
+        const errData = await genResp.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error ${genResp.status}`);
+      }
+
+      // Handle unfilled fields warning
+      const unfilledRaw = genResp.headers.get('X-Unfilled-Fields');
+      const unfilled    = unfilledRaw ? JSON.parse(unfilledRaw) : [];
+
+      // Get blob and create download link
+      setMsg('Preparing download…');
+      const blob  = await genResp.blob();
+      const url   = URL.createObjectURL(blob);
+      const link  = document.getElementById('lgenDownloadLink');
+      link.href   = url;
+      link.download = _lgenTemplate.name;
+
+      // Show success
+      document.getElementById('lgenGeneratingState').style.display = 'none';
+      document.getElementById('lgenSuccessState').style.display    = 'block';
+
+      if(unfilled.length > 0) {
+        document.getElementById('lgenUnfilledWarning').style.display = 'block';
+        document.getElementById('lgenUnfilledList').innerHTML =
+          unfilled.map(f => `<li>${f}</li>`).join('');
+      }
+
+    } catch(err) {
+      document.getElementById('lgenGeneratingState').style.display = 'none';
+      document.getElementById('lgenErrorState').style.display      = 'block';
+      document.getElementById('lgenErrorMsg').textContent          = err.message || String(err);
+    }
+  }
+
+})();
+
 // ── Public: Refresh button ──
 window.lstLoadListings = function() {
   lstFetchPage(null);
@@ -7154,6 +7790,344 @@ window.saveCronConfig = function() {
 // Load status badge on page load
 document.addEventListener('DOMContentLoaded', _loadCronStatusBadge);
 
+
+// ═══════════════════════════════════════════════════════════════
+// LISTING GENERATOR
+// ═══════════════════════════════════════════════════════════════
+
+const _lg = {
+  step: 1,
+  templateFile: null,
+  templateFilename: '',
+  mainImages: [],
+  galleryImages: [],
+  mainUrls: [],
+  galleryUrls: [],
+  aiData: null,
+  xlsxBlob: null,
+  xlsxFilename: '',
+};
+
+window.lgOpen = function() {
+  const panel = document.getElementById('panel-listings');
+  panel.style.position = 'relative';
+  document.getElementById('lgPage').classList.add('active');
+  lgGoStep(1);
+};
+
+window.lgClose = function() {
+  document.getElementById('lgPage').classList.remove('active');
+};
+
+window.lgReset = function() {
+  Object.assign(_lg, {
+    step:1, templateFile:null, templateFilename:'',
+    mainImages:[], galleryImages:[], mainUrls:[], galleryUrls:[],
+    aiData:null, xlsxBlob:null, xlsxFilename:''
+  });
+  ['lgNSkus','lgSkuIdentifier','lgKeywords','lgDescContent',
+   'lgMrpMin','lgMrpMax','lgSpMin','lgSpMax',
+   'lgLenMin','lgLenMax','lgBrMin','lgBrMax','lgHtMin','lgHtMax','lgWtMin','lgWtMax',
+   'lgBrand','lgHsn','lgManufacturer','lgPacker','lgImporter',
+   'lgPack1','lgPack2','lgPack3','lgPack4','lgPack5']
+    .forEach(function(id) { const el = document.getElementById(id); if(el) el.value = ''; });
+  document.getElementById('lgTemplateLabel').textContent = 'Drop your Flipkart bulk template here, or click to browse';
+  document.getElementById('lgMainPreview').innerHTML = '';
+  document.getElementById('lgGalleryPreview').innerHTML = '';
+  document.getElementById('lgMainCount').textContent = '';
+  document.getElementById('lgGalleryCount').textContent = '';
+  document.getElementById('lgPackStatus').style.display = 'none';
+  lgGoStep(1);
+};
+
+window.lgGoStep = function(n) {
+  if (n > _lg.step) {
+    const err = lgValidateStep(_lg.step);
+    if (err) { alert(err); return; }
+  }
+  _lg.step = n;
+  [1,2,3,4].forEach(function(i) {
+    const content = document.getElementById('lgStep'+i);
+    if (content) content.style.display = i === n ? 'block' : 'none';
+    const tab = document.getElementById('lgStepTab'+i);
+    if (tab) {
+      tab.classList.remove('active','done');
+      if (i === n) tab.classList.add('active');
+      else if (i < n) tab.classList.add('done');
+    }
+  });
+  if (n === 4) lgBuildSummary();
+};
+
+function lgValidateStep(step) {
+  if (step === 1) {
+    if (!_lg.templateFile) return 'Please upload a bulk template file.';
+    const n = parseInt(document.getElementById('lgNSkus').value || '0');
+    if (n < 2 || n > 20) return 'Number of SKUs must be between 2 and 20.';
+    if (!document.getElementById('lgSkuIdentifier').value.trim()) return 'SKU Identifier is required.';
+    const kw = document.getElementById('lgKeywords').value.trim().split(',').map(function(s){return s.trim();}).filter(Boolean);
+    if (kw.length < 2 || kw.length > 15) return 'Enter 2 to 15 comma-separated keywords.';
+    if (!document.getElementById('lgDescContent').value.trim()) return 'Description content is required.';
+    const psum = [1,2,3,4,5].reduce(function(s,i){return s+(parseInt(document.getElementById('lgPack'+i).value||'0'));},0);
+    if (psum !== n) return 'Pack quantities must sum to ' + n + ' (currently ' + psum + ').';
+    const checks = [
+      ['lgMrpMin','lgMrpMax','MRP'],['lgSpMin','lgSpMax','Selling Price'],
+      ['lgLenMin','lgLenMax','Length'],['lgBrMin','lgBrMax','Breadth'],
+      ['lgHtMin','lgHtMax','Height'],['lgWtMin','lgWtMax','Weight']
+    ];
+    for (let ci=0; ci<checks.length; ci++) {
+      const minId = checks[ci][0], maxId = checks[ci][1], label = checks[ci][2];
+      const mn = parseFloat(document.getElementById(minId).value||'0');
+      const mx = parseFloat(document.getElementById(maxId).value||'0');
+      if (!mn || !mx) return label + ' min and max are required.';
+      if (mn > mx) return label + ' min cannot be greater than max.';
+    }
+  }
+  if (step === 2) {
+    if (_lg.mainImages.length < 3) return 'Upload at least 3 main images.';
+    if (_lg.mainImages.length > 10) return 'Maximum 10 main images allowed.';
+    if (_lg.galleryImages.length < 5) return 'Upload at least 5 gallery images.';
+    if (_lg.galleryImages.length > 20) return 'Maximum 20 gallery images allowed.';
+  }
+  if (step === 3) {
+    if (!document.getElementById('lgBrand').value.trim()) return 'Brand is required.';
+    if (!document.getElementById('lgHsn').value.trim()) return 'HSN code is required.';
+    if (!document.getElementById('lgManufacturer').value.trim()) return 'Manufacturer details are required.';
+    if (!document.getElementById('lgPacker').value.trim()) return 'Packer details are required.';
+  }
+  return null;
+}
+
+window.lgValidatePacks = function() {
+  const n = parseInt(document.getElementById('lgNSkus').value || '0');
+  const psum = [1,2,3,4,5].reduce(function(s,i){return s+(parseInt(document.getElementById('lgPack'+i).value||'0'));},0);
+  const el = document.getElementById('lgPackStatus');
+  el.style.display = 'inline-flex';
+  if (n && psum === n) {
+    el.className = 'lg-sum-status lg-sum-ok';
+    el.textContent = String.fromCharCode(10003) + ' Packs sum to ' + n;
+  } else if (n) {
+    el.className = 'lg-sum-status lg-sum-err';
+    el.textContent = String.fromCharCode(10007) + ' Packs sum to ' + psum + ', need ' + n;
+  } else {
+    el.style.display = 'none';
+  }
+};
+
+window.lgHandleTemplate = function(input) {
+  const file = input.files[0];
+  if (!file) return;
+  _lg.templateFile = file;
+  _lg.templateFilename = file.name;
+  document.getElementById('lgTemplateLabel').textContent = '✓ ' + file.name;
+};
+
+window.lgHandleImages = function(input, type) {
+  const files = Array.from(input.files);
+  if (type === 'main') {
+    _lg.mainImages = files;
+    lgRenderPreviews(files, 'lgMainPreview', 'lgMainCount', 'main image');
+  } else {
+    _lg.galleryImages = files;
+    lgRenderPreviews(files, 'lgGalleryPreview', 'lgGalleryCount', 'gallery image');
+  }
+};
+
+function lgRenderPreviews(files, previewId, countId, label) {
+  const preview = document.getElementById(previewId);
+  const count = document.getElementById(countId);
+  preview.innerHTML = files.slice(0,12).map(function(f) {
+    const url = URL.createObjectURL(f);
+    return '<img src="' + url + '" class="lg-img-thumb" alt="">';
+  }).join('');
+  const extra = files.length > 12 ? ' (+' + (files.length-12) + ' more)' : '';
+  count.textContent = files.length + ' ' + label + 's selected' + extra;
+}
+
+window.lgDragOver = function(e, id) {
+  e.preventDefault();
+  document.getElementById(id).classList.add('over');
+};
+
+window.lgDragLeave = function(id) {
+  document.getElementById(id).classList.remove('over');
+};
+
+window.lgDropFile = function(e, inputId) {
+  e.preventDefault();
+  const input = document.getElementById(inputId);
+  const dt = e.dataTransfer;
+  if (dt.files.length) {
+    Object.defineProperty(input, 'files', { value: dt.files, configurable: true });
+    input.dispatchEvent(new Event('change'));
+  }
+};
+
+function lgBuildSummary() {
+  const n = document.getElementById('lgNSkus').value;
+  const sku = document.getElementById('lgSkuIdentifier').value;
+  const kw = document.getElementById('lgKeywords').value;
+  const brand = document.getElementById('lgBrand').value;
+  const packs = [1,2,3,4,5].map(function(i){
+    const v = parseInt(document.getElementById('lgPack'+i).value||'0');
+    return v ? v + '× Pack of ' + i : null;
+  }).filter(Boolean).join(', ');
+
+  document.getElementById('lgSummaryText').innerHTML =
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">' +
+    '<div><strong style="color:var(--text);">Template:</strong> ' + _lg.templateFilename + '</div>' +
+    '<div><strong style="color:var(--text);">SKUs to create:</strong> ' + n + '</div>' +
+    '<div><strong style="color:var(--text);">SKU Identifier:</strong> ' + sku + '</div>' +
+    '<div><strong style="color:var(--text);">Brand:</strong> ' + brand + '</div>' +
+    '<div><strong style="color:var(--text);">Pack distribution:</strong> ' + packs + '</div>' +
+    '<div><strong style="color:var(--text);">Keywords:</strong> ' + kw.split(',').length + ' keywords</div>' +
+    '<div><strong style="color:var(--text);">Main images:</strong> ' + _lg.mainImages.length + ' uploaded</div>' +
+    '<div><strong style="color:var(--text);">Gallery images:</strong> ' + _lg.galleryImages.length + ' uploaded</div>' +
+    '</div>';
+
+  document.getElementById('lgPreGenView').style.display = 'block';
+  document.getElementById('lgProgressView').style.display = 'none';
+  document.getElementById('lgSuccessView').style.display = 'none';
+}
+
+function lgSetProgress(stepNum, state) {
+  const el = document.getElementById('lgProg' + stepNum);
+  if (!el) return;
+  el.className = 'lg-progress-step ' + state;
+  const spinner = el.querySelector('.lg-spinner');
+  if (spinner) spinner.style.display = state === 'active' ? 'inline-block' : 'none';
+  if (state === 'done') {
+    const span = el.querySelector('span');
+    if (span && span.textContent.indexOf('✓') !== 0) span.textContent = '✓ ' + span.textContent;
+  }
+}
+
+window.lgStartGenerate = async function() {
+  document.getElementById('lgPreGenView').style.display = 'none';
+  document.getElementById('lgProgressView').style.display = 'block';
+  [1,2,3].forEach(function(i){ lgSetProgress(i, 'pending'); });
+
+  try {
+    // Step 1: Upload images
+    lgSetProgress(1, 'active');
+
+    async function uploadImg(file) {
+      const fd = new FormData();
+      fd.append('image', file);
+      const r = await fetch('/api/listing-gen/upload-image', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error('Image upload failed: ' + (d.error || r.status));
+      return d.url;
+    }
+
+    const mainUploads    = await Promise.all(_lg.mainImages.map(uploadImg));
+    const galleryUploads = await Promise.all(_lg.galleryImages.map(uploadImg));
+    _lg.mainUrls    = mainUploads;
+    _lg.galleryUrls = galleryUploads;
+    lgSetProgress(1, 'done');
+
+    // Step 2: Generate AI content
+    lgSetProgress(2, 'active');
+
+    const n = parseInt(document.getElementById('lgNSkus').value);
+    const packSizes = [];
+    [1,2,3,4,5].forEach(function(p) {
+      const cnt = parseInt(document.getElementById('lgPack'+p).value||'0');
+      for (let i=0; i<cnt; i++) packSizes.push(p);
+    });
+
+    const genResp = await fetch('/api/listing-gen/generate', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        n_skus: n,
+        keywords: document.getElementById('lgKeywords').value.split(',').map(function(s){return s.trim();}).filter(Boolean),
+        description_content: document.getElementById('lgDescContent').value,
+        sku_identifier: document.getElementById('lgSkuIdentifier').value,
+        pack_sizes: packSizes,
+      })
+    });
+    const genData = await genResp.json();
+    if (!genResp.ok || genData.error) throw new Error('AI generation failed: ' + (genData.error || genResp.status));
+    _lg.aiData = genData.data;
+    lgSetProgress(2, 'done');
+
+    // Step 3: Build XLSX
+    lgSetProgress(3, 'active');
+
+    const fd = new FormData();
+    fd.append('template', _lg.templateFile, _lg.templateFilename);
+    fd.append('n_skus',       n);
+    fd.append('sku_identifier', document.getElementById('lgSkuIdentifier').value);
+    fd.append('hsn',          document.getElementById('lgHsn').value);
+    fd.append('country',      document.getElementById('lgCountry').value);
+    fd.append('manufacturer', document.getElementById('lgManufacturer').value);
+    fd.append('packer',       document.getElementById('lgPacker').value);
+    fd.append('importer',     document.getElementById('lgImporter').value || '');
+    fd.append('tax_code',     document.getElementById('lgTaxCode').value);
+    fd.append('brand',        document.getElementById('lgBrand').value);
+    fd.append('mrp_min',      document.getElementById('lgMrpMin').value);
+    fd.append('mrp_max',      document.getElementById('lgMrpMax').value);
+    fd.append('sp_min',       document.getElementById('lgSpMin').value);
+    fd.append('sp_max',       document.getElementById('lgSpMax').value);
+    fd.append('len_min',      document.getElementById('lgLenMin').value);
+    fd.append('len_max',      document.getElementById('lgLenMax').value);
+    fd.append('br_min',       document.getElementById('lgBrMin').value);
+    fd.append('br_max',       document.getElementById('lgBrMax').value);
+    fd.append('ht_min',       document.getElementById('lgHtMin').value);
+    fd.append('ht_max',       document.getElementById('lgHtMax').value);
+    fd.append('wt_min',       document.getElementById('lgWtMin').value);
+    fd.append('wt_max',       document.getElementById('lgWtMax').value);
+    fd.append('pack_sizes',   JSON.stringify(packSizes));
+    fd.append('image_urls',   JSON.stringify({ main: _lg.mainUrls, gallery: _lg.galleryUrls }));
+    fd.append('ai_data',      JSON.stringify(_lg.aiData));
+    fd.append('filename',     _lg.templateFilename);
+
+    const xlsxResp = await fetch('/api/listing-gen/build-xlsx', { method: 'POST', body: fd });
+    if (!xlsxResp.ok) {
+      const errText = await xlsxResp.text();
+      throw new Error('XLSX build failed: ' + errText.slice(0,200));
+    }
+
+    _lg.xlsxBlob = await xlsxResp.blob();
+    _lg.xlsxFilename = _lg.templateFilename.replace(/\.(xlsx?)$/i, '.xlsx');
+
+    const warningRaw = xlsxResp.headers.get('X-Unhandled-Fields');
+    const warnings = warningRaw ? JSON.parse(warningRaw) : [];
+
+    lgSetProgress(3, 'done');
+
+    // Show success
+    document.getElementById('lgProgressView').style.display = 'none';
+    document.getElementById('lgSuccessView').style.display = 'block';
+    document.getElementById('lgSuccessSub').textContent =
+      n + ' SKUs generated and filled in ' + _lg.xlsxFilename + '. Upload directly to Flipkart Seller Portal.';
+
+    if (warnings.length > 0) {
+      const wbox = document.getElementById('lgWarningBox');
+      wbox.style.display = 'block';
+      wbox.innerHTML = '<strong>&#9888;&#65039; The following mandatory fields were present in the template but left empty. Please fill them manually before uploading:</strong><ul style="margin-top:8px;padding-left:18px;">' +
+        warnings.map(function(w){ return '<li>' + w + '</li>'; }).join('') + '</ul>';
+    }
+
+  } catch(err) {
+    document.getElementById('lgProgressView').style.display = 'none';
+    document.getElementById('lgPreGenView').style.display = 'block';
+    alert('Error: ' + err.message);
+    console.error(err);
+  }
+};
+
+window.lgDownload = function() {
+  if (!_lg.xlsxBlob) return;
+  const url = URL.createObjectURL(_lg.xlsxBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = _lg.xlsxFilename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
 </script>
 
 
@@ -7251,6 +8225,334 @@ document.addEventListener('DOMContentLoaded', _loadCronStatusBadge);
     </div>
   </div>
 </div>
+
+// ══════════════════════════════════════════════════════════
+// LISTING GENERATOR
+// ══════════════════════════════════════════════════════════
+(function() {
+
+let _lgMainImages   = [];  // File objects
+let _lgGalleryImages = [];
+let _lgTemplateFile  = null;
+let _lgCurrentStep   = 1;
+let _lgOutputFilename = null;
+
+// ── Open / Close ──
+window.lgOpen = function() {
+  document.getElementById('lgPage').classList.add('active');
+  document.body.style.overflow = 'hidden';
+  lgGoStep(1);
+};
+
+window.lgClose = function() {
+  document.getElementById('lgPage').classList.remove('active');
+  document.body.style.overflow = '';
+};
+
+window.lgReset = function() {
+  // Reset all state and go back to step 1
+  _lgMainImages = []; _lgGalleryImages = []; _lgTemplateFile = null; _lgOutputFilename = null;
+  ['lgTemplateInput','lgMainInput','lgGalleryInput'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
+  document.getElementById('lgTemplateLabel').textContent = 'Drop your Flipkart bulk template here, or click to browse';
+  document.getElementById('lgMainPreview').innerHTML = '';
+  document.getElementById('lgGalleryPreview').innerHTML = '';
+  document.getElementById('lgMainCount').textContent = '';
+  document.getElementById('lgGalleryCount').textContent = '';
+  ['lgNSkus','lgSkuIdentifier','lgKeywords','lgDescContent',
+   'lgMrpMin','lgMrpMax','lgSpMin','lgSpMax',
+   'lgLenMin','lgLenMax','lgBrMin','lgBrMax','lgHtMin','lgHtMax','lgWtMin','lgWtMax',
+   'lgHsn','lgManufacturer','lgPacker','lgImporter','lgBrand',
+   'lgPack1','lgPack2','lgPack3','lgPack4','lgPack5'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.value='';
+  });
+  document.getElementById('lgCountry').value = 'India';
+  document.getElementById('lgTaxCode').value = 'GST_5';
+  const ps = document.getElementById('lgPackStatus'); if(ps){ps.style.display='none';}
+  // Hide progress/success, show pre-gen
+  document.getElementById('lgPreGenView').style.display = '';
+  document.getElementById('lgProgressView').style.display = 'none';
+  document.getElementById('lgSuccessView').style.display = 'none';
+  lgGoStep(1);
+};
+
+// ── Step navigation ──
+window.lgGoStep = function(step) {
+  // Validate before advancing
+  if (step > _lgCurrentStep) {
+    if (_lgCurrentStep === 1 && !lgValidateStep1()) return;
+    if (_lgCurrentStep === 2 && !lgValidateStep2()) return;
+    if (_lgCurrentStep === 3 && !lgValidateStep3()) return;
+  }
+  _lgCurrentStep = step;
+  [1,2,3,4].forEach(s => {
+    document.getElementById('lgStep'+s).style.display = s===step ? '' : 'none';
+    const tab = document.getElementById('lgStepTab'+s);
+    tab.classList.toggle('active', s===step);
+    tab.classList.toggle('done', s<step);
+  });
+  if (step === 4) lgBuildSummary();
+  document.getElementById('lgPage').scrollTo({top:0,behavior:'smooth'});
+};
+
+// ── Drag & drop helpers ──
+window.lgDragOver = function(e, id) { e.preventDefault(); document.getElementById(id).classList.add('drag-over'); };
+window.lgDragLeave = function(id) { document.getElementById(id).classList.remove('drag-over'); };
+window.lgDropFile = function(e, inputId) {
+  e.preventDefault();
+  const dropId = e.currentTarget.id;
+  document.getElementById(dropId).classList.remove('drag-over');
+  const dt = e.dataTransfer;
+  if (!dt) return;
+  const input = document.getElementById(inputId);
+  // Simulate file input change
+  const files = dt.files;
+  if (!files.length) return;
+  // Build a synthetic event-like object
+  lgHandleFilesDirect(inputId, files);
+};
+
+function lgHandleFilesDirect(inputId, files) {
+  if (inputId === 'lgTemplateInput') {
+    const f = files[0];
+    if (f) { _lgTemplateFile = f; document.getElementById('lgTemplateLabel').textContent = '✓ ' + f.name; }
+  } else if (inputId === 'lgMainInput') {
+    _lgMainImages = [...files].filter(f => f.type.startsWith('image/'));
+    lgRenderImgPreview(_lgMainImages, 'lgMainPreview', 'lgMainCount');
+  } else if (inputId === 'lgGalleryInput') {
+    _lgGalleryImages = [...files].filter(f => f.type.startsWith('image/'));
+    lgRenderImgPreview(_lgGalleryImages, 'lgGalleryPreview', 'lgGalleryCount');
+  }
+}
+
+// ── Template file handler ──
+window.lgHandleTemplate = function(input) {
+  const f = input.files[0];
+  if (!f) return;
+  _lgTemplateFile = f;
+  document.getElementById('lgTemplateLabel').textContent = '✓ ' + f.name;
+};
+
+// ── Image handlers ──
+window.lgHandleImages = function(input, type) {
+  const files = [...input.files].filter(f => f.type.startsWith('image/'));
+  if (type === 'main') {
+    _lgMainImages = files;
+    lgRenderImgPreview(_lgMainImages, 'lgMainPreview', 'lgMainCount');
+  } else {
+    _lgGalleryImages = files;
+    lgRenderImgPreview(_lgGalleryImages, 'lgGalleryPreview', 'lgGalleryCount');
+  }
+};
+
+function lgRenderImgPreview(files, previewId, countId) {
+  const preview = document.getElementById(previewId);
+  const count   = document.getElementById(countId);
+  preview.innerHTML = '';
+  files.slice(0, 20).forEach(f => {
+    const url = URL.createObjectURL(f);
+    const img = document.createElement('img');
+    img.src = url; img.className = 'lg-img-thumb';
+    img.title = f.name;
+    preview.appendChild(img);
+  });
+  count.textContent = files.length + ' image' + (files.length !== 1 ? 's' : '') + ' selected';
+}
+
+// ── Pack size validator ──
+window.lgValidatePacks = function() {
+  const n = parseInt(document.getElementById('lgNSkus').value) || 0;
+  const sum = [1,2,3,4,5].reduce((s,i) => s + (parseInt(document.getElementById('lgPack'+i).value)||0), 0);
+  const el = document.getElementById('lgPackStatus');
+  if (n === 0) { el.style.display='none'; return; }
+  el.style.display = '';
+  if (sum === n) {
+    el.className = 'lg-sum-status lg-sum-ok';
+    el.textContent = '✓ Pack quantities sum to ' + n + ' SKUs';
+  } else {
+    el.className = 'lg-sum-status lg-sum-err';
+    el.textContent = 'Sum is ' + sum + ' — must equal ' + n + ' SKUs';
+  }
+};
+
+// ── Step validators ──
+function lgValidateStep1() {
+  let ok = true;
+  const req = ['lgNSkus','lgSkuIdentifier','lgKeywords','lgDescContent',
+               'lgMrpMin','lgMrpMax','lgSpMin','lgSpMax',
+               'lgLenMin','lgLenMax','lgBrMin','lgBrMax','lgHtMin','lgHtMax','lgWtMin','lgWtMax'];
+  req.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || !el.value.trim()) { el && el.classList.add('err'); ok = false; }
+    else el.classList.remove('err');
+  });
+  if (!_lgTemplateFile) { document.getElementById('lgTemplateDrop').style.borderColor='#ff4466'; ok=false; }
+  else document.getElementById('lgTemplateDrop').style.borderColor='';
+
+  const n = parseInt(document.getElementById('lgNSkus').value)||0;
+  if (n < 2 || n > 20) {
+    document.getElementById('lgNSkus').classList.add('err'); ok = false;
+    alert('Number of SKUs must be between 2 and 20.'); return false;
+  }
+  const sum = [1,2,3,4,5].reduce((s,i) => s + (parseInt(document.getElementById('lgPack'+i).value)||0), 0);
+  if (sum !== n) { alert('Pack quantities must sum to ' + n + '. Currently: ' + sum); return false; }
+
+  const kw = document.getElementById('lgKeywords').value.split(',').map(k=>k.trim()).filter(Boolean);
+  if (kw.length < 2 || kw.length > 15) { alert('Enter 2–15 keywords.'); return false; }
+
+  if (!ok) { alert('Please fill all required fields.'); return false; }
+  return true;
+}
+
+function lgValidateStep2() {
+  if (_lgMainImages.length < 3 || _lgMainImages.length > 10) {
+    alert('Upload 3–10 main images.'); return false;
+  }
+  if (_lgGalleryImages.length < 5 || _lgGalleryImages.length > 20) {
+    alert('Upload 5–20 gallery images.'); return false;
+  }
+  return true;
+}
+
+function lgValidateStep3() {
+  const req = ['lgBrand','lgHsn','lgManufacturer','lgPacker'];
+  let ok = true;
+  req.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || !el.value.trim()) { el && el.classList.add('err'); ok = false; }
+    else el.classList.remove('err');
+  });
+  if (!ok) { alert('Please fill all required fields.'); return false; }
+  return true;
+}
+
+// ── Summary builder ──
+function lgBuildSummary() {
+  const n = document.getElementById('lgNSkus').value;
+  const ident = document.getElementById('lgSkuIdentifier').value;
+  const packs = [1,2,3,4,5].map(i => {
+    const v = parseInt(document.getElementById('lgPack'+i).value)||0;
+    return v > 0 ? v + '× Pack-' + i : null;
+  }).filter(Boolean).join(', ');
+  const brand = document.getElementById('lgBrand').value;
+  const kw = document.getElementById('lgKeywords').value;
+  document.getElementById('lgSummaryText').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;">
+      <div><b style="color:var(--text);">SKUs to generate:</b> ${n}</div>
+      <div><b style="color:var(--text);">SKU Identifier:</b> ${ident}</div>
+      <div><b style="color:var(--text);">Pack breakdown:</b> ${packs}</div>
+      <div><b style="color:var(--text);">Brand:</b> ${brand}</div>
+      <div><b style="color:var(--text);">Main images:</b> ${_lgMainImages.length}</div>
+      <div><b style="color:var(--text);">Gallery images:</b> ${_lgGalleryImages.length}</div>
+      <div style="grid-column:1/-1;"><b style="color:var(--text);">Top keywords:</b> ${kw}</div>
+      <div style="grid-column:1/-1;"><b style="color:var(--text);">Template:</b> ${_lgTemplateFile ? _lgTemplateFile.name : '—'}</div>
+    </div>
+  `;
+}
+
+// ── Generate ──
+window.lgStartGenerate = function() {
+  document.getElementById('lgPreGenView').style.display = 'none';
+  document.getElementById('lgProgressView').style.display = '';
+  lgSetProgStep(1, 'active');
+  lgSetProgStep(2, 'pending');
+  lgSetProgStep(3, 'pending');
+
+  // Build FormData
+  const fd = new FormData();
+  fd.append('template', _lgTemplateFile);
+  _lgMainImages.forEach(f => fd.append('main_images', f));
+  _lgGalleryImages.forEach(f => fd.append('gallery_images', f));
+
+  // Collect form values
+  const vals = {
+    n_skus:       document.getElementById('lgNSkus').value,
+    sku_identifier: document.getElementById('lgSkuIdentifier').value,
+    keywords:     document.getElementById('lgKeywords').value,
+    desc_content: document.getElementById('lgDescContent').value,
+    mrp_min:      document.getElementById('lgMrpMin').value,
+    mrp_max:      document.getElementById('lgMrpMax').value,
+    sp_min:       document.getElementById('lgSpMin').value,
+    sp_max:       document.getElementById('lgSpMax').value,
+    len_min:      document.getElementById('lgLenMin').value,
+    len_max:      document.getElementById('lgLenMax').value,
+    br_min:       document.getElementById('lgBrMin').value,
+    br_max:       document.getElementById('lgBrMax').value,
+    ht_min:       document.getElementById('lgHtMin').value,
+    ht_max:       document.getElementById('lgHtMax').value,
+    wt_min:       document.getElementById('lgWtMin').value,
+    wt_max:       document.getElementById('lgWtMax').value,
+    hsn:          document.getElementById('lgHsn').value,
+    country:      document.getElementById('lgCountry').value,
+    manufacturer: document.getElementById('lgManufacturer').value,
+    packer:       document.getElementById('lgPacker').value,
+    importer:     document.getElementById('lgImporter').value,
+    tax_code:     document.getElementById('lgTaxCode').value,
+    brand:        document.getElementById('lgBrand').value,
+    pack1:        document.getElementById('lgPack1').value || '0',
+    pack2:        document.getElementById('lgPack2').value || '0',
+    pack3:        document.getElementById('lgPack3').value || '0',
+    pack4:        document.getElementById('lgPack4').value || '0',
+    pack5:        document.getElementById('lgPack5').value || '0',
+  };
+  Object.entries(vals).forEach(([k,v]) => fd.append(k, v));
+
+  fetch('/api/listing-generate', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) throw new Error(data.error);
+      lgSetProgStep(1, 'done');
+      lgSetProgStep(2, 'done');
+      lgSetProgStep(3, 'done');
+      setTimeout(() => {
+        document.getElementById('lgProgressView').style.display = 'none';
+        document.getElementById('lgSuccessView').style.display = '';
+        _lgOutputFilename = data.filename;
+        const sub = document.getElementById('lgSuccessSub');
+        sub.textContent = data.n_skus + ' SKUs generated. Download and upload to Flipkart Seller Portal.';
+        // Warnings
+        const warnBox = document.getElementById('lgWarningBox');
+        if (data.warnings && data.warnings.length > 0) {
+          warnBox.style.display = '';
+          warnBox.innerHTML = '<b>⚠ The following blue fields were left empty — fill them before uploading:</b><ul>'
+            + data.warnings.map(w => '<li>' + w + '</li>').join('') + '</ul>';
+        } else {
+          warnBox.style.display = 'none';
+        }
+      }, 600);
+    })
+    .catch(err => {
+      lgSetProgStep(1, 'error');
+      lgSetProgStep(2, 'error');
+      lgSetProgStep(3, 'error');
+      alert('Generation failed: ' + err.message);
+      // Re-show pre-gen view so they can retry
+      setTimeout(() => {
+        document.getElementById('lgProgressView').style.display = 'none';
+        document.getElementById('lgPreGenView').style.display = '';
+      }, 1200);
+    });
+};
+
+function lgSetProgStep(n, state) {
+  const el = document.getElementById('lgProg'+n);
+  el.className = 'lg-progress-step ' + state;
+  const spinner = el.querySelector('.lg-spinner');
+  const icon    = el.querySelector('.lg-step-icon');
+  if (spinner) spinner.style.display = state==='active' ? '' : 'none';
+  if (icon) {
+    if (state==='done')  icon.textContent = '✓';
+    if (state==='error') icon.textContent = '✗';
+    if (state==='pending') icon.textContent = '○';
+    if (state==='active') icon.textContent = '';
+  }
+}
+
+window.lgDownload = function() {
+  if (!_lgOutputFilename) return;
+  window.location.href = '/api/listing-download/' + encodeURIComponent(_lgOutputFilename);
+};
+
+})(); // end Listing Generator IIFE
 
 </body>
 </html>
