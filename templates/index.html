@@ -5871,8 +5871,8 @@ function renderSaSkuAnalysis(d) {
           // Only include if this SKU exists in THIS account's sales data
           if (!skuId || !salesSkuIds.has(skuId)) return;
           // If we have order IDs from sales data, verify this campaign order belongs to this account
-          const orderId = (row['order_id'] || '').trim();
-          if (hasOrderIdFilter && orderId && !accountOrderIds.has(orderId)) return;
+          const orderId = (row['Order ID'] || '').trim();
+          if (hasOrderIdFilter && (!orderId || !accountOrderIds.has(orderId))) return;
           const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
           const units   = (parseInt(row['Direct Units Sold']) || 0) + (parseInt(row['Indirect Units Sold']) || 0);
           const cid     = row['Campaign ID'];
