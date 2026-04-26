@@ -288,7 +288,7 @@
   .lst-modal-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;}
 
   /* ══ Listing Generator (Add New Listing flow) ══ */
-  .lgen-page{display:none;position:absolute;inset:0;background:var(--bg);z-index:10;overflow-y:auto;padding:28px;}
+  .lgen-page{display:none;position:fixed;inset:0;background:var(--bg);z-index:200;overflow-y:auto;padding:28px;}
   .lgen-page.active{display:block;}
   .lgen-header{display:flex;align-items:center;gap:14px;margin-bottom:28px;}
   .lgen-back{background:none;border:1px solid var(--border);color:var(--muted);padding:7px 14px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.82rem;display:flex;align-items:center;gap:6px;transition:all .2s;}
@@ -1808,7 +1808,7 @@
   <!-- ════════════════════════════════════════════════════════
        LISTINGS PANEL
   ════════════════════════════════════════════════════════ -->
-  <div id="panel-listings" class="tab-panel" style="position:relative;">
+  <div id="panel-listings" class="tab-panel">
 
     <!-- ══ Listing Generator Full-Page ══ -->
     <div id="lgenPage" class="lgen-page">
