@@ -5837,23 +5837,28 @@ function renderSaSkuAnalysis(d) {
         const accountOrderIds = new Set(d.order_ids || []);
         const hasOrderIdFilter = accountOrderIds.size > 0;
 
-        // Step 1: Build Product Name (long title) → Sku Id map from consolidatedFSN
+        // Step 1: Build Product Name (long title) → Sku Id map from consolidatedFSN.
+        // IMPORTANT: Only index SKUs that exist in THIS account's salesMap — the consolidatedFSN
+        // report contains SKUs from all 4 accounts, so we must restrict to our own SKU IDs to
+        // prevent cross-account revenue leaking into the Ads % calculation.
         const salesSkuIds = new Set(Object.keys(salesMap));
         const titleToSkuId = {};
         const fsnToSkuId   = {};
         (ad.consolidatedFSN || []).forEach(row => {
           const skuId = (row['Sku Id'] || '').trim();
           const title = (row['Product Name'] || '').trim();
-          if (skuId && title) {
+          // Only map titles whose skuId exists in THIS account's sales data
+          if (skuId && title && salesSkuIds.has(skuId)) {
             titleToSkuId[title.toLowerCase()] = skuId;
           }
         });
 
-        // Step 2: Build FSN → Sku Id from consolidatedFSN if FSN column exists
+        // Step 2: Build FSN → Sku Id from consolidatedFSN if FSN column exists.
+        // Same guard: only map FSNs for our own SKU IDs.
         (ad.consolidatedFSN || []).forEach(row => {
           const skuId = (row['Sku Id'] || '').trim();
           const fsn   = (row['FSN'] || row['Fsn'] || row['fsn'] || '').trim();
-          if (skuId && fsn) fsnToSkuId[fsn] = skuId;
+          if (skuId && fsn && salesSkuIds.has(skuId)) fsnToSkuId[fsn] = skuId;
         });
 
         const campNames = {};
@@ -5870,9 +5875,11 @@ function renderSaSkuAnalysis(d) {
                    || fsnToSkuId[purchasedFSN];
           // Only include if this SKU exists in THIS account's sales data
           if (!skuId || !salesSkuIds.has(skuId)) return;
-          // If we have order IDs from sales data, verify this campaign order belongs to this account
-          const orderId = (row['Order ID'] || '').trim();
-          if (hasOrderIdFilter && (!orderId || !accountOrderIds.has(orderId))) return;
+          // If we have order IDs from sales data, verify this campaign order belongs to this account.
+          // Only exclude rows where order_id is present AND does NOT match this account's orders.
+          // Rows with null/blank order_id are allowed through — they can't be positively misidentified.
+          const orderId = (row['order_id'] == null ? '' : String(row['order_id'])).trim();
+          if (hasOrderIdFilter && orderId && !accountOrderIds.has(orderId)) return;
           const revenue = parseFloat(row['Total Revenue (Rs.)']) || 0;
           const units   = (parseInt(row['Direct Units Sold']) || 0) + (parseInt(row['Indirect Units Sold']) || 0);
           const cid     = row['Campaign ID'];
