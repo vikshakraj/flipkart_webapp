@@ -5885,7 +5885,14 @@ function renderSaSkuAnalysis(d) {
           const cid     = row['Campaign ID'];
           const roi     = parseFloat(row['Expected ROI']) || 0;
           const spend   = (revenue > 0 && roi > 0) ? revenue / roi : 0;
-          if (!adsMap[skuId]) adsMap[skuId] = { ads_units:0, ads_revenue:0, ads_spend:0, campaignSet:{} };
+          if (!adsMap[skuId]) adsMap[skuId] = { ads_units:0, ads_revenue:0, ads_spend:0, campaignSet:{}, daily:{} };
+          const adDate = (row['Date'] || '').trim().slice(0,10);
+          if (adDate) {
+            if (!adsMap[skuId].daily[adDate]) adsMap[skuId].daily[adDate] = { units:0, revenue:0, spend:0 };
+            adsMap[skuId].daily[adDate].units   += units;
+            adsMap[skuId].daily[adDate].revenue += revenue;
+            adsMap[skuId].daily[adDate].spend   += spend;
+          }
           adsMap[skuId].ads_units   += units;
           adsMap[skuId].ads_revenue += revenue;
           adsMap[skuId].ads_spend   += spend;
@@ -5910,6 +5917,7 @@ function renderSaSkuAnalysis(d) {
           ads_units:    ads ? ads.ads_units   : 0,
           ads_revenue:  ads ? ads.ads_revenue : 0,
           ads_spend:    ads ? ads.ads_spend   : 0,
+          ads_daily:    ads ? (ads.daily || {}) : {},
           campaigns, has_ads: !!ads,
         };
       });
@@ -5949,9 +5957,23 @@ function renderSaSkuAnalysisTable() {
     const total_units = Object.entries(r.daily)
       .filter(([d]) => (!from || d >= from) && (!to || d <= to))
       .reduce((sum, [, qty]) => sum + qty, 0);
-    const ads_pct = total_units > 0 ? (r.ads_units / total_units) * 100 : 0;
-    const roas    = r.ads_spend > 0 ? r.ads_revenue / r.ads_spend : 0;
-    return { ...r, total_units, ads_pct, roas, origIdx };
+    // Apply same date filter to ads units/revenue/spend using stored daily ads data
+    let ads_units = r.ads_units, ads_revenue = r.ads_revenue, ads_spend = r.ads_spend;
+    if (r.ads_daily && Object.keys(r.ads_daily).length > 0) {
+      const filteredDays = Object.entries(r.ads_daily)
+        .filter(([d]) => (!from || d >= from) && (!to || d <= to));
+      if (filteredDays.length > 0) {
+        ads_units   = filteredDays.reduce((s, [,v]) => s + v.units,   0);
+        ads_revenue = filteredDays.reduce((s, [,v]) => s + v.revenue, 0);
+        ads_spend   = filteredDays.reduce((s, [,v]) => s + v.spend,   0);
+      } else {
+        // No ads data in this date window
+        ads_units = 0; ads_revenue = 0; ads_spend = 0;
+      }
+    }
+    const ads_pct = total_units > 0 ? (ads_units / total_units) * 100 : 0;
+    const roas    = ads_spend > 0 ? ads_revenue / ads_spend : 0;
+    return { ...r, total_units, ads_units, ads_revenue, ads_spend, ads_pct, roas, origIdx };
   });
 
   // Apply product filter
