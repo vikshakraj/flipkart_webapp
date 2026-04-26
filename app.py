@@ -4110,6 +4110,771 @@ def _register_telegram_webhook():
     except Exception as e:
         print(f'[Telegram] Failed to set webhook: {e}')
 
+# ─────────────────────────────────────────────
+# LISTING GENERATOR
+# ─────────────────────────────────────────────
+
+LISTING_TEMPLATE_PATH = os.path.join(_data_dir, 'listing_template.xlsx')
+
+@app.route('/api/listing-gen/upload-template', methods=['POST'])
+def listing_gen_upload_template():
+    """Store the blank XLSX template server-side for the listing generator."""
+    f = request.files.get('template')
+    if not f:
+        return jsonify({'error': 'No file uploaded'}), 400
+    data = f.read()
+    # Validate it's a real xlsx
+    try:
+        import openpyxl, io as _io
+        openpyxl.load_workbook(_io.BytesIO(data))
+    except Exception as e:
+        return jsonify({'error': f'Invalid XLSX: {e}'}), 400
+    tmp = LISTING_TEMPLATE_PATH + '.tmp'
+    with open(tmp, 'wb') as out:
+        out.write(data)
+    os.replace(tmp, LISTING_TEMPLATE_PATH)
+    # Return sheet names so frontend can confirm category sheet
+    wb = openpyxl.load_workbook(LISTING_TEMPLATE_PATH)
+    return jsonify({'ok': True, 'sheets': wb.sheetnames, 'filename': f.filename})
+
+@app.route('/api/listing-gen/template-status', methods=['GET'])
+def listing_gen_template_status():
+    """Check if a template is stored."""
+    if not os.path.exists(LISTING_TEMPLATE_PATH):
+        return jsonify({'exists': False})
+    wb = openpyxl.load_workbook(LISTING_TEMPLATE_PATH)
+    return jsonify({'exists': True, 'sheets': wb.sheetnames})
+
+@app.route('/api/listing-gen/upload-images', methods=['POST'])
+def listing_gen_upload_images():
+    """Upload images to ImgBB anonymously and return public URLs."""
+    import requests as _req, base64 as _b64
+    IMGBB_API = 'https://api.imgbb.com/1/upload'
+    IMGBB_KEY = os.environ.get('IMGBB_API_KEY', '')  # optional key, anonymous works too
+
+    files = request.files.getlist('images')
+    if not files:
+        return jsonify({'error': 'No images uploaded'}), 400
+
+    urls = []
+    errors = []
+    for f in files:
+        try:
+            img_data = f.read()
+            b64 = _b64.b64encode(img_data).decode()
+            params = {'key': IMGBB_KEY} if IMGBB_KEY else {}
+            # ImgBB anonymous upload (no key needed for basic use)
+            resp = _req.post(
+                IMGBB_API,
+                data={'image': b64},
+                params=params,
+                timeout=30
+            )
+            if resp.status_code == 200:
+                j = resp.json()
+                urls.append({'name': f.filename, 'url': j['data']['url'], 'display_url': j['data']['display_url']})
+            else:
+                errors.append({'name': f.filename, 'error': f'ImgBB {resp.status_code}: {resp.text[:100]}'})
+        except Exception as e:
+            errors.append({'name': f.filename, 'error': str(e)})
+
+    return jsonify({'urls': urls, 'errors': errors})
+
+@app.route('/api/listing-gen/generate', methods=['POST'])
+def listing_gen_generate():
+    """
+    Generate a filled XLSX listing file.
+    Expects multipart/form-data with:
+      - form_data: JSON string with all listing parameters
+      - template: optional XLSX file (else uses stored template)
+    """
+    import requests as _req, random, string, io as _io, json as _json
+    import openpyxl
+    from openpyxl import load_workbook
+
+    # ── Parse inputs ──────────────────────────────────────────
+    form_data_raw = request.form.get('form_data')
+    if not form_data_raw:
+        return jsonify({'error': 'Missing form_data'}), 400
+    try:
+        fd = _json.loads(form_data_raw)
+    except Exception:
+        return jsonify({'error': 'Invalid form_data JSON'}), 400
+
+    # Load template
+    template_file = request.files.get('template')
+    if template_file:
+        template_bytes = template_file.read()
+        original_filename = template_file.filename
+    elif os.path.exists(LISTING_TEMPLATE_PATH):
+        with open(LISTING_TEMPLATE_PATH, 'rb') as f:
+            template_bytes = f.read()
+        original_filename = 'listing_output.xlsx'
+    else:
+        return jsonify({'error': 'No template file found. Please upload a template first.'}), 400
+
+    # ── Extract form fields ──────────────────────────────────
+    num_skus        = int(fd['num_skus'])
+    quantities      = fd['quantities']          # {1:n, 2:n, 3:n, 4:n, 5:n}
+    sku_identifier  = fd['sku_identifier'].strip()
+    top_keywords    = [k.strip() for k in fd['top_keywords'].split(',') if k.strip()]
+    description_raw = fd['description_content'].strip()
+    mrp_min         = float(fd['mrp_min']);    mrp_max    = float(fd['mrp_max'])
+    price_min       = float(fd['price_min']);  price_max  = float(fd['price_max'])
+    len_min         = float(fd['len_min']);    len_max    = float(fd['len_max'])
+    bre_min         = float(fd['bre_min']);    bre_max    = float(fd['bre_max'])
+    hei_min         = float(fd['hei_min']);    hei_max    = float(fd['hei_max'])
+    wgt_min         = float(fd['wgt_min']);    wgt_max    = min(float(fd['wgt_max']), 0.49)
+    hsn             = fd['hsn']
+    country         = fd['country_of_origin']
+    manufacturer    = fd['manufacturer_details']
+    packer          = fd['packer_details']
+    importer        = fd['importer_details']
+    tax_code        = fd['tax_code']
+    brand           = fd['brand']
+    main_img_urls   = fd.get('main_image_urls', [])    # list of URL strings
+    gallery_img_urls= fd.get('gallery_image_urls', []) # list of URL strings
+    mfg_date        = fd.get('mfg_date', '')
+    shelf_life      = fd.get('shelf_life', '24')
+    ideal_for       = fd.get('ideal_for', 'Men & Women')
+    ingredient_type = fd.get('ingredient_type', '')
+    product_type    = fd.get('product_type', '')
+    min_age         = fd.get('min_age', '')
+    max_age         = fd.get('max_age', '')
+
+    # ── Build SKU list with pack sizes ──────────────────────
+    sku_rows = []
+    for pack_size_str, count_str in quantities.items():
+        pack_size = int(pack_size_str)
+        count     = int(count_str) if count_str else 0
+        for _ in range(count):
+            sku_rows.append(pack_size)
+
+    random.shuffle(sku_rows)  # randomise order
+
+    # ── Generate unique SKU IDs ──────────────────────────────
+    def random_word(n=4):
+        return ''.join(random.choices(string.ascii_uppercase, k=n)).capitalize()
+
+    sku_ids = []
+    used_prefixes = set()
+    for pack in sku_rows:
+        while True:
+            prefix = random_word(random.randint(3, 6))
+            if prefix not in used_prefixes:
+                used_prefixes.add(prefix)
+                break
+        sku_ids.append(f'{prefix} {sku_identifier} {pack} Pack')
+
+    # ── Distribute images evenly ─────────────────────────────
+    def distribute(pool, n):
+        """Distribute pool items across n slots — each item used ~equally."""
+        if not pool: return [''] * n
+        result = []
+        for i in range(n):
+            result.append(pool[i % len(pool)])
+        return result
+
+    main_urls_dist    = distribute(main_img_urls,    num_skus)
+    gallery_slots     = num_skus * 4
+    gallery_urls_dist = distribute(gallery_img_urls, gallery_slots)
+
+    # ── Call Anthropic API to generate content ───────────────
+    anthropic_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    if not anthropic_key:
+        return jsonify({'error': 'ANTHROPIC_API_KEY not set in environment'}), 500
+
+    keywords_str = ', '.join(top_keywords)
+    sku_details  = '\n'.join([f'SKU {i+1}: {sku_ids[i]} (Pack of {sku_rows[i]})' for i in range(num_skus)])
+
+    prompt = f"""You are a Flipkart product listing expert. Generate listing content for {num_skus} SKUs of a product.
+
+Product info: {description_raw}
+Brand: {brand}
+Top keywords to use: {keywords_str}
+SKUs to generate for:
+{sku_details}
+
+For EACH SKU, generate:
+1. model_name: A product title between 70-80 characters (including spaces). Must include the brand name and 2-3 top keywords naturally. Slightly different angle per SKU.
+2. description: 50-100 words. Natural, benefit-focused. Slightly different per SKU. Use keywords naturally.
+3. key_features: Exactly 4 features separated by ::. Benefit-focused, unique angle per SKU.
+
+Respond ONLY with a JSON array of {num_skus} objects, no markdown, no explanation:
+[
+  {{
+    "sku_index": 0,
+    "model_name": "...",
+    "description": "...",
+    "key_features": "Feature 1::Feature 2::Feature 3::Feature 4"
+  }},
+  ...
+]"""
+
+    try:
+        ai_resp = _req.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={
+                'x-api-key': anthropic_key,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json',
+            },
+            json={
+                'model': 'claude-sonnet-4-5',
+                'max_tokens': 4096,
+                'messages': [{'role': 'user', 'content': prompt}]
+            },
+            timeout=60
+        )
+        if ai_resp.status_code != 200:
+            return jsonify({'error': f'Anthropic API error {ai_resp.status_code}: {ai_resp.text[:200]}'}), 500
+
+        ai_text = ai_resp.json()['content'][0]['text'].strip()
+        # Strip any markdown fences if present
+        if ai_text.startswith('```'):
+            ai_text = ai_text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
+        ai_content = _json.loads(ai_text)
+
+    except Exception as e:
+        return jsonify({'error': f'Content generation failed: {e}'}), 500
+
+    # ── Load and fill the template ───────────────────────────
+    wb = load_workbook(_io.BytesIO(template_bytes))
+
+    # Identify the category sheet (3rd-ish sheet, not a known utility sheet)
+    SKIP_SHEETS = {'Summary Sheet', 'Index', 'DropDownValuesForColumn27', 'DropDownValuesForColumn33',
+                   'Listing FAQ Sheet', 'Image GuideLines', 'MatchingAttributes',
+                   'VariantAttributes', 'Parent Variant Products', 'template_version'}
+    category_sheet = None
+    for name in wb.sheetnames:
+        if name not in SKIP_SHEETS:
+            category_sheet = name
+            break
+
+    if not category_sheet:
+        return jsonify({'error': 'Could not identify category sheet in template'}), 400
+
+    ws = wb[category_sheet]
+
+    # Build column name → index map from row 1
+    col_map = {}
+    unfilled_blue = []
+    BLUE   = 'FF8DB4E2'
+    PURPLE = 'FFCC99FF'
+    GREEN  = 'FF94D050'
+    GREEN_FILL = {'Other Image URL 1', 'Other Image URL 2', 'Other Image URL 3', 'Other Image URL 4', 'Description', 'Key Features'}
+
+    for col in range(1, ws.max_column + 1):
+        cell  = ws.cell(row=1, column=col)
+        hdr   = cell.value
+        if not hdr: continue
+        fill  = cell.fill
+        color = fill.fgColor.rgb if fill and fill.fgColor and fill.fgColor.type == 'rgb' else None
+        is_blue   = color == BLUE
+        is_purple = color == PURPLE
+        is_green  = color == GREEN
+        col_map[hdr] = col
+        # Track unfilled mandatory blue columns
+        if is_blue and hdr not in ('Flipkart Product Link', 'Flipkart Serial Number',
+                                    'Catalog QC Status', 'QC Failed Reason (if any)',
+                                    'Product Data Status', 'Disapproval Reason (if any)',
+                                    'Ideal For', 'Ingredient Type', 'Type',
+                                    'Minimum Age (Month)', 'Maximum Age (Month)',
+                                    'Seller SKU ID', 'MRP (INR)', 'Your selling price (INR)',
+                                    'Fullfilment by', 'HSN', 'Country Of Origin',
+                                    'Manufacturer Details', 'Packer Details', 'Tax Code',
+                                    'Brand', 'Model Name', 'Quantity',
+                                    'Quantity - Measuring Unit', 'Pack of',
+                                    'Main Image URL', 'Items Included'):
+            unfilled_blue.append(hdr)
+
+    def set_cell(row, col_name, value):
+        if col_name in col_map:
+            ws.cell(row=row, column=col_map[col_name]).value = value
+
+    # ── Write rows starting at row 5 ────────────────────────
+    search_kw_str = '::'.join(top_keywords)
+
+    for i, pack_size in enumerate(sku_rows):
+        row      = 5 + i
+        ai       = ai_content[i]
+        qty_val  = pack_size * 30  # base 30g per unit (toothpaste default; works generically)
+
+        # Fixed fields
+        set_cell(row, 'Seller SKU ID',           sku_ids[i])
+        set_cell(row, 'Listing Status',           'Active')
+        set_cell(row, 'MRP (INR)',                random.randint(int(mrp_min), int(mrp_max)))
+        set_cell(row, 'Your selling price (INR)', random.randint(int(price_min), int(price_max)))
+        set_cell(row, 'Fullfilment by',           'Seller')
+        set_cell(row, 'Procurement type',         'Express')
+        set_cell(row, 'Procurement SLA (DAY)',    1)
+        set_cell(row, 'Stock',                    500)
+        set_cell(row, 'Shipping provider',        'Flipkart')
+        set_cell(row, 'Local handling fee (INR)', 0)
+        set_cell(row, 'Zonal handling fee (INR)', 0)
+        set_cell(row, 'National handling fee (INR)', 0)
+        set_cell(row, 'Length (CM)',  round(random.uniform(len_min, len_max), 2))
+        set_cell(row, 'Breadth (CM)', round(random.uniform(bre_min, bre_max), 2))
+        set_cell(row, 'Height (CM)',  round(random.uniform(hei_min, hei_max), 2))
+        set_cell(row, 'Weight (KG)',  round(random.uniform(wgt_min, min(wgt_max, 0.49)), 3))
+        set_cell(row, 'HSN',                      hsn)
+        set_cell(row, 'Country Of Origin',        country)
+        set_cell(row, 'Manufacturer Details',     manufacturer)
+        set_cell(row, 'Packer Details',           packer)
+        set_cell(row, 'Importer Details',         importer)
+        set_cell(row, 'Tax Code',                 tax_code)
+        set_cell(row, 'Brand',                    brand)
+        set_cell(row, 'Ideal For',                ideal_for)
+        set_cell(row, 'Ingredient Type',          ingredient_type)
+        set_cell(row, 'Type',                     product_type)
+        set_cell(row, 'Minimum Age (Month)',      int(min_age) if min_age else None)
+        set_cell(row, 'Maximum Age (Month)',      int(max_age) if max_age else None)
+        set_cell(row, 'Pack of',                  pack_size)
+        set_cell(row, 'Quantity',                 qty_val)
+        set_cell(row, 'Quantity - Measuring Unit','g')
+        set_cell(row, 'Items Included',           f'{pack_size} x {sku_identifier}')
+        if mfg_date:
+            set_cell(row, 'Manufacturing date',   mfg_date)
+        if shelf_life:
+            set_cell(row, 'Shelf Life (MONTHS)',  int(shelf_life))
+            set_cell(row, 'Max Shelf Life',       int(shelf_life))
+            set_cell(row, 'Max Shelf Life - Measuring Unit', 'Months')
+
+        # Images
+        set_cell(row, 'Main Image URL',      main_urls_dist[i])
+        set_cell(row, 'Other Image URL 1',   gallery_urls_dist[i * 4])
+        set_cell(row, 'Other Image URL 2',   gallery_urls_dist[i * 4 + 1])
+        set_cell(row, 'Other Image URL 3',   gallery_urls_dist[i * 4 + 2])
+        set_cell(row, 'Other Image URL 4',   gallery_urls_dist[i * 4 + 3])
+
+        # Claude-generated content
+        set_cell(row, 'Model Name',          ai['model_name'])
+        set_cell(row, 'Description',         ai['description'])
+        set_cell(row, 'Key Features',        ai['key_features'])
+        set_cell(row, 'Search Keywords',     search_kw_str)
+
+        # Model Number if present
+        if 'Model Number' in col_map and top_keywords:
+            set_cell(row, 'Model Number', random.choice(top_keywords))
+
+    # ── Save and return ──────────────────────────────────────
+    out_buf = _io.BytesIO()
+    wb.save(out_buf)
+    out_buf.seek(0)
+
+    # Sanitise filename
+    safe_name = original_filename if original_filename.endswith('.xlsx') else original_filename + '.xlsx'
+
+    return send_file(
+        out_buf,
+        as_attachment=True,
+        download_name=safe_name,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    ), 200, {'X-Unfilled-Fields': _json.dumps(unfilled_blue)}
+
+
+# ─────────────────────────────────────────────
+# LISTING GENERATOR
+# ─────────────────────────────────────────────
+
+_LG_OUTPUT_DIR = os.path.join(_data_dir, 'lg_outputs')
+os.makedirs(_LG_OUTPUT_DIR, exist_ok=True)
+
+def _upload_to_imgbb(image_bytes, filename):
+    """Upload image bytes to ImgBB anonymous upload. Returns public URL or raises."""
+    import urllib.request as _ur, urllib.parse as _up
+    import base64 as _b64
+    # ImgBB free anonymous upload (no API key needed for basic use)
+    # Uses the public upload endpoint
+    IMGBB_API = 'https://api.imgbb.com/1/upload'
+    api_key   = os.environ.get('IMGBB_API_KEY', '')
+    b64_data  = _b64.b64encode(image_bytes).decode()
+    if api_key:
+        payload = _up.urlencode({'key': api_key, 'image': b64_data, 'name': filename}).encode()
+    else:
+        # Anonymous upload via freeimagehost fallback — use catbox.moe
+        # catbox.moe supports anonymous uploads via multipart
+        import io as _io
+        boundary = 'boundary1234567890'
+        body = (
+            f'--{boundary}\r\n'
+            f'Content-Disposition: form-data; name="reqtype"\r\n\r\n'
+            f'fileupload\r\n'
+            f'--{boundary}\r\n'
+            f'Content-Disposition: form-data; name="fileToUpload"; filename="{filename}"\r\n'
+            f'Content-Type: image/jpeg\r\n\r\n'
+        ).encode() + image_bytes + f'\r\n--{boundary}--\r\n'.encode()
+        req = _ur.Request('https://catbox.moe/user/api.php', data=body,
+                          headers={'Content-Type': f'multipart/form-data; boundary={boundary}'})
+        try:
+            resp = _ur.urlopen(req, timeout=20)
+            url  = resp.read().decode().strip()
+            if url.startswith('http'): return url
+        except Exception as e:
+            raise RuntimeError(f'Image upload failed: {e}')
+        raise RuntimeError('Image upload returned unexpected response')
+    if api_key:
+        req  = _ur.Request(IMGBB_API, data=payload,
+                           headers={'Content-Type': 'application/x-www-form-urlencoded'})
+        try:
+            resp = _ur.urlopen(req, timeout=20)
+            data = json.loads(resp.read())
+            return data['data']['url']
+        except Exception as e:
+            raise RuntimeError(f'ImgBB upload failed: {e}')
+
+
+def _rand_int(mn, mx):
+    import random
+    mn, mx = int(mn), int(mx)
+    if mn > mx: mn, mx = mx, mn
+    return random.randint(mn, mx)
+
+def _rand_float(mn, mx, dp=2):
+    import random
+    mn, mx = float(mn), float(mx)
+    if mn > mx: mn, mx = mx, mn
+    return round(random.uniform(mn, mx), dp)
+
+_RANDOM_PREFIXES = [
+    'Aero','Bolt','Calm','Dusk','Echo','Flux','Glen','Halo','Iris','Jade',
+    'Kite','Lume','Mira','Nova','Onyx','Plex','Quro','Reef','Sola','Tide',
+    'Urve','Vibe','Wren','Xeno','Yore','Zest','Arch','Brim','Cove','Dawn',
+    'Edge','Fern','Glow','Haze','Isle','Just','Keen','Lark','Mist','Norm',
+    'Opal','Pine','Quay','Rune','Sage','Tuft','Unix','Vale','Ward','Xtra',
+]
+
+def _gen_sku_prefix():
+    import random
+    return random.choice(_RANDOM_PREFIXES)
+
+def _distribute_evenly(items, n):
+    """Distribute `items` list across n slots as evenly as possible."""
+    import random
+    result = []
+    for i in range(n):
+        result.append(items[i % len(items)])
+    random.shuffle(result)
+    return result
+
+def _detect_category_sheet(wb):
+    """Find the category/vertical sheet (not Summary, Index, DropDown*, etc.)"""
+    skip = {'summary sheet', 'index', 'listing faq sheet', 'image guidelines',
+            'matchingattributes', 'variantattributes', 'parent variant products',
+            'template_version'}
+    for name in wb.sheetnames:
+        if name.lower().startswith('dropdown'): continue
+        if name.lower() in skip: continue
+        return name
+    return wb.sheetnames[2] if len(wb.sheetnames) > 2 else wb.sheetnames[0]
+
+def _get_col_colors(ws):
+    """
+    Return dict: col_index (1-based) -> {'header': str, 'color': str}
+    Colors: blue=8DB4E2, purple=CC99FF, green=94D050, grey=C0C0C0
+    """
+    cols = {}
+    for col in range(1, ws.max_column + 1):
+        cell = ws.cell(row=1, column=col)
+        if not cell.value:
+            continue
+        fill  = cell.fill
+        color = ''
+        if fill and fill.fgColor and fill.fgColor.type == 'rgb':
+            color = fill.fgColor.rgb[-6:].upper()  # strip alpha
+        cols[col] = {'header': str(cell.value).strip(), 'color': color}
+    return cols
+
+def _col_by_header(col_map, header_name):
+    """Find column index by header string (case-insensitive partial match)."""
+    hn = header_name.lower()
+    for idx, info in col_map.items():
+        if info['header'].lower() == hn:
+            return idx
+    return None
+
+BLUE   = '8DB4E2'
+PURPLE = 'CC99FF'
+GREEN  = '94D050'
+GREY   = 'C0C0C0'
+
+# Columns we explicitly fill (blue+purple, and 6 green ones)
+_FILL_GREEN_HEADERS = {
+    'other image url 1', 'other image url 2', 'other image url 3', 'other image url 4',
+    'description', 'key features',
+}
+# Blue columns we skip (Flipkart fills them)
+_SKIP_BLUE_HEADERS = {
+    'flipkart serial number', 'catalog qc status', 'qc failed reason (if any)',
+}
+
+def _generate_ai_content(n_skus, sku_identifier, keywords_list, desc_content,
+                          pack_assignments, brand):
+    """Call Claude API to generate titles, descriptions, and key features for all SKUs."""
+    import requests as _req
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    if not api_key:
+        raise RuntimeError('ANTHROPIC_API_KEY not set in Railway env vars')
+
+    kw_str = ', '.join(keywords_list)
+    pack_info = ', '.join([f'SKU {i+1}: Pack-{p}' for i, p in enumerate(pack_assignments)])
+
+    prompt = f"""You are an expert Flipkart product listing copywriter. Generate listing content for {n_skus} SKUs of "{sku_identifier}" by brand "{brand}".
+
+Top keywords to optimise for (use naturally): {kw_str}
+Pack assignments: {pack_info}
+Product info: {desc_content}
+
+Generate a JSON object with this exact structure:
+{{
+  "skus": [
+    {{
+      "model_name": "...",
+      "description": "...",
+      "key_features": "Feature 1::Feature 2::Feature 3::Feature 4",
+      "search_keywords": "kw1::kw2::kw3::kw4::kw5"
+    }}
+  ]
+}}
+
+Rules:
+- model_name: 70-80 characters including spaces. Must contain the brand name and 2-3 top keywords. Each SKU title should have slight variation in word order or angle. Include pack size naturally (e.g. "Pack of 2", "Combo 2Pc").
+- description: 50-100 words. Unique angle per SKU. Use keywords naturally. Professional tone.
+- key_features: Exactly 4 features separated by "::". Each feature is a short punchy phrase (5-10 words). Vary across SKUs.
+- search_keywords: 5 keywords from the top keywords list separated by "::"
+- Return ONLY the JSON object. No markdown, no explanation."""
+
+    resp = _req.post(
+        'https://api.anthropic.com/v1/messages',
+        headers={
+            'x-api-key': api_key,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+        },
+        json={
+            'model': 'claude-sonnet-4-5',
+            'max_tokens': 4000,
+            'messages': [{'role': 'user', 'content': prompt}]
+        },
+        timeout=60
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f'Claude API error {resp.status_code}: {resp.text[:200]}')
+
+    raw = resp.json()['content'][0]['text'].strip()
+    # Strip markdown fences if any
+    if raw.startswith('```'):
+        raw = raw.split('```')[1]
+        if raw.startswith('json'): raw = raw[4:]
+    data = json.loads(raw.strip())
+    return data['skus']
+
+
+@app.route('/api/listing-generate', methods=['POST'])
+def listing_generate():
+    """
+    Receive form data + files, generate filled XLSX listing template.
+    Steps:
+    1. Upload all images to catbox.moe
+    2. Generate AI content via Claude
+    3. Fill XLSX and save to lg_outputs dir
+    4. Return filename for download
+    """
+    try:
+        import random
+        from openpyxl import load_workbook
+        from io import BytesIO
+
+        # ── Parse inputs ──
+        def gi(k, default=''): return request.form.get(k, default).strip()
+        n_skus      = int(gi('n_skus', '0'))
+        sku_ident   = gi('sku_identifier')
+        keywords    = [k.strip() for k in gi('keywords').split(',') if k.strip()]
+        desc        = gi('desc_content')
+        mrp_min, mrp_max = int(gi('mrp_min','100')), int(gi('mrp_max','200'))
+        sp_min,  sp_max  = int(gi('sp_min','80')),   int(gi('sp_max','180'))
+        len_min, len_max = int(gi('len_min','5')),    int(gi('len_max','15'))
+        br_min,  br_max  = int(gi('br_min','5')),     int(gi('br_max','15'))
+        ht_min,  ht_max  = int(gi('ht_min','5')),     int(gi('ht_max','20'))
+        wt_min,  wt_max  = float(gi('wt_min','0.1')), min(float(gi('wt_max','0.4')), 0.49)
+        hsn         = gi('hsn')
+        country     = gi('country','India')
+        manufacturer= gi('manufacturer')
+        packer      = gi('packer')
+        importer    = gi('importer','')
+        tax_code    = gi('tax_code','GST_5')
+        brand       = gi('brand')
+        pack_counts = {i: int(gi(f'pack{i}','0')) for i in range(1,6)}
+
+        # Build pack assignment list: [1,1,1,2,2] etc.
+        pack_assignments = []
+        for pack_size, count in pack_counts.items():
+            pack_assignments.extend([pack_size] * count)
+        random.shuffle(pack_assignments)
+
+        # ── Template file ──
+        tmpl_file = request.files.get('template')
+        if not tmpl_file:
+            return jsonify({'error': 'No template file uploaded'}), 400
+        orig_filename = tmpl_file.filename
+        tmpl_bytes = tmpl_file.read()
+
+        # ── Upload images ──
+        main_files    = request.files.getlist('main_images')
+        gallery_files = request.files.getlist('gallery_images')
+
+        def upload_files(file_list):
+            urls = []
+            for f in file_list:
+                data = f.read()
+                url  = _upload_to_imgbb(data, f.filename)
+                urls.append(url)
+            return urls
+
+        main_urls    = upload_files(main_files)
+        gallery_urls = upload_files(gallery_files)
+
+        # Distribute main images evenly across SKUs
+        main_assigned    = _distribute_evenly(main_urls, n_skus)
+        # For gallery: assign 4 per SKU by picking randomly
+        gallery_assigned = []
+        for i in range(n_skus):
+            picks = []
+            pool  = gallery_urls[:]
+            random.shuffle(pool)
+            for j in range(4):
+                picks.append(pool[j % len(pool)])
+            gallery_assigned.append(picks)
+
+        # ── Generate AI content ──
+        ai_skus = _generate_ai_content(n_skus, sku_ident, keywords, desc,
+                                        pack_assignments, brand)
+
+        # ── Load and fill XLSX ──
+        wb  = load_workbook(BytesIO(tmpl_bytes))
+        cat_sheet = _detect_category_sheet(wb)
+        ws  = wb[cat_sheet]
+        col_map = _get_col_colors(ws)
+
+        # Find which blue cols are NOT handled (for warnings)
+        handled_headers = {
+            'seller sku id', 'listing status', 'mrp (inr)', 'your selling price (inr)',
+            'fullfilment by', 'procurement type', 'procurement sla (day)', 'stock',
+            'shipping provider', 'local handling fee (inr)', 'zonal handling fee (inr)',
+            'national handling fee (inr)', 'length (cm)', 'breadth (cm)', 'height (cm)',
+            'weight (kg)', 'hsn', 'country of origin', 'manufacturer details',
+            'packer details', 'importer details', 'tax code', 'brand',
+            'quantity', 'quantity - measuring unit', 'pack of', 'items included',
+            'main image url', 'other image url 1', 'other image url 2',
+            'other image url 3', 'other image url 4', 'model name', 'model number',
+            'description', 'key features', 'search keywords',
+            'ideal for', 'ingredient type', 'type', 'minimum age (month)',
+            'maximum age (month)', 'shelf life (months)', 'max shelf life',
+            'max shelf life - measuring unit', 'flavor', 'fluorodine',
+            'applied for', 'vegetarian', 'certification',
+        }
+        warnings = []
+        for idx, info in col_map.items():
+            if info['color'] in (BLUE, PURPLE):
+                hdr = info['header'].lower()
+                if hdr in _SKIP_BLUE_HEADERS: continue
+                if info['header'].lower() == 'flipkart product link': continue
+                if hdr not in handled_headers:
+                    warnings.append(info['header'])
+
+        # Helper: find col index by header
+        def col(name):
+            return _col_by_header(col_map, name)
+
+        data_row_start = 5  # rows 1-4 are header/instructions
+        for i in range(n_skus):
+            row   = data_row_start + i
+            pack  = pack_assignments[i]
+            ai    = ai_skus[i] if i < len(ai_skus) else ai_skus[-1]
+            prefix = _gen_sku_prefix()
+            sku_id = f'{prefix} {sku_ident} {pack} Pack'
+
+            def s(header, value):
+                c_idx = col(header)
+                if c_idx: ws.cell(row=row, column=c_idx, value=value)
+
+            s('Seller SKU ID',             sku_id)
+            s('Listing Status',            'Active')
+            s('MRP (INR)',                 _rand_int(mrp_min, mrp_max))
+            s('Your selling price (INR)',  _rand_int(sp_min, sp_max))
+            s('Fullfilment by',            'Seller')
+            s('Procurement type',          'express')
+            s('Procurement SLA (DAY)',     1)
+            s('Stock',                     500)
+            s('Shipping provider',         'Flipkart')
+            s('Local handling fee (INR)',  0)
+            s('Zonal handling fee (INR)',  0)
+            s('National handling fee (INR)', 0)
+            s('Length (CM)',               _rand_int(len_min, len_max))
+            s('Breadth (CM)',              _rand_int(br_min, br_max))
+            s('Height (CM)',               _rand_int(ht_min, ht_max))
+            # Weight: random float between min and max, capped at 0.49
+            wt = round(random.uniform(wt_min, wt_max), 2)
+            s('Weight (KG)',               wt)
+            s('HSN',                       hsn)
+            s('Country Of Origin',         country)
+            s('Manufacturer Details',      manufacturer)
+            s('Packer Details',            packer)
+            if importer: s('Importer Details', importer)
+            s('Tax Code',                  tax_code)
+            s('Brand',                     brand)
+            s('Pack of',                   pack)
+            s('Quantity',                  pack)   # same as pack size (units)
+            s('Quantity - Measuring Unit', 'g')
+            s('Items Included',            f'{pack} x {sku_ident}')
+            s('Model Name',               ai.get('model_name', ''))
+            # Model Number — use first keyword if col exists
+            if col('Model Number'):
+                s('Model Number', keywords[i % len(keywords)])
+            s('Main Image URL',            main_assigned[i])
+            gal = gallery_assigned[i]
+            for gi_idx, gal_col in enumerate(['Other Image URL 1','Other Image URL 2',
+                                               'Other Image URL 3','Other Image URL 4'], 0):
+                if gi_idx < len(gal): s(gal_col, gal[gi_idx])
+            s('Description',              ai.get('description', ''))
+            s('Key Features',             ai.get('key_features', ''))
+            s('Search Keywords',          ai.get('search_keywords', ''))
+
+            # Category-specific constants (toothpaste & common health products)
+            s('Ideal For',                'Men & Women')
+            s('Ingredient Type',          'Herbal')
+            s('Minimum Age (Month)',       3)
+            s('Maximum Age (Month)',       70)
+
+        # Save output
+        safe_name = re.sub(r'[^A-Za-z0-9_.\-]', '_', orig_filename)
+        out_path  = os.path.join(_LG_OUTPUT_DIR, safe_name)
+        wb.save(out_path)
+
+        return jsonify({
+            'ok':        True,
+            'filename':  safe_name,
+            'n_skus':    n_skus,
+            'warnings':  warnings,
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/listing-download/<filename>')
+def listing_download(filename):
+    """Serve the generated XLSX file."""
+    # Sanitise
+    safe = re.sub(r'[^A-Za-z0-9_.\-]', '_', filename)
+    path = os.path.join(_LG_OUTPUT_DIR, safe)
+    if not os.path.exists(path):
+        return 'File not found', 404
+    return send_file(path, as_attachment=True, download_name=filename)
+
+
 if __name__ == '__main__':
     import os
     _register_telegram_webhook()
