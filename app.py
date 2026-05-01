@@ -4347,8 +4347,8 @@ def listing_gen_generate():
     importer        = fd['importer_details']
     tax_code        = fd['tax_code']
     brand           = fd['brand']
-    main_img_urls   = fd.get('main_image_urls', [])    # list of URL strings
-    gallery_img_urls= fd.get('gallery_image_urls', []) # list of URL strings
+    main_img_urls_by_pack = fd.get('main_image_urls_by_pack', {})  # {pack_size_str: [urls]}
+    gallery_img_urls      = fd.get('gallery_image_urls', [])
     mfg_date        = fd.get('mfg_date', '')
     shelf_life      = fd.get('shelf_life', '24')
     ideal_for       = fd.get('ideal_for', 'Men & Women')
@@ -4388,7 +4388,11 @@ def listing_gen_generate():
             result.append(pool[i % len(pool)])
         return result
 
-    main_urls_dist    = distribute(main_img_urls,    num_skus)
+    # Build per-pack main URL distribution
+    main_urls_by_pack = {}
+    for pack_str, urls in main_img_urls_by_pack.items():
+        main_urls_by_pack[int(pack_str)] = urls
+
     gallery_slots     = num_skus * 4
     gallery_urls_dist = distribute(gallery_img_urls, gallery_slots)
 
@@ -4573,8 +4577,10 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
             set_cell(row, 'Max Shelf Life',       int(shelf_life))
             set_cell(row, 'Max Shelf Life - Measuring Unit', 'Months')
 
-        # Images
-        set_cell(row, 'Main Image URL',      main_urls_dist[i])
+        # Images — use pack-specific main image pool
+        pack_urls = main_urls_by_pack.get(pack_size, [])
+        main_url  = pack_urls[i % len(pack_urls)] if pack_urls else ''
+        set_cell(row, 'Main Image URL',      main_url)
         set_cell(row, 'Other Image URL 1',   gallery_urls_dist[i * 4])
         set_cell(row, 'Other Image URL 2',   gallery_urls_dist[i * 4 + 1])
         set_cell(row, 'Other Image URL 3',   gallery_urls_dist[i * 4 + 2])
