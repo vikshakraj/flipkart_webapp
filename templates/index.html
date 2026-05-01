@@ -1949,17 +1949,8 @@
 
         <!-- STEP 3 -->
         <div id="lgenStep3" style="display:none;">
-          <div class="lgen-card">
-            <div class="lgen-card-title">🖼️ Main Images <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· 3–10 images · Used as primary product image per SKU</span></div>
-            <div class="lgen-drop" onclick="document.getElementById('lgenMainImgInput').click()" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="lgenHandleImgDrop(event,'main')">
-              <div class="lgen-drop-icon">📸</div>
-              <div class="lgen-drop-text">Drop main product images here</div>
-              <div class="lgen-drop-hint">JPEG or PNG · Each distributed evenly as primary image across SKUs</div>
-            </div>
-            <input type="file" id="lgenMainImgInput" accept="image/jpeg,image/jpg,image/png" multiple style="display:none" onchange="lgenAddImages(this.files,'main')">
-            <div class="lgen-img-grid" id="lgenMainImgGrid"></div>
-            <div id="lgenMainImgErr" class="lgen-err" style="display:none;"></div>
-          </div>
+          <!-- Pack-specific main image slots — rendered dynamically by lgenRenderPackImageSlots() -->
+          <div id="lgenPackImageSlots"></div>
           <div class="lgen-card">
             <div class="lgen-card-title">🗂️ Gallery Images <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· 5–20 images · Distributed across Other Image slots</span></div>
             <div class="lgen-drop" onclick="document.getElementById('lgenGalleryImgInput').click()" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="lgenHandleImgDrop(event,'gallery')">
@@ -6718,15 +6709,16 @@ function lstResolveProduct(skuId) {
 // LISTING GENERATOR (lgen*)
 // ════════════════════════════════════════════════
 (function() {
-  let _lgenStep        = 1;
-  let _lgenTemplate    = null;
-  let _lgenMainImgs    = [];
-  let _lgenGalleryImgs = [];
-  let _lgenMainUrls    = [];
-  let _lgenGalleryUrls = [];
-  let _lgenProfiles    = {};       // change 2: { productName: {field: value} }
-  let _lgenDynFields   = [];       // change 8: [{name, required, options}]
-  let _lgenCurrentProduct = '';    // change 1
+  let _lgenStep            = 1;
+  let _lgenTemplate        = null;
+  let _lgenMainImgsByPack  = {};   // { packSize: [{file, previewUrl}] }  e.g. {1:[...], 2:[...]}
+  let _lgenGalleryImgs     = [];
+  let _lgenMainUrlsByPack  = {};   // { packSize: [url, ...] }
+  let _lgenGalleryUrls     = [];
+  let _lgenProfiles        = {};
+  let _lgenDynFields       = [];
+  let _lgenCurrentProduct  = '';
+  let _lgenActivePacks     = [];   // pack sizes with qty > 0, e.g. [1, 2, 4]
 
   // ── Open / Close ──────────────────────────────
   window.lgenOpen = function() {
@@ -6744,8 +6736,9 @@ function lstResolveProduct(skuId) {
 
   window.lgenReset = function() {
     _lgenStep = 1; _lgenTemplate = null;
-    _lgenMainImgs = []; _lgenGalleryImgs = [];
-    _lgenMainUrls = []; _lgenGalleryUrls = [];
+    _lgenMainImgsByPack = {}; _lgenGalleryImgs = [];
+    _lgenMainUrlsByPack = {}; _lgenGalleryUrls = [];
+    _lgenActivePacks = [];
     _lgenCurrentProduct = '';
     ['lgenNumSkus','lgenSkuIdentifier','lgenKeywords','lgenDescContent',
      'lgenMrpMin','lgenMrpMax','lgenPriceMin','lgenPriceMax',
@@ -6868,17 +6861,22 @@ function lstResolveProduct(skuId) {
   async function lgenSaveProfile(formData) {
     if(!_lgenCurrentProduct) return;
     const profile = { ...formData };
-    // Also save dynamic field values
+    // Save dynamic field values
     document.querySelectorAll('.lgen-dyn-field').forEach(el => {
       profile['dyn_' + el.dataset.field] = el.value;
     });
+    // Save pack-specific main image URLs
+    _lgenActivePacks.forEach(pack => {
+      profile[`main_urls_pack_${pack}`] = _lgenMainUrlsByPack[pack] || [];
+    });
+    // Save gallery URLs
+    profile['gallery_urls'] = _lgenGalleryUrls;
     try {
       await fetch('/api/listing-gen/profiles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ product_name: _lgenCurrentProduct, profile }),
       });
-      // Update local cache
       _lgenProfiles[_lgenCurrentProduct] = profile;
     } catch(e) {
       console.warn('Profile save failed:', e);
@@ -6908,6 +6906,7 @@ function lstResolveProduct(skuId) {
       if(_lgenStep === 3 && !lgenValidateStep3()) return;
     }
     lgenSetStep(n);
+    if(n === 3) lgenRenderPackImageSlots();
     document.getElementById('lgenPage').scrollTop = 0;
     window.scrollTo({top:0});
   };
@@ -6967,38 +6966,144 @@ function lstResolveProduct(skuId) {
   };
 
   // ── Image handling ───────────────────────────
+  // ── Pack-specific main image slots ─────────────
+  window.lgenRenderPackImageSlots = function() {
+    // Compute active packs from qty fields
+    _lgenActivePacks = [1,2,3,4,5].filter(n => {
+      const v = parseInt(document.getElementById('lgenQty'+n).value) || 0;
+      return v > 0;
+    });
+    const container = document.getElementById('lgenPackImageSlots');
+    if(!container) return;
+    container.innerHTML = _lgenActivePacks.map(pack => `
+      <div class="lgen-card">
+        <div class="lgen-card-title">📸 Main Image${_lgenActivePacks.length > 1 ? ` — Pack of ${pack}` : ''}
+          <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· 3–5 images · Distributed as primary image for Pack of ${pack} SKUs</span>
+        </div>
+        <div class="lgen-drop" onclick="document.getElementById('lgenMainImgInput_${pack}').click()"
+          ondragover="event.preventDefault();this.classList.add('over')"
+          ondragleave="this.classList.remove('over')"
+          ondrop="lgenHandlePackImgDrop(event,${pack})">
+          <div class="lgen-drop-icon">📸</div>
+          <div class="lgen-drop-text">Drop main images for Pack of ${pack} here</div>
+          <div class="lgen-drop-hint">JPEG or PNG · 3–5 images</div>
+        </div>
+        <input type="file" id="lgenMainImgInput_${pack}" accept="image/jpeg,image/jpg,image/png"
+          multiple style="display:none" onchange="lgenAddPackImages(this.files,${pack})">
+        <div class="lgen-img-grid" id="lgenMainImgGrid_${pack}"></div>
+        <div class="lgen-err" id="lgenMainImgErr_${pack}" style="display:none;"></div>
+      </div>`).join('') +
+      `<div class="lgen-card">
+        <div class="lgen-card-title">🗂️ Gallery Images <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· 5–20 images · Same pool used across all pack sizes</span></div>
+        <div class="lgen-drop" onclick="document.getElementById('lgenGalleryImgInput').click()"
+          ondragover="event.preventDefault();this.classList.add('over')"
+          ondragleave="this.classList.remove('over')"
+          ondrop="lgenHandleImgDrop(event,'gallery')">
+          <div class="lgen-drop-icon">🗂️</div>
+          <div class="lgen-drop-text">Drop gallery images here</div>
+          <div class="lgen-drop-hint">JPEG or PNG · Used for Other Image URL 1–4 slots</div>
+        </div>
+        <input type="file" id="lgenGalleryImgInput" accept="image/jpeg,image/jpg,image/png"
+          multiple style="display:none" onchange="lgenAddImages(this.files,'gallery')">
+        <div class="lgen-img-grid" id="lgenGalleryImgGrid"></div>
+        <div class="lgen-err" id="lgenGalleryImgErr" style="display:none;"></div>
+      </div>
+      <div class="lgen-nav">
+        <button class="lgen-btn lgen-btn-ghost" onclick="lgenGoStep(2)">← Back</button>
+        <button class="lgen-btn lgen-btn-primary" id="lgenGenerateBtn" onclick="lgenGenerate()">✨ Generate Listing →</button>
+      </div>`;
+
+    // Restore saved images from profile URLs as placeholder previews
+    const saved = _lgenCurrentProduct ? (_lgenProfiles[_lgenCurrentProduct] || {}) : {};
+    _lgenActivePacks.forEach(pack => {
+      if(!_lgenMainImgsByPack[pack]) _lgenMainImgsByPack[pack] = [];
+      // Restore URL-only previews from saved profile if no files loaded yet
+      if(_lgenMainImgsByPack[pack].length === 0) {
+        const savedUrls = saved[`main_urls_pack_${pack}`] || [];
+        savedUrls.forEach(url => {
+          _lgenMainImgsByPack[pack].push({ file: null, previewUrl: url, savedUrl: url });
+        });
+      }
+      lgenRenderPackImgGrid(pack);
+    });
+    // Gallery
+    if(_lgenGalleryImgs.length === 0) {
+      const savedGallery = saved['gallery_urls'] || [];
+      savedGallery.forEach(url => {
+        _lgenGalleryImgs.push({ file: null, previewUrl: url, savedUrl: url });
+      });
+      lgenRenderImgGrid('gallery');
+    }
+  };
+
+  window.lgenHandlePackImgDrop = function(e, pack) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('over');
+    lgenAddPackImages(e.dataTransfer.files, pack);
+  };
+
+  window.lgenAddPackImages = function(files, pack) {
+    if(!_lgenMainImgsByPack[pack]) _lgenMainImgsByPack[pack] = [];
+    const arr   = _lgenMainImgsByPack[pack];
+    const errId = `lgenMainImgErr_${pack}`;
+    Array.from(files).forEach(f => {
+      if(arr.length >= 5) { showErr(errId, 'Maximum 5 images per pack size'); return; }
+      if(!f.type.startsWith('image/')) { showErr(errId, `${f.name} is not an image`); return; }
+      arr.push({ file: f, previewUrl: URL.createObjectURL(f) });
+    });
+    lgenRenderPackImgGrid(pack);
+    const errEl = document.getElementById(errId); if(errEl) errEl.style.display = 'none';
+  };
+
+  function lgenRenderPackImgGrid(pack) {
+    const arr  = _lgenMainImgsByPack[pack] || [];
+    const grid = document.getElementById(`lgenMainImgGrid_${pack}`);
+    if(!grid) return;
+    grid.innerHTML = arr.map((img, i) =>
+      `<div class="lgen-img-thumb">
+        <img src="${img.previewUrl}" alt="">
+        <button class="lgen-img-del" onclick="lgenRemovePackImg(${pack},${i})">✕</button>
+       </div>`).join('');
+  }
+
+  window.lgenRemovePackImg = function(pack, idx) {
+    if(_lgenMainImgsByPack[pack]) {
+      _lgenMainImgsByPack[pack].splice(idx, 1);
+      lgenRenderPackImgGrid(pack);
+    }
+  };
+
   window.lgenHandleImgDrop = function(e, type) {
     e.preventDefault();
     lgenAddImages(e.dataTransfer.files, type);
   };
 
   window.lgenAddImages = function(files, type) {
-    const arr   = type === 'main' ? _lgenMainImgs   : _lgenGalleryImgs;
-    const maxN  = type === 'main' ? 10 : 20;
-    const errId = type === 'main' ? 'lgenMainImgErr' : 'lgenGalleryImgErr';
+    const arr   = _lgenGalleryImgs;
+    const maxN  = 20;
+    const errId = 'lgenGalleryImgErr';
     Array.from(files).forEach(f => {
       if(arr.length >= maxN) { showErr(errId, `Maximum ${maxN} images allowed`); return; }
       if(!f.type.startsWith('image/')) { showErr(errId, `${f.name} is not an image`); return; }
-      arr.push({file: f, previewUrl: URL.createObjectURL(f)});
+      arr.push({ file: f, previewUrl: URL.createObjectURL(f) });
     });
     lgenRenderImgGrid(type);
     document.getElementById(errId).style.display = 'none';
   };
 
   function lgenRenderImgGrid(type) {
-    const arr    = type === 'main' ? _lgenMainImgs    : _lgenGalleryImgs;
-    const gridId = type === 'main' ? 'lgenMainImgGrid': 'lgenGalleryImgGrid';
-    document.getElementById(gridId).innerHTML = arr.map((img, i) =>
+    const arr  = _lgenGalleryImgs;
+    const grid = document.getElementById('lgenGalleryImgGrid');
+    if(!grid) return;
+    grid.innerHTML = arr.map((img, i) =>
       `<div class="lgen-img-thumb">
         <img src="${img.previewUrl}" alt="">
-        <button class="lgen-img-del" onclick="lgenRemoveImg('${type}',${i})">✕</button>
-       </div>`
-    ).join('');
+        <button class="lgen-img-del" onclick="lgenRemoveImg('gallery',${i})">✕</button>
+       </div>`).join('');
   }
 
   window.lgenRemoveImg = function(type, idx) {
-    const arr = type === 'main' ? _lgenMainImgs : _lgenGalleryImgs;
-    arr.splice(idx, 1);
+    _lgenGalleryImgs.splice(idx, 1);
     lgenRenderImgGrid(type);
   };
 
@@ -7074,8 +7179,13 @@ function lstResolveProduct(skuId) {
   }
 
   function lgenValidateStep3() {
-    if(_lgenMainImgs.length < 3 || _lgenMainImgs.length > 10) {
-      showErr('lgenMainImgErr', 'Upload 3–10 main images'); return false;
+    // Validate each active pack has 3-5 main images
+    for(const pack of _lgenActivePacks) {
+      const imgs = _lgenMainImgsByPack[pack] || [];
+      if(imgs.length < 3 || imgs.length > 5) {
+        showErr(`lgenMainImgErr_${pack}`, `Upload 3–5 main images for Pack of ${pack}`);
+        return false;
+      }
     }
     if(_lgenGalleryImgs.length < 5 || _lgenGalleryImgs.length > 20) {
       showErr('lgenGalleryImgErr', 'Upload 5–20 gallery images'); return false;
@@ -7097,17 +7207,45 @@ function lstResolveProduct(skuId) {
     const setMsg = m => { const el = document.getElementById('lgenGenMsg'); if(el) el.textContent = m; };
     try {
       setMsg('Uploading images to hosting…');
-      const allImages = [..._lgenMainImgs, ..._lgenGalleryImgs];
-      const formImg   = new FormData();
-      allImages.forEach(img => formImg.append('images', img.file, img.file.name));
-      const imgResp   = await fetch('/api/listing-gen/upload-images', {method:'POST', body: formImg});
-      const imgResult = await imgResp.json();
-      if(imgResult.error) throw new Error(imgResult.error);
-      const uploadedUrls  = imgResult.urls || [];
-      const mainCount     = _lgenMainImgs.length;
-      _lgenMainUrls       = uploadedUrls.slice(0, mainCount).map(u => u.url);
-      _lgenGalleryUrls    = uploadedUrls.slice(mainCount).map(u => u.url);
-      if(!_lgenMainUrls.length) throw new Error('Image upload failed — no URLs returned');
+      // Upload only new files (savedUrl items already have URLs)
+      const toUpload = [];
+      const packOrder = [];  // track which slot each upload maps to
+      _lgenActivePacks.forEach(pack => {
+        (_lgenMainImgsByPack[pack] || []).forEach((img, i) => {
+          if(img.file) { toUpload.push(img); packOrder.push({type:'main', pack, idx:i}); }
+          else { // already saved URL — use directly
+            if(!_lgenMainUrlsByPack[pack]) _lgenMainUrlsByPack[pack] = [];
+            _lgenMainUrlsByPack[pack].push(img.savedUrl);
+          }
+        });
+      });
+      _lgenGalleryImgs.forEach((img, i) => {
+        if(img.file) { toUpload.push(img); packOrder.push({type:'gallery', idx:i}); }
+        else { _lgenGalleryUrls.push(img.savedUrl); }
+      });
+
+      if(toUpload.length > 0) {
+        const formImg = new FormData();
+        toUpload.forEach(img => formImg.append('images', img.file, img.file.name));
+        const imgResp   = await fetch('/api/listing-gen/upload-images', {method:'POST', body: formImg});
+        const imgResult = await imgResp.json();
+        if(imgResult.error) throw new Error(imgResult.error);
+        (imgResult.urls || []).forEach((u, i) => {
+          const slot = packOrder[i];
+          if(slot.type === 'main') {
+            if(!_lgenMainUrlsByPack[slot.pack]) _lgenMainUrlsByPack[slot.pack] = [];
+            _lgenMainUrlsByPack[slot.pack].push(u.url);
+          } else {
+            _lgenGalleryUrls.push(u.url);
+          }
+        });
+      }
+
+      // Validate we got URLs for all packs
+      for(const pack of _lgenActivePacks) {
+        if(!(_lgenMainUrlsByPack[pack] || []).length)
+          throw new Error(`Image upload failed for Pack of ${pack}`);
+      }
 
       setMsg('Generating listing content with Claude…');
 
@@ -7149,7 +7287,7 @@ function lstResolveProduct(skuId) {
         shelf_life:      document.getElementById('lgenShelfLife').value,
         min_age:         document.getElementById('lgenMinAge').value,
         max_age:         document.getElementById('lgenMaxAge').value,
-        main_image_urls:    _lgenMainUrls,
+        main_image_urls_by_pack: _lgenMainUrlsByPack,
         gallery_image_urls: _lgenGalleryUrls,
         dynamic_fields:  dynFieldValues,   // change 8
       };
