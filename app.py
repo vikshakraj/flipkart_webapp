@@ -4114,7 +4114,8 @@ def _register_telegram_webhook():
 # LISTING GENERATOR
 # ─────────────────────────────────────────────
 
-LISTING_TEMPLATE_PATH = os.path.join(_data_dir, 'listing_template.xlsx')
+LISTING_TEMPLATE_PATH  = os.path.join(_data_dir, 'listing_template.xlsx')
+LISTING_PROFILES_PATH  = os.path.join(_data_dir, 'listing_profiles.json')
 
 @app.route('/api/listing-gen/upload-template', methods=['POST'])
 def listing_gen_upload_template():
@@ -4179,6 +4180,120 @@ def listing_gen_upload_images():
             errors.append({'name': f.filename, 'error': str(e)})
 
     return jsonify({'urls': urls, 'errors': errors})
+
+
+@app.route('/api/listing-gen/template-meta', methods=['GET'])
+def listing_gen_template_meta():
+    """Return parsed template metadata: blue/purple col names and Index dropdowns."""
+    import openpyxl, io as _io
+    template_file = request.files.get('template') if request.method == 'POST' else None
+    # Load from stored template
+    if not os.path.exists(LISTING_TEMPLATE_PATH):
+        return jsonify({'error': 'No template stored'}), 404
+    wb = openpyxl.load_workbook(LISTING_TEMPLATE_PATH)
+
+    SKIP_SHEETS = {'Summary Sheet', 'DropDownValuesForColumn27', 'DropDownValuesForColumn33',
+                   'Listing FAQ Sheet', 'Image GuideLines', 'MatchingAttributes',
+                   'VariantAttributes', 'Parent Variant Products', 'template_version'}
+    category_sheet = None
+    for name in wb.sheetnames:
+        if name not in SKIP_SHEETS and name != 'Index':
+            category_sheet = name
+            break
+    if not category_sheet:
+        return jsonify({'error': 'Could not identify category sheet'}), 400
+
+    ws   = wb[category_sheet]
+    BLUE   = 'FF8DB4E2'
+    PURPLE = 'FFCC99FF'
+    GREY   = 'FFC0C0C0'
+
+    # Fields handled automatically (not shown in form)
+    AUTO_FIELDS = {
+        'Flipkart Serial Number', 'Catalog QC Status', 'QC Failed Reason (if any)',
+        'Flipkart Product Link', 'Product Data Status', 'Disapproval Reason (if any)',
+        'Seller SKU ID', 'Listing Status', 'MRP (INR)', 'Your selling price (INR)',
+        'Fullfilment by', 'Procurement type', 'Procurement SLA (DAY)', 'Stock',
+        'Shipping provider', 'Local handling fee (INR)', 'Zonal handling fee (INR)',
+        'National handling fee (INR)', 'Length (CM)', 'Breadth (CM)', 'Height (CM)',
+        'Weight (KG)', 'HSN', 'Country Of Origin', 'Manufacturer Details',
+        'Packer Details', 'Importer Details', 'Tax Code', 'Brand',
+        'Model Name', 'Quantity', 'Quantity - Measuring Unit', 'Pack of',
+        'Main Image URL', 'Other Image URL 1', 'Other Image URL 2',
+        'Other Image URL 3', 'Other Image URL 4', 'Description', 'Key Features',
+        'Search Keywords', 'Items Included',
+    }
+
+    # Parse Index sheet for dropdown values
+    index_values = {}
+    if 'Index' in wb.sheetnames:
+        ws_idx = wb['Index']
+        for col in range(4, ws_idx.max_column + 1):
+            field = ws_idx.cell(row=2, column=col).value
+            if not field: continue
+            if field not in index_values:
+                index_values[field] = []
+            for row in range(3, ws_idx.max_row + 1):
+                v = ws_idx.cell(row=row, column=col).value
+                if v and str(v).strip() and str(v).strip() not in index_values[field]:
+                    index_values[field].append(str(v).strip())
+
+    # Collect dynamic fields (blue/purple NOT in AUTO_FIELDS)
+    dynamic_fields = []
+    for col in range(1, ws.max_column + 1):
+        cell  = ws.cell(row=1, column=col)
+        hdr   = cell.value
+        if not hdr or hdr in AUTO_FIELDS: continue
+        fill  = cell.fill
+        color = fill.fgColor.rgb if fill and fill.fgColor and fill.fgColor.type == 'rgb' else None
+        if color not in (BLUE, PURPLE): continue
+        dynamic_fields.append({
+            'name':     hdr,
+            'required': color == BLUE,
+            'options':  index_values.get(hdr, []),
+        })
+
+    return jsonify({
+        'ok':             True,
+        'category_sheet': category_sheet,
+        'dynamic_fields': dynamic_fields,
+        'index_values':   index_values,
+    })
+
+
+@app.route('/api/listing-gen/profiles', methods=['GET'])
+def listing_gen_get_profiles():
+    """Get all saved listing profiles."""
+    if not os.path.exists(LISTING_PROFILES_PATH):
+        return jsonify({'profiles': {}})
+    try:
+        import json as _json
+        with open(LISTING_PROFILES_PATH, 'r') as f:
+            return jsonify({'profiles': _json.load(f)})
+    except Exception as e:
+        return jsonify({'profiles': {}, 'error': str(e)})
+
+
+@app.route('/api/listing-gen/profiles', methods=['POST'])
+def listing_gen_save_profile():
+    """Save/update a listing profile for a product."""
+    import json as _json
+    data = request.get_json()
+    if not data or not data.get('product_name'):
+        return jsonify({'error': 'product_name required'}), 400
+    profiles = {}
+    if os.path.exists(LISTING_PROFILES_PATH):
+        try:
+            with open(LISTING_PROFILES_PATH, 'r') as f:
+                profiles = _json.load(f)
+        except Exception:
+            profiles = {}
+    profiles[data['product_name']] = data['profile']
+    tmp = LISTING_PROFILES_PATH + '.tmp'
+    with open(tmp, 'w') as f:
+        _json.dump(profiles, f, indent=2)
+    os.replace(tmp, LISTING_PROFILES_PATH)
+    return jsonify({'ok': True})
 
 @app.route('/api/listing-gen/generate', methods=['POST'])
 def listing_gen_generate():
@@ -4253,14 +4368,12 @@ def listing_gen_generate():
     random.shuffle(sku_rows)  # randomise order
 
     # ── Generate unique SKU IDs ──────────────────────────────
-    def random_word(n=4):
-        return ''.join(random.choices(string.ascii_uppercase, k=n)).capitalize()
-
     sku_ids = []
     used_prefixes = set()
+    product_name  = fd.get('product_name', sku_identifier)  # change 1/6
     for pack in sku_rows:
         while True:
-            prefix = random_word(random.randint(3, 6))
+            prefix = ''.join(random.choices(string.ascii_uppercase, k=3))  # change 9: exactly 3 caps
             if prefix not in used_prefixes:
                 used_prefixes.add(prefix)
                 break
@@ -4287,28 +4400,42 @@ def listing_gen_generate():
     keywords_str = ', '.join(top_keywords)
     sku_details  = '\n'.join([f'SKU {i+1}: {sku_ids[i]} (Pack of {sku_rows[i]})' for i in range(num_skus)])
 
-    prompt = f"""You are a Flipkart product listing expert. Generate listing content for {num_skus} SKUs of a product.
+    sku_details_list = []
+    for i in range(num_skus):
+        pack = sku_rows[i]
+        if pack == 1:
+            pack_label = 'PACK_OF_1'
+        else:
+            pack_label = f'PACK_OF_{pack}'
+        sku_details_list.append(f'SKU {i+1}: {sku_ids[i]} | {pack_label}')
+    sku_details = '\n'.join(sku_details_list)
+
+    prompt = f"""You are a Flipkart product listing expert. Generate listing content for {num_skus} SKUs.
 
 Product info: {description_raw}
-Brand: {brand}
 Top keywords to use: {keywords_str}
-SKUs to generate for:
+SKUs:
 {sku_details}
 
-For EACH SKU, generate:
-1. model_name: A product title between 70-80 characters (including spaces). Must include the brand name and 2-3 top keywords naturally. Slightly different angle per SKU.
-2. description: 50-100 words. Natural, benefit-focused. Slightly different per SKU. Use keywords naturally.
-3. key_features: Exactly 4 features separated by ::. Benefit-focused, unique angle per SKU.
+STRICT RULES for model_name:
+1. Length: exactly 70-80 characters including spaces.
+2. Do NOT include the brand name — Flipkart adds it automatically.
+3. For PACK_OF_1 SKUs: do NOT mention pack size at all (no "1 Pack", "Pack of 1", "Single", "1 Pc"). Use keywords + benefits only.
+4. For PACK_OF_2+: include pack size using EITHER "2 Pc" OR "2 Pack" format (pick randomly). Example: "2 Pc", "3 Pack", "4 Pc".
+5. Use 2-3 top keywords naturally. Slightly different angle per SKU.
 
-Respond ONLY with a JSON array of {num_skus} objects, no markdown, no explanation:
+For EACH SKU also generate:
+- description: 50-100 words, benefit-focused, slightly different per SKU, use keywords naturally.
+- key_features: Exactly 4 features separated by ::
+
+Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
 [
   {{
     "sku_index": 0,
     "model_name": "...",
     "description": "...",
     "key_features": "Feature 1::Feature 2::Feature 3::Feature 4"
-  }},
-  ...
+  }}
 ]"""
 
     try:
@@ -4374,18 +4501,24 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no explanatio
         is_purple = color == PURPLE
         is_green  = color == GREEN
         col_map[hdr] = col
-        # Track unfilled mandatory blue columns
-        if is_blue and hdr not in ('Flipkart Product Link', 'Flipkart Serial Number',
-                                    'Catalog QC Status', 'QC Failed Reason (if any)',
-                                    'Product Data Status', 'Disapproval Reason (if any)',
-                                    'Ideal For', 'Ingredient Type', 'Type',
-                                    'Minimum Age (Month)', 'Maximum Age (Month)',
-                                    'Seller SKU ID', 'MRP (INR)', 'Your selling price (INR)',
-                                    'Fullfilment by', 'HSN', 'Country Of Origin',
-                                    'Manufacturer Details', 'Packer Details', 'Tax Code',
-                                    'Brand', 'Model Name', 'Quantity',
-                                    'Quantity - Measuring Unit', 'Pack of',
-                                    'Main Image URL', 'Items Included'):
+        # Track unfilled mandatory blue columns (change 7: dynamic — anything blue not in form_data and not auto-filled)
+        AUTO_HANDLED = {
+            'Flipkart Product Link', 'Flipkart Serial Number', 'Catalog QC Status',
+            'QC Failed Reason (if any)', 'Product Data Status', 'Disapproval Reason (if any)',
+            'Seller SKU ID', 'Listing Status', 'MRP (INR)', 'Your selling price (INR)',
+            'Fullfilment by', 'Procurement type', 'Procurement SLA (DAY)', 'Stock',
+            'Shipping provider', 'Local handling fee (INR)', 'Zonal handling fee (INR)',
+            'National handling fee (INR)', 'Length (CM)', 'Breadth (CM)', 'Height (CM)',
+            'Weight (KG)', 'HSN', 'Country Of Origin', 'Manufacturer Details',
+            'Packer Details', 'Importer Details', 'Tax Code', 'Brand', 'Ideal For',
+            'Ingredient Type', 'Type', 'Minimum Age (Month)', 'Maximum Age (Month)',
+            'Model Name', 'Quantity', 'Quantity - Measuring Unit', 'Pack of',
+            'Main Image URL', 'Other Image URL 1', 'Other Image URL 2',
+            'Other Image URL 3', 'Other Image URL 4', 'Description', 'Key Features',
+            'Search Keywords', 'Items Included',
+        }
+        dynamic_provided = set(fd.get('dynamic_fields', {}).keys())
+        if is_blue and hdr not in AUTO_HANDLED and hdr not in dynamic_provided:
             unfilled_blue.append(hdr)
 
     def set_cell(row, col_name, value):
@@ -4432,7 +4565,7 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no explanatio
         set_cell(row, 'Pack of',                  pack_size)
         set_cell(row, 'Quantity',                 qty_val)
         set_cell(row, 'Quantity - Measuring Unit','g')
-        set_cell(row, 'Items Included',           f'{pack_size} x {sku_identifier}')
+        set_cell(row, 'Items Included',           f'{pack_size} x {product_name}')
         if mfg_date:
             set_cell(row, 'Manufacturing date',   mfg_date)
         if shelf_life:
@@ -4456,6 +4589,13 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no explanatio
         # Model Number if present
         if 'Model Number' in col_map and top_keywords:
             set_cell(row, 'Model Number', random.choice(top_keywords))
+
+    # ── Change 7: Write dynamic (category-specific) fields ──────
+    dynamic_fields_data = fd.get('dynamic_fields', {})
+    for field_name, field_value in dynamic_fields_data.items():
+        if field_value and field_name in col_map:
+            for i in range(num_skus):
+                set_cell(5 + i, field_name, field_value)
 
     # ── Save and return ──────────────────────────────────────
     out_buf = _io.BytesIO()
