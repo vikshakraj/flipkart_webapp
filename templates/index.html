@@ -1848,6 +1848,15 @@
           </div>
           <div class="lgen-card">
             <div class="lgen-card-title">📦 SKU Configuration</div>
+            <!-- Change 1: Product name dropdown from Master SKU -->
+            <div class="lgen-field">
+              <label class="lgen-label">Product <span>*</span></label>
+              <select class="lgen-select" id="lgenProductName" onchange="lgenOnProductSelect()">
+                <option value="">— Select a product —</option>
+              </select>
+              <span class="lgen-hint">Maps to Master SKU product names. Also used in "Items Included" column.</span>
+              <span class="lgen-err" id="lgenProductErr" style="display:none;"></span>
+            </div>
             <div class="lgen-field">
               <label class="lgen-label">Number of SKUs <span>*</span></label>
               <input type="number" class="lgen-input" id="lgenNumSkus" min="2" max="20" placeholder="2–20" oninput="lgenUpdateQtySum()" style="max-width:160px;">
@@ -1866,7 +1875,7 @@
             <div class="lgen-field">
               <label class="lgen-label">SKU Identifier <span>*</span></label>
               <input type="text" class="lgen-input" id="lgenSkuIdentifier" placeholder="e.g. Varicose Patch, SP4 Toothpaste">
-              <span class="lgen-hint">Used in SKU ID naming and "Items Included" field</span>
+              <span class="lgen-hint">Used in SKU ID naming</span>
             </div>
           </div>
           <div class="lgen-nav"><span></span><button class="lgen-btn lgen-btn-primary" onclick="lgenGoStep(2)">Next: Product Details →</button></div>
@@ -1929,6 +1938,11 @@
               <div class="lgen-field"><label class="lgen-label">Min Age (Months)</label><input type="number" class="lgen-input" id="lgenMinAge" placeholder="e.g. 3"></div>
               <div class="lgen-field"><label class="lgen-label">Max Age (Months)</label><input type="number" class="lgen-input" id="lgenMaxAge" placeholder="e.g. 70"></div>
             </div>
+          </div>
+          <!-- Change 8: Category-Specific Fields from Index sheet -->
+          <div class="lgen-card" id="lgenDynamicCard" style="display:none;">
+            <div class="lgen-card-title">🗂️ Category-Specific Fields <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· Detected from your template's Index sheet</span></div>
+            <div id="lgenDynamicFields"></div>
           </div>
           <div class="lgen-nav"><button class="lgen-btn lgen-btn-ghost" onclick="lgenGoStep(1)">← Back</button><button class="lgen-btn lgen-btn-primary" onclick="lgenGoStep(3)">Next: Images →</button></div>
         </div>
@@ -6704,30 +6718,35 @@ function lstResolveProduct(skuId) {
 // LISTING GENERATOR (lgen*)
 // ════════════════════════════════════════════════
 (function() {
-  let _lgenStep       = 1;
-  let _lgenTemplate   = null;   // { file, name }
-  let _lgenMainImgs   = [];     // [{file, previewUrl}]
-  let _lgenGalleryImgs= [];
-  let _lgenMainUrls   = [];     // uploaded public URLs
-  let _lgenGalleryUrls= [];
+  let _lgenStep        = 1;
+  let _lgenTemplate    = null;
+  let _lgenMainImgs    = [];
+  let _lgenGalleryImgs = [];
+  let _lgenMainUrls    = [];
+  let _lgenGalleryUrls = [];
+  let _lgenProfiles    = {};       // change 2: { productName: {field: value} }
+  let _lgenDynFields   = [];       // change 8: [{name, required, options}]
+  let _lgenCurrentProduct = '';    // change 1
 
+  // ── Open / Close ──────────────────────────────
   window.lgenOpen = function() {
     document.getElementById('lgenPage').classList.add('active');
-    window.scrollTo({top:0});
+    document.body.style.overflow = 'hidden';
     lgenSetStep(1);
+    lgenLoadProductsAndProfiles();
+    lgenLoadTemplateMeta();
   };
 
   window.lgenClose = function() {
     document.getElementById('lgenPage').classList.remove('active');
+    document.body.style.overflow = '';
   };
 
   window.lgenReset = function() {
-    // Reset all state and go back to step 1
     _lgenStep = 1; _lgenTemplate = null;
     _lgenMainImgs = []; _lgenGalleryImgs = [];
     _lgenMainUrls = []; _lgenGalleryUrls = [];
-    document.getElementById('lgenTemplateStatus').style.display = 'none';
-    document.getElementById('lgenTemplateDrop').style.display = '';
+    _lgenCurrentProduct = '';
     ['lgenNumSkus','lgenSkuIdentifier','lgenKeywords','lgenDescContent',
      'lgenMrpMin','lgenMrpMax','lgenPriceMin','lgenPriceMax',
      'lgenLenMin','lgenLenMax','lgenBreMin','lgenBreMax',
@@ -6742,9 +6761,131 @@ function lstResolveProduct(skuId) {
     document.getElementById('lgenSuccessState').style.display = 'none';
     document.getElementById('lgenErrorState').style.display = 'none';
     document.getElementById('lgenGeneratingState').style.display = 'block';
+    const ps = document.getElementById('lgenProductName'); if(ps) ps.value = '';
     lgenSetStep(1);
   };
 
+  // ── Change 1: Load product names from Master SKU ──
+  async function lgenLoadProductsAndProfiles() {
+    try {
+      const [mapResp, profResp] = await Promise.all([
+        fetch('/api/master-sku-map'),
+        fetch('/api/listing-gen/profiles'),
+      ]);
+      const mapData  = await mapResp.json();
+      const profData = await profResp.json();
+      _lgenProfiles  = profData.profiles || {};
+
+      const sel = document.getElementById('lgenProductName');
+      if(!sel) return;
+      // Build unique product names
+      const names = [...new Set(Object.values(mapData.mapping || {}))].sort();
+      sel.innerHTML = '<option value="">— Select a product —</option>' +
+        names.map(n => `<option value="${n}">${n}</option>`).join('');
+    } catch(e) {
+      console.warn('lgenLoadProducts failed:', e);
+    }
+  }
+
+  // ── Change 8: Load template metadata (dynamic fields) ──
+  async function lgenLoadTemplateMeta() {
+    try {
+      const resp = await fetch('/api/listing-gen/template-meta');
+      if(!resp.ok) return;
+      const data = await resp.json();
+      _lgenDynFields = data.dynamic_fields || [];
+      lgenRenderDynamicFields();
+    } catch(e) {
+      console.warn('lgenLoadTemplateMeta failed:', e);
+    }
+  }
+
+  function lgenRenderDynamicFields() {
+    const card = document.getElementById('lgenDynamicCard');
+    const container = document.getElementById('lgenDynamicFields');
+    if(!container) return;
+    if(!_lgenDynFields.length) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    const saved = _lgenCurrentProduct ? (_lgenProfiles[_lgenCurrentProduct] || {}) : {};
+    container.innerHTML = _lgenDynFields.map(f => {
+      const savedVal = saved['dyn_' + f.name] || '';
+      const reqMark  = f.required ? '<span>*</span>' : '';
+      if(f.options && f.options.length) {
+        const opts = f.options.map(o => `<option value="${o}"${o===savedVal?' selected':''}>${o}</option>`).join('');
+        return `<div class="lgen-field">
+          <label class="lgen-label">${f.name} ${reqMark}</label>
+          <select class="lgen-select lgen-dyn-field" data-field="${f.name}">
+            <option value="">— Select —</option>${opts}
+          </select>
+        </div>`;
+      } else {
+        return `<div class="lgen-field">
+          <label class="lgen-label">${f.name} ${reqMark}</label>
+          <input type="text" class="lgen-input lgen-dyn-field" data-field="${f.name}" value="${savedVal}" placeholder="${f.name}">
+        </div>`;
+      }
+    }).join('');
+  }
+
+  // ── Change 1+2: Product selection handler ──
+  window.lgenOnProductSelect = function() {
+    const sel  = document.getElementById('lgenProductName');
+    const name = sel ? sel.value : '';
+    _lgenCurrentProduct = name;
+    if(!name) return;
+    // Change 2: restore saved profile for this product
+    const saved = _lgenProfiles[name] || {};
+    const fieldMap = {
+      'lgenSkuIdentifier': 'sku_identifier', 'lgenKeywords': 'top_keywords',
+      'lgenDescContent': 'description_content',
+      'lgenMrpMin': 'mrp_min', 'lgenMrpMax': 'mrp_max',
+      'lgenPriceMin': 'price_min', 'lgenPriceMax': 'price_max',
+      'lgenLenMin': 'len_min', 'lgenLenMax': 'len_max',
+      'lgenBreMin': 'bre_min', 'lgenBreMax': 'bre_max',
+      'lgenHeiMin': 'hei_min', 'lgenHeiMax': 'hei_max',
+      'lgenWgtMin': 'wgt_min', 'lgenWgtMax': 'wgt_max',
+      'lgenHsn': 'hsn', 'lgenBrand': 'brand',
+      'lgenManufacturer': 'manufacturer_details', 'lgenPacker': 'packer_details',
+      'lgenImporter': 'importer_details', 'lgenIdealFor': 'ideal_for',
+      'lgenIngredientType': 'ingredient_type', 'lgenProductType': 'product_type',
+      'lgenShelfLife': 'shelf_life', 'lgenMinAge': 'min_age', 'lgenMaxAge': 'max_age',
+    };
+    Object.entries(fieldMap).forEach(([elId, key]) => {
+      const el = document.getElementById(elId);
+      if(el && saved[key] !== undefined) el.value = saved[key];
+    });
+    // Restore select fields
+    ['lgenCountry','lgenTaxCode'].forEach(id => {
+      const el = document.getElementById(id);
+      const key = id === 'lgenCountry' ? 'country_of_origin' : 'tax_code';
+      if(el && saved[key]) el.value = saved[key];
+    });
+    // Re-render dynamic fields with saved values
+    lgenRenderDynamicFields();
+  };
+
+  // ── Change 2: Save profile after successful generation ──
+  async function lgenSaveProfile(formData) {
+    if(!_lgenCurrentProduct) return;
+    const profile = { ...formData };
+    // Also save dynamic field values
+    document.querySelectorAll('.lgen-dyn-field').forEach(el => {
+      profile['dyn_' + el.dataset.field] = el.value;
+    });
+    try {
+      await fetch('/api/listing-gen/profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_name: _lgenCurrentProduct, profile }),
+      });
+      // Update local cache
+      _lgenProfiles[_lgenCurrentProduct] = profile;
+    } catch(e) {
+      console.warn('Profile save failed:', e);
+    }
+  }
+
+  // ── Step navigation ──────────────────────────
   function lgenSetStep(n) {
     _lgenStep = n;
     [1,2,3,4].forEach(s => {
@@ -6761,7 +6902,6 @@ function lstResolveProduct(skuId) {
   }
 
   window.lgenGoStep = function(n) {
-    // Validate before advancing
     if(n > _lgenStep) {
       if(_lgenStep === 1 && !lgenValidateStep1()) return;
       if(_lgenStep === 2 && !lgenValidateStep2()) return;
@@ -6790,13 +6930,29 @@ function lstResolveProduct(skuId) {
     document.getElementById('lgenTemplateStatus').style.display = '';
     document.getElementById('lgenTemplateStatusText').textContent = f.name + ' loaded ✓';
     document.getElementById('lgenTemplateErr').style.display = 'none';
+    // Upload template to get dynamic fields
+    _uploadTemplateForMeta(f);
   };
+
+  async function _uploadTemplateForMeta(file) {
+    try {
+      const fd = new FormData();
+      fd.append('template', file, file.name);
+      const resp = await fetch('/api/listing-gen/upload-template', { method: 'POST', body: fd });
+      if(resp.ok) {
+        // Now fetch meta
+        await lgenLoadTemplateMeta();
+      }
+    } catch(e) { console.warn('Template upload for meta failed:', e); }
+  }
 
   window.lgenClearTemplate = function() {
     _lgenTemplate = null;
     document.getElementById('lgenTemplateDrop').style.display = '';
     document.getElementById('lgenTemplateStatus').style.display = 'none';
     document.getElementById('lgenTemplateFile').value = '';
+    _lgenDynFields = [];
+    lgenRenderDynamicFields();
   };
 
   // ── Quantity sum ─────────────────────────────
@@ -6823,8 +6979,7 @@ function lstResolveProduct(skuId) {
     Array.from(files).forEach(f => {
       if(arr.length >= maxN) { showErr(errId, `Maximum ${maxN} images allowed`); return; }
       if(!f.type.startsWith('image/')) { showErr(errId, `${f.name} is not an image`); return; }
-      const url = URL.createObjectURL(f);
-      arr.push({file: f, previewUrl: url});
+      arr.push({file: f, previewUrl: URL.createObjectURL(f)});
     });
     lgenRenderImgGrid(type);
     document.getElementById(errId).style.display = 'none';
@@ -6853,12 +7008,16 @@ function lstResolveProduct(skuId) {
     if(el) { el.textContent = msg; el.style.display = 'block'; }
   }
   function hideErr(id) {
-    const el = document.getElementById(id);
-    if(el) el.style.display = 'none';
+    const el = document.getElementById(id); if(el) el.style.display = 'none';
   }
 
   function lgenValidateStep1() {
     let ok = true;
+    // Change 1: product must be selected
+    const prod = document.getElementById('lgenProductName');
+    if(!prod || !prod.value) {
+      showErr('lgenProductErr', 'Please select a product'); ok = false;
+    } else hideErr('lgenProductErr');
     if(!_lgenTemplate) {
       showErr('lgenTemplateErr', 'Please upload a template file'); ok = false;
     }
@@ -6897,6 +7056,19 @@ function lstResolveProduct(skuId) {
     if(kw.length < 2 || kw.length > 15) {
       showErr('lgenKeywordsErr', 'Enter 2–15 comma-separated keywords'); return false;
     }
+    // Change 7: validate required dynamic fields
+    let dynOk = true;
+    document.querySelectorAll('.lgen-dyn-field').forEach(el => {
+      const fieldName = el.dataset.field;
+      const dynDef    = _lgenDynFields.find(f => f.name === fieldName);
+      if(dynDef && dynDef.required && !el.value.trim()) {
+        el.classList.add('err');
+        dynOk = false;
+      } else {
+        el.classList.remove('err');
+      }
+    });
+    if(!dynOk) { showErr('lgenKeywordsErr', 'Please fill all required category-specific fields (marked with *)'); return false; }
     hideErr('lgenKeywordsErr');
     return true;
   }
@@ -6923,98 +7095,91 @@ function lstResolveProduct(skuId) {
 
   async function _doGenerate() {
     const setMsg = m => { const el = document.getElementById('lgenGenMsg'); if(el) el.textContent = m; };
-
     try {
-      // Step A: Upload images
       setMsg('Uploading images to hosting…');
-      const allImages  = [..._lgenMainImgs, ..._lgenGalleryImgs];
-      const formImg    = new FormData();
+      const allImages = [..._lgenMainImgs, ..._lgenGalleryImgs];
+      const formImg   = new FormData();
       allImages.forEach(img => formImg.append('images', img.file, img.file.name));
-      const imgResp    = await fetch('/api/listing-gen/upload-images', {method:'POST', body: formImg});
-      const imgResult  = await imgResp.json();
+      const imgResp   = await fetch('/api/listing-gen/upload-images', {method:'POST', body: formImg});
+      const imgResult = await imgResp.json();
       if(imgResult.error) throw new Error(imgResult.error);
+      const uploadedUrls  = imgResult.urls || [];
+      const mainCount     = _lgenMainImgs.length;
+      _lgenMainUrls       = uploadedUrls.slice(0, mainCount).map(u => u.url);
+      _lgenGalleryUrls    = uploadedUrls.slice(mainCount).map(u => u.url);
+      if(!_lgenMainUrls.length) throw new Error('Image upload failed — no URLs returned');
 
-      // Split uploaded URLs back into main and gallery
-      const uploadedUrls = imgResult.urls || [];
-      const mainCount    = _lgenMainImgs.length;
-      _lgenMainUrls      = uploadedUrls.slice(0, mainCount).map(u => u.url);
-      _lgenGalleryUrls   = uploadedUrls.slice(mainCount).map(u => u.url);
-
-      if(_lgenMainUrls.length === 0) throw new Error('Image upload failed — no URLs returned');
-      if(imgResult.errors && imgResult.errors.length > 0) {
-        console.warn('Some images failed to upload:', imgResult.errors);
-      }
-
-      // Step B: Build form data & generate
       setMsg('Generating listing content with Claude…');
+
+      // Collect dynamic field values (change 8)
+      const dynFieldValues = {};
+      document.querySelectorAll('.lgen-dyn-field').forEach(el => {
+        if(el.value) dynFieldValues[el.dataset.field] = el.value;
+      });
+
       const fd = {
-        num_skus:       parseInt(document.getElementById('lgenNumSkus').value),
-        quantities:     { 1: document.getElementById('lgenQty1').value||0, 2: document.getElementById('lgenQty2').value||0, 3: document.getElementById('lgenQty3').value||0, 4: document.getElementById('lgenQty4').value||0, 5: document.getElementById('lgenQty5').value||0 },
-        sku_identifier: document.getElementById('lgenSkuIdentifier').value.trim(),
-        top_keywords:   document.getElementById('lgenKeywords').value,
+        product_name:    document.getElementById('lgenProductName').value,
+        num_skus:        parseInt(document.getElementById('lgenNumSkus').value),
+        quantities:      {1:document.getElementById('lgenQty1').value||0, 2:document.getElementById('lgenQty2').value||0, 3:document.getElementById('lgenQty3').value||0, 4:document.getElementById('lgenQty4').value||0, 5:document.getElementById('lgenQty5').value||0},
+        sku_identifier:  document.getElementById('lgenSkuIdentifier').value.trim(),
+        top_keywords:    document.getElementById('lgenKeywords').value,
         description_content: document.getElementById('lgenDescContent').value,
-        mrp_min:        document.getElementById('lgenMrpMin').value,
-        mrp_max:        document.getElementById('lgenMrpMax').value,
-        price_min:      document.getElementById('lgenPriceMin').value,
-        price_max:      document.getElementById('lgenPriceMax').value,
-        len_min:        document.getElementById('lgenLenMin').value,
-        len_max:        document.getElementById('lgenLenMax').value,
-        bre_min:        document.getElementById('lgenBreMin').value,
-        bre_max:        document.getElementById('lgenBreMax').value,
-        hei_min:        document.getElementById('lgenHeiMin').value,
-        hei_max:        document.getElementById('lgenHeiMax').value,
-        wgt_min:        document.getElementById('lgenWgtMin').value,
-        wgt_max:        document.getElementById('lgenWgtMax').value,
-        hsn:            document.getElementById('lgenHsn').value,
+        mrp_min:         document.getElementById('lgenMrpMin').value,
+        mrp_max:         document.getElementById('lgenMrpMax').value,
+        price_min:       document.getElementById('lgenPriceMin').value,
+        price_max:       document.getElementById('lgenPriceMax').value,
+        len_min:         document.getElementById('lgenLenMin').value,
+        len_max:         document.getElementById('lgenLenMax').value,
+        bre_min:         document.getElementById('lgenBreMin').value,
+        bre_max:         document.getElementById('lgenBreMax').value,
+        hei_min:         document.getElementById('lgenHeiMin').value,
+        hei_max:         document.getElementById('lgenHeiMax').value,
+        wgt_min:         document.getElementById('lgenWgtMin').value,
+        wgt_max:         document.getElementById('lgenWgtMax').value,
+        hsn:             document.getElementById('lgenHsn').value,
         country_of_origin: document.getElementById('lgenCountry').value,
         manufacturer_details: document.getElementById('lgenManufacturer').value,
-        packer_details: document.getElementById('lgenPacker').value,
+        packer_details:  document.getElementById('lgenPacker').value,
         importer_details: document.getElementById('lgenImporter').value,
-        tax_code:       document.getElementById('lgenTaxCode').value,
-        brand:          document.getElementById('lgenBrand').value,
-        ideal_for:      document.getElementById('lgenIdealFor').value,
+        tax_code:        document.getElementById('lgenTaxCode').value,
+        brand:           document.getElementById('lgenBrand').value,
+        ideal_for:       document.getElementById('lgenIdealFor').value,
         ingredient_type: document.getElementById('lgenIngredientType').value,
-        product_type:   document.getElementById('lgenProductType').value,
-        shelf_life:     document.getElementById('lgenShelfLife').value,
-        min_age:        document.getElementById('lgenMinAge').value,
-        max_age:        document.getElementById('lgenMaxAge').value,
+        product_type:    document.getElementById('lgenProductType').value,
+        shelf_life:      document.getElementById('lgenShelfLife').value,
+        min_age:         document.getElementById('lgenMinAge').value,
+        max_age:         document.getElementById('lgenMaxAge').value,
         main_image_urls:    _lgenMainUrls,
         gallery_image_urls: _lgenGalleryUrls,
+        dynamic_fields:  dynFieldValues,   // change 8
       };
+
+      // Change 2: save profile before generating
+      await lgenSaveProfile(fd);
 
       setMsg('Filling XLSX template…');
       const genForm = new FormData();
       genForm.append('form_data', JSON.stringify(fd));
       genForm.append('template', _lgenTemplate.file, _lgenTemplate.name);
-
       const genResp = await fetch('/api/listing-gen/generate', {method:'POST', body: genForm});
       if(!genResp.ok) {
         const errData = await genResp.json().catch(() => ({}));
         throw new Error(errData.error || `Server error ${genResp.status}`);
       }
-
-      // Handle unfilled fields warning
       const unfilledRaw = genResp.headers.get('X-Unfilled-Fields');
       const unfilled    = unfilledRaw ? JSON.parse(unfilledRaw) : [];
-
-      // Get blob and create download link
       setMsg('Preparing download…');
-      const blob  = await genResp.blob();
-      const url   = URL.createObjectURL(blob);
-      const link  = document.getElementById('lgenDownloadLink');
-      link.href   = url;
+      const blob = await genResp.blob();
+      const url  = URL.createObjectURL(blob);
+      const link = document.getElementById('lgenDownloadLink');
+      link.href     = url;
       link.download = _lgenTemplate.name;
-
-      // Show success
       document.getElementById('lgenGeneratingState').style.display = 'none';
       document.getElementById('lgenSuccessState').style.display    = 'block';
-
       if(unfilled.length > 0) {
         document.getElementById('lgenUnfilledWarning').style.display = 'block';
-        document.getElementById('lgenUnfilledList').innerHTML =
-          unfilled.map(f => `<li>${f}</li>`).join('');
+        document.getElementById('lgenUnfilledList').innerHTML = unfilled.map(f => `<li>${f}</li>`).join('');
       }
-
     } catch(err) {
       document.getElementById('lgenGeneratingState').style.display = 'none';
       document.getElementById('lgenErrorState').style.display      = 'block';
@@ -7023,6 +7188,7 @@ function lstResolveProduct(skuId) {
   }
 
 })();
+
 
 // ── Public: Refresh button ──
 window.lstLoadListings = function() {
