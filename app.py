@@ -3368,7 +3368,7 @@ def _fk_auto_dispatch(test_mode=False):
     for i in range(0, len(approved_shipments), 25):
         batch = approved_shipments[i:i+25]
         pack_payload = {'shipments': []}
-        now_iso = datetime.datetime.now(tz=IST).strftime('%Y-%m-%dT%H:%M:%S')
+        now_iso = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
         for s in batch:
             sid        = s.get('shipmentId') or s.get('shipment_id', '')
             order_items = s.get('orderItems', [])
@@ -3395,12 +3395,12 @@ def _fk_auto_dispatch(test_mode=False):
                     stripped = re.sub(r'\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$', '', sku_clean, flags=re.IGNORECASE).strip()
                     product  = sku_to_product.get(stripped, stripped)
                 # Look up tax rate from mapping
-                tax_rate = float(FK_PRODUCT_TAX_RATES.get(product, FK_DEFAULT_TAX_RATE))
+                tax_rate = int(FK_PRODUCT_TAX_RATES.get(product, FK_DEFAULT_TAX_RATE))
                 print(f'[AutoDispatch] SKU "{sku_clean}" → product "{product}" → taxRate {tax_rate}%')
                 if oiid:
                     tax_items.append({
                         'orderItemId': oiid,
-                        'taxRate':     tax_rate,
+                        'taxRate':     int(tax_rate),
                         'quantity':    qty,
                         # purchasePrice intentionally omitted — only for refurbished products
                     })
