@@ -1599,11 +1599,11 @@
               title="Backfill from a specific start date">
               📅 Sync from Date
             </button>
-            <span id="saBackfillArea" style="display:none;align-items:center;gap:6px;margin-left:4px;">
+            <div id="saBackfillArea" style="display:none;align-items:center;gap:6px;margin-left:4px;flex-wrap:wrap;">
               <input type="date" id="saBackfillDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:7px;font-size:.78rem;font-family:inherit;">
               <button class="sa-filter-btn" onclick="triggerBackfill()" style="padding:6px 12px;font-size:.78rem;">Go</button>
               <button class="sa-filter-btn" onclick="hideBackfillPicker()" style="padding:6px 10px;font-size:.78rem;background:transparent;border-color:var(--border);">✕</button>
-            </span>
+            </div>
             <span id="saSyncStatus" style="font-size:.75rem;color:var(--muted);display:none;"></span>
             <button class="sa-clear-btn" onclick="clearSaData()" title="Wipe stored data and re-upload from scratch">🗑 Clear & Re-upload</button>
             <button class="sa-reupload" onclick="showSaUpload()">↑ Upload new file</button>
@@ -7394,7 +7394,7 @@ function lstResolveProduct(skuId) {
 function showBackfillPicker() {
   const area = document.getElementById('saBackfillArea');
   const btn  = document.getElementById('saBackfillBtn');
-  if (area) { area.style.display = 'inline-flex'; }
+  if (area) { area.style.display = 'flex'; }
   if (btn)  { btn.style.display  = 'none'; }
   // Set default date to 90 days ago
   const d = new Date(); d.setDate(d.getDate() - 90);
