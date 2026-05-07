@@ -1938,6 +1938,21 @@
               <div class="lgen-field"><label class="lgen-label">Min Age (Months)</label><input type="number" class="lgen-input" id="lgenMinAge" placeholder="e.g. 3"></div>
               <div class="lgen-field"><label class="lgen-label">Max Age (Months)</label><input type="number" class="lgen-input" id="lgenMaxAge" placeholder="e.g. 70"></div>
             </div>
+            <!-- Quantity fields — always shown, unit dropdown populated from template -->
+            <div class="lgen-row" id="lgenQtyUnitWrap">
+              <div class="lgen-field">
+                <label class="lgen-label">Quantity per Pack of 1 <span>*</span></label>
+                <input type="number" class="lgen-input" id="lgenQtyPerUnit" placeholder="e.g. 10" min="1">
+                <span class="lgen-hint">Pack of 2 = 2×, Pack of 3 = 3×, and so on</span>
+              </div>
+              <div class="lgen-field">
+                <label class="lgen-label">Quantity Measuring Unit <span>*</span></label>
+                <select class="lgen-select" id="lgenQtyUnit">
+                  <option value="g">g</option>
+                </select>
+                <span class="lgen-hint">Options loaded from your uploaded template</span>
+              </div>
+            </div>
           </div>
           <!-- Change 8: Category-Specific Fields from Index sheet -->
           <div class="lgen-card" id="lgenDynamicCard" style="display:none;">
@@ -6717,6 +6732,7 @@ function lstResolveProduct(skuId) {
   let _lgenGalleryUrls     = [];
   let _lgenProfiles        = {};
   let _lgenDynFields       = [];
+  let _lgenQtyUnitOptions  = [];       // e.g. ['g','ml','L','Patches','Units']
   let _lgenCurrentProduct  = '';
   let _lgenActivePacks     = [];   // pack sizes with qty > 0, e.g. [1, 2, 4]
 
@@ -6786,8 +6802,10 @@ function lstResolveProduct(skuId) {
       const resp = await fetch('/api/listing-gen/template-meta');
       if(!resp.ok) return;
       const data = await resp.json();
-      _lgenDynFields = data.dynamic_fields || [];
+      _lgenDynFields      = data.dynamic_fields || [];
+      _lgenQtyUnitOptions = data.qty_unit_options || [];
       lgenRenderDynamicFields();
+      lgenRenderQtyUnitField();
     } catch(e) {
       console.warn('lgenLoadTemplateMeta failed:', e);
     }
@@ -6818,6 +6836,18 @@ function lstResolveProduct(skuId) {
         </div>`;
       }
     }).join('');
+  }
+
+  // ── Quantity unit field renderer ──────────────
+  function lgenRenderQtyUnitField() {
+    const wrap = document.getElementById('lgenQtyUnitWrap');
+    if(!wrap) return;
+    if(!_lgenQtyUnitOptions.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    const saved = _lgenCurrentProduct ? (_lgenProfiles[_lgenCurrentProduct] || {}) : {};
+    const savedUnit = saved['qty_unit'] || _lgenQtyUnitOptions[0] || 'g';
+    document.getElementById('lgenQtyUnit').innerHTML =
+      _lgenQtyUnitOptions.map(o => `<option value="${o}"${o===savedUnit?' selected':''}>${o}</option>`).join('');
   }
 
   // ── Change 1+2: Product selection handler ──
@@ -6855,6 +6885,10 @@ function lstResolveProduct(skuId) {
     });
     // Re-render dynamic fields with saved values
     lgenRenderDynamicFields();
+    lgenRenderQtyUnitField();
+    // Restore qty_per_unit
+    const qpu = document.getElementById('lgenQtyPerUnit');
+    if(qpu && saved['qty_per_unit']) qpu.value = saved['qty_per_unit'];
   };
 
   // ── Change 2: Save profile after successful generation ──
@@ -6865,6 +6899,11 @@ function lstResolveProduct(skuId) {
     document.querySelectorAll('.lgen-dyn-field').forEach(el => {
       profile['dyn_' + el.dataset.field] = el.value;
     });
+    // Save qty fields
+    const qpu = document.getElementById('lgenQtyPerUnit');
+    if(qpu) profile['qty_per_unit'] = qpu.value;
+    const quu = document.getElementById('lgenQtyUnit');
+    if(quu) profile['qty_unit'] = quu.value;
     // Save pack-specific main image URLs
     _lgenActivePacks.forEach(pack => {
       profile[`main_urls_pack_${pack}`] = _lgenMainUrlsByPack[pack] || [];
@@ -6951,7 +6990,9 @@ function lstResolveProduct(skuId) {
     document.getElementById('lgenTemplateStatus').style.display = 'none';
     document.getElementById('lgenTemplateFile').value = '';
     _lgenDynFields = [];
+    _lgenQtyUnitOptions = [];
     lgenRenderDynamicFields();
+    lgenRenderQtyUnitField();
   };
 
   // ── Quantity sum ─────────────────────────────
@@ -7161,6 +7202,11 @@ function lstResolveProduct(skuId) {
     if(kw.length < 2 || kw.length > 15) {
       showErr('lgenKeywordsErr', 'Enter 2–15 comma-separated keywords'); return false;
     }
+    // Validate qty_per_unit
+    const qpu = document.getElementById('lgenQtyPerUnit');
+    if(!qpu || !qpu.value || parseInt(qpu.value) < 1) {
+      showErr('lgenKeywordsErr', 'Quantity per Pack of 1 is required (minimum 1)'); return false;
+    }
     // Change 7: validate required dynamic fields
     let dynOk = true;
     document.querySelectorAll('.lgen-dyn-field').forEach(el => {
@@ -7274,6 +7320,8 @@ function lstResolveProduct(skuId) {
         hei_max:         document.getElementById('lgenHeiMax').value,
         wgt_min:         document.getElementById('lgenWgtMin').value,
         wgt_max:         document.getElementById('lgenWgtMax').value,
+        qty_per_unit:    document.getElementById('lgenQtyPerUnit').value || 0,
+        qty_unit:        document.getElementById('lgenQtyUnit') ? document.getElementById('lgenQtyUnit').value : 'g',
         hsn:             document.getElementById('lgenHsn').value,
         country_of_origin: document.getElementById('lgenCountry').value,
         manufacturer_details: document.getElementById('lgenManufacturer').value,
