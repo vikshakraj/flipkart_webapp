@@ -1762,7 +1762,10 @@ def _fk_sync_sales(account, full_resync=False):
                 print(f'[FKSync] postDispatch error: {e}')
                 break
         total_fetched += fetched
-        print(f'[FKSync] postDispatch → {fetched} items')
+        print(f'[FKSync] postDispatch → {fetched} items (fetch_from={fetch_from}, fetch_to={fetch_to})')
+        if new_rows:
+            date_counts = {d: len(v) for d,v in new_rows.items() if not d.startswith('__')}
+            print(f'[FKSync] postDispatch date distribution: {dict(sorted(date_counts.items()))}')
 
     # --- cancelled orders (all 3 cancellation types) ---
     for ctype in ['buyerCancellation', 'sellerCancellation', 'marketplaceCancellation']:
