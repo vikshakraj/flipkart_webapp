@@ -4253,11 +4253,26 @@ def listing_gen_template_meta():
             'options':  index_values.get(hdr, []),
         })
 
+    # Parse data validations for Quantity - Measuring Unit
+    qty_unit_options = []
+    for dv in ws.data_validations.dataValidation:
+        if dv.type == 'list' and dv.formula1:
+            formula = dv.formula1.strip('"')
+            # Check if this validation covers the Quantity - Measuring Unit column
+            if 'AN' in str(dv.sqref) or 'Quantity' in str(dv.formula1):
+                if ',' in formula and 'DropDown' not in formula and 'REF' not in formula:
+                    qty_unit_options = [v.strip() for v in formula.split(',')]
+                    break
+            # Also catch by content — if values look like unit options
+            if ',' in formula and any(u in formula for u in ['Patches','Units','ml','Bottles']):
+                qty_unit_options = [v.strip() for v in formula.split(',')]
+
     return jsonify({
-        'ok':             True,
-        'category_sheet': category_sheet,
-        'dynamic_fields': dynamic_fields,
-        'index_values':   index_values,
+        'ok':              True,
+        'category_sheet':  category_sheet,
+        'dynamic_fields':  dynamic_fields,
+        'index_values':    index_values,
+        'qty_unit_options': qty_unit_options,  # e.g. ['g','ml','L','Patches','Units']
     })
 
 
@@ -4356,6 +4371,8 @@ def listing_gen_generate():
     product_type    = fd.get('product_type', '')
     min_age         = fd.get('min_age', '')
     max_age         = fd.get('max_age', '')
+    qty_per_unit    = int(fd.get('qty_per_unit', 0) or 0)   # quantity for pack of 1
+    qty_unit        = fd.get('qty_unit', 'g').strip()        # measuring unit
 
     # ── Build SKU list with pack sizes ──────────────────────
     sku_rows = []
@@ -4414,6 +4431,22 @@ def listing_gen_generate():
         sku_details_list.append(f'SKU {i+1}: {sku_ids[i]} | {pack_label}')
     sku_details = '\n'.join(sku_details_list)
 
+    # Change 3: Load historical titles for this product to ensure uniqueness
+    historical_titles = []
+    if os.path.exists(LISTING_PROFILES_PATH):
+        try:
+            import json as _json_titles
+            with open(LISTING_PROFILES_PATH, 'r') as _pf:
+                _all_profiles = _json_titles.load(_pf)
+            product_name_for_titles = fd.get('product_name', '')
+            if product_name_for_titles and product_name_for_titles in _all_profiles:
+                historical_titles = _all_profiles[product_name_for_titles].get('generated_titles', [])
+        except Exception:
+            pass
+    hist_titles_str = ''
+    if historical_titles:
+        hist_titles_str = f"\n\nALREADY USED TITLES (your output must not duplicate ANY of these — even single character difference required):\n" + '\n'.join(f'- {t}' for t in historical_titles[-50:])  # last 50 max
+
     prompt = f"""You are a Flipkart product listing expert. Generate listing content for {num_skus} SKUs.
 
 Product info: {description_raw}
@@ -4422,15 +4455,18 @@ SKUs:
 {sku_details}
 
 STRICT RULES for model_name:
-1. Length: exactly 70-80 characters including spaces.
+1. Length: MUST be between 70-80 characters including spaces. Count carefully. Pad with benefits/features/adjectives if needed to reach 70. Never exceed 80.
 2. Do NOT include the brand name — Flipkart adds it automatically.
 3. For PACK_OF_1 SKUs: do NOT mention pack size at all (no "1 Pack", "Pack of 1", "Single", "1 Pc"). Use keywords + benefits only.
 4. For PACK_OF_2+: include pack size using EITHER "2 Pc" OR "2 Pack" format (pick randomly). Example: "2 Pc", "3 Pack", "4 Pc".
-5. Use 2-3 top keywords naturally. Slightly different angle per SKU.
+5. Use 2-3 top keywords naturally. Each SKU MUST have a meaningfully different angle — different benefit, use case, or audience focus.
+6. Every model_name in your response MUST be unique — not even one character overlap with others in this batch.
 
 For EACH SKU also generate:
 - description: 50-100 words, benefit-focused, slightly different per SKU, use keywords naturally.
 - key_features: Exactly 4 features separated by ::
+
+{hist_titles_str}
 
 Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
 [
@@ -4468,6 +4504,50 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
 
     except Exception as e:
         return jsonify({'error': f'Content generation failed: {e}'}), 500
+
+    # ── Change 3: Post-generation uniqueness enforcement ─────
+    # Deduplicate titles within this batch + against historical
+    seen_titles = set(t.lower() for t in historical_titles)
+    for item in ai_content:
+        title = item.get('model_name', '').strip()
+        title_lower = title.lower()
+        if title_lower in seen_titles:
+            # Append a short differentiator to make it unique
+            suffixes = [' - Fast Relief', ' for Daily Use', ' Advanced Formula',
+                        ' Natural Care', ' - Herbal Blend', ' for Best Results',
+                        ' - Deep Action', ' Effective Formula']
+            for suffix in suffixes:
+                candidate = (title + suffix)[:80]
+                if candidate.lower() not in seen_titles and len(candidate) >= 70:
+                    item['model_name'] = candidate
+                    seen_titles.add(candidate.lower())
+                    break
+            else:
+                # Last resort: truncate and append index
+                item['model_name'] = (title[:74] + f' V{ai_content.index(item)+1}')[:80]
+                seen_titles.add(item['model_name'].lower())
+        else:
+            seen_titles.add(title_lower)
+
+    # ── Change 3: Persist newly generated titles to profile ──
+    new_titles = [item.get('model_name', '').strip() for item in ai_content if item.get('model_name')]
+    if new_titles and os.path.exists(LISTING_PROFILES_PATH):
+        try:
+            import json as _json_save
+            with open(LISTING_PROFILES_PATH, 'r') as _pf:
+                _all_profiles = _json_save.load(_pf)
+            product_name_save = fd.get('product_name', '')
+            if product_name_save:
+                if product_name_save not in _all_profiles:
+                    _all_profiles[product_name_save] = {}
+                existing = _all_profiles[product_name_save].get('generated_titles', [])
+                _all_profiles[product_name_save]['generated_titles'] = existing + new_titles
+                _tmp = LISTING_PROFILES_PATH + '.tmp'
+                with open(_tmp, 'w') as _pf:
+                    _json_save.dump(_all_profiles, _pf, indent=2)
+                os.replace(_tmp, LISTING_PROFILES_PATH)
+        except Exception as _te:
+            print(f'[ListingGen] Title save failed: {_te}')
 
     # ── Load and fill the template ───────────────────────────
     wb = load_workbook(_io.BytesIO(template_bytes))
@@ -4535,7 +4615,8 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
     for i, pack_size in enumerate(sku_rows):
         row      = 5 + i
         ai       = ai_content[i]
-        qty_val  = pack_size * 30  # base 30g per unit (toothpaste default; works generically)
+        # Quantity: multiply base unit qty by pack size; fall back to pack_size if not provided
+        qty_val  = (qty_per_unit * pack_size) if qty_per_unit > 0 else pack_size
 
         # Fixed fields
         set_cell(row, 'Seller SKU ID',           sku_ids[i])
@@ -4543,7 +4624,7 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
         set_cell(row, 'MRP (INR)',                random.randint(int(mrp_min), int(mrp_max)))
         set_cell(row, 'Your selling price (INR)', random.randint(int(price_min), int(price_max)))
         set_cell(row, 'Fullfilment by',           'Seller')
-        set_cell(row, 'Procurement type',         'Express')
+        set_cell(row, 'Procurement type',         'express')
         set_cell(row, 'Procurement SLA (DAY)',    1)
         set_cell(row, 'Stock',                    500)
         set_cell(row, 'Shipping provider',        'Flipkart')
@@ -4568,7 +4649,7 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
         set_cell(row, 'Maximum Age (Month)',      int(max_age) if max_age else None)
         set_cell(row, 'Pack of',                  pack_size)
         set_cell(row, 'Quantity',                 qty_val)
-        set_cell(row, 'Quantity - Measuring Unit','g')
+        set_cell(row, 'Quantity - Measuring Unit', qty_unit)
         set_cell(row, 'Items Included',           f'{pack_size} x {product_name}')
         if mfg_date:
             set_cell(row, 'Manufacturing date',   mfg_date)
