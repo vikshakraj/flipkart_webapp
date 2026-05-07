@@ -2216,6 +2216,46 @@ def _fk_sync_sales_from(account, from_date):
             _save_sales_store(account, store2)
 
 
+@app.route('/api/sales-debug-postdispatch/<account>', methods=['GET'])
+def sales_debug_postdispatch(account):
+    """Debug endpoint — calls postDispatch API directly and returns raw response."""
+    import requests as _req
+    account  = account.upper().replace('-', ' ')
+    token    = fk_get_token(account)
+    headers  = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    base_url = f'{FK_API_BASE}/sellers/v3/shipments/filter/'
+    now_ist  = datetime.datetime.now(tz=IST)
+    from_dt  = (now_ist - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
+    to_dt    = now_ist.strftime('%Y-%m-%d')
+
+    # Try both formats so we can see which one works
+    results = {}
+    for fmt_name, from_str, to_str in [
+        ('Z_format',   f'{from_dt}T00:00:00.000Z',        f'{to_dt}T23:59:59.000Z'),
+        ('IST_format', f'{from_dt}T00:00:00+05:30',        f'{to_dt}T23:59:59+05:30'),
+        ('date_only',  from_dt,                             to_dt),
+    ]:
+        payload = {
+            'filter': {
+                'type':   'postDispatch',
+                'states': ['SHIPPED', 'DELIVERED'],
+                'orderDate': {'from': from_str, 'to': to_str},
+            },
+            'pagination': {'pageSize': 5},
+        }
+        try:
+            r = _req.post(base_url, json=payload, headers=headers, timeout=30)
+            results[fmt_name] = {
+                'status':  r.status_code,
+                'payload_sent': payload,
+                'response': r.json() if r.headers.get('content-type','').startswith('application/json') else r.text[:500],
+            }
+        except Exception as e:
+            results[fmt_name] = {'error': str(e)}
+
+    return jsonify(results)
+
+
 @app.route('/api/sales-sync-clear/<account>', methods=['POST'])
 def sales_sync_clear(account):
     """Clear a stuck sync flag."""
