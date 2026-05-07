@@ -1726,6 +1726,8 @@ def _fk_sync_sales(account, full_resync=False):
         fetched  = 0
         while next_url and fetched < 5000:
             try:
+                import json as _json_dbg
+                print(f'[FKSync] postDispatch payload: {_json_dbg.dumps(payload)}')
                 r = (_req.post(next_url, json=payload, headers=headers, timeout=30)
                      if next_url == base_url
                      else _req.get(next_url, headers=headers, timeout=30))
