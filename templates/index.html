@@ -7391,7 +7391,7 @@ function lstResolveProduct(skuId) {
 
 
 
-function showBackfillPicker() {
+window.showBackfillPicker = function() {
   const area = document.getElementById('saBackfillArea');
   const btn  = document.getElementById('saBackfillBtn');
   if (area) { area.style.display = 'flex'; }
@@ -7402,14 +7402,14 @@ function showBackfillPicker() {
   if (dateInput) dateInput.value = d.toISOString().slice(0,10);
 }
 
-function hideBackfillPicker() {
+window.hideBackfillPicker = function() {
   const area = document.getElementById('saBackfillArea');
   const btn  = document.getElementById('saBackfillBtn');
   if (area) area.style.display = 'none';
   if (btn)  btn.style.display  = 'inline-flex';
 }
 
-function triggerBackfill() {
+window.triggerBackfill = function() {
   const dateInput = document.getElementById('saBackfillDate');
   const fromDate  = dateInput ? dateInput.value : '';
   if (!fromDate) { alert('Please select a start date.'); return; }
