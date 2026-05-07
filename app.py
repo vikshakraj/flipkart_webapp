@@ -2173,111 +2173,47 @@ def sales_backfill(account):
 
 
 def _fk_sync_sales_from(account, from_date):
-    """Like _fk_sync_sales but fetches from a specific date instead of the default window."""
-    import requests as _req
-
-    token    = fk_get_token(account)
-    headers  = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-    base_url = f'{FK_API_BASE}/sellers/v3/shipments/filter/'
-
+    """
+    Backfill sales from a specific date.
+    Works by temporarily injecting a sentinel date into the store so that
+    _fk_sync_sales picks up from from_date instead of its default window.
+    After the sync, the sentinel is removed.
+    """
+    # Calculate how many days back from_date is
     now_ist  = datetime.datetime.now(tz=IST)
-    fetch_to = now_ist.strftime('%Y-%m-%d')
+    from_dt  = datetime.datetime.strptime(from_date, '%Y-%m-%d').replace(tzinfo=IST)
+    days_back = (now_ist - from_dt).days + 1
 
+    # Temporarily widen SALES_TTL_DAYS so _fk_sync_sales can reach the date
+    # by injecting a fake early date into the store — _fk_sync_sales will see
+    # it as the "latest existing date" and fetch from 2 days before it
     store = _load_sales_store(account)
-    store = _prune_old_dates(store)
+    original_meta = store.get('__meta__', {})
 
-    # Build product resolver (same as _fk_sync_sales)
-    sku_to_product = {}
-    if os.path.exists(MASTER_SKU_PATH):
-        try:
-            with open(MASTER_SKU_PATH, 'rb') as f:
-                master = load_sku_master(f.read())
-            acct_master = get_account_master(master, account)
-            for sku, info in acct_master.items():
-                if info.get('product'):
-                    sku_to_product[sku] = info['product']
-        except Exception as me:
-            print(f'[Backfill] Master SKU load failed: {me}')
-
-    def resolve_product(sku_clean):
-        def norm(s): return s.strip().title()
-        if sku_clean in sku_to_product: return norm(sku_to_product[sku_clean])
-        stripped = re.sub(r'\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$', '', sku_clean, flags=re.IGNORECASE).strip()
-        if stripped != sku_clean and stripped in sku_to_product: return norm(sku_to_product[stripped])
-        for ms_key, prod_name in sku_to_product.items():
-            ms = re.sub(r'\s*(Pack\s*\d+\w*|PCK\d*|\d+\s*PCK)\s*$', '', ms_key, flags=re.IGNORECASE).strip()
-            if ms and (ms == stripped or ms == sku_clean): return norm(prod_name)
-        return norm(stripped) if stripped else sku_clean
-
-    new_rows      = defaultdict(list)
-    total_fetched = 0
-
-    # Fetch dispatched orders in date range
-    for state_filter in [
-        {'type': 'dispatched', 'dateType': 'orderDate',
-         'states': ['SHIPPED', 'DELIVERED', 'RETURN_REQUESTED', 'RETURNED', 'CANCELLED'],
-         'from': from_date, 'to': fetch_to},
-    ]:
-        payload = {
-            'filter': {
-                'type':   state_filter['type'],
-                'states': state_filter['states'],
-                'dateRange': {'from': state_filter['from'], 'to': state_filter['to']},
-                'locationId': FK_AUTO_DISPATCH_LOCATION,
-            },
-            'pagination': {'pageSize': 20},
-        }
-        next_url = base_url
-        fetched  = 0
-        while next_url and fetched < 50000:
-            try:
-                r = (_req.post(next_url, json=payload, headers=headers, timeout=30)
-                     if next_url == base_url
-                     else _req.get(next_url, headers=headers, timeout=30))
-                if r.status_code != 200:
-                    print(f'[Backfill] {state_filter["type"]} {r.status_code}: {r.text[:200]}')
-                    break
-                data = r.json()
-                for shipment in data.get('shipments', []):
-                    raw_sd = shipment.get('orderDate', '')
-                    if isinstance(raw_sd, (int, float)) or (isinstance(raw_sd, str) and str(raw_sd).isdigit() and len(str(raw_sd)) > 10):
-                        shipment_date = datetime.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
-                    else:
-                        shipment_date = str(raw_sd)[:10] if raw_sd else fetch_to
-                    for item in shipment.get('orderItems', []):
-                        raw_sku = str(item.get('skuId', '') or item.get('fsn', '') or '').strip()
-                        sku_clean = re.sub(r'[^\w\s\-]', '', raw_sku).strip()
-                        product   = resolve_product(sku_clean)
-                        status    = item.get('status', '')
-                        is_return = status in ('RETURN_REQUESTED', 'RETURNED')
-                        new_rows[shipment_date].append({
-                            'sku':          raw_sku,
-                            'product':      product,
-                            'quantity':     int(item.get('quantity', 1) or 1),
-                            'revenue':      float(item.get('sellingPrice', 0) or 0),
-                            'status':       status,
-                            'is_return':    is_return,
-                            'order_id':     str(shipment.get('orderId', '')),
-                            'order_item_id':str(item.get('orderItemId', '')),
-                        })
-                        fetched += 1
-                        total_fetched += 1
-                next_url = data.get('nextPageUrl') or data.get('nextUrl')
-            except Exception as pe:
-                print(f'[Backfill] page error: {pe}')
-                break
-
-    # Merge into store
-    _merge_new_rows(store, new_rows)
-    store['__meta__'] = {
-        'updated_at':   datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST'),
-        'sync_method':  'api',
-        'fetch_from':   from_date,
-        'fetch_to':     fetch_to,
-        'total_fetched':total_fetched,
-    }
+    # Insert a sentinel date 2 days after from_date so fetch_from = from_date
+    sentinel_date = (from_dt + datetime.timedelta(days=2)).strftime('%Y-%m-%d')
+    store[sentinel_date] = store.get(sentinel_date, [])
     _save_sales_store(account, store)
-    print(f'[Backfill] {account}: fetched {total_fetched} orders from {from_date} to {fetch_to}')
+
+    try:
+        # Override TTL if needed so the date isn't pruned
+        original_ttl = globals().get('SALES_TTL_DAYS', 60)
+        if days_back > original_ttl:
+            import sys
+            _mod = sys.modules[__name__]
+            setattr(_mod, 'SALES_TTL_DAYS', days_back + 5)
+        _fk_sync_sales(account, full_resync=False)
+        print(f'[Backfill] {account} backfill from {from_date} completed')
+    finally:
+        # Restore TTL
+        import sys
+        _mod = sys.modules[__name__]
+        setattr(_mod, 'SALES_TTL_DAYS', 60)
+        # Remove sentinel if still there and empty
+        store2 = _load_sales_store(account)
+        if sentinel_date in store2 and store2[sentinel_date] == []:
+            del store2[sentinel_date]
+            _save_sales_store(account, store2)
 
 
 @app.route('/api/sales-sync-clear/<account>', methods=['POST'])
