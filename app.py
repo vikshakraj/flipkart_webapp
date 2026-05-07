@@ -1,3 +1,4 @@
+# [build: 2026-05-08-v2]
 #!/usr/bin/env python3
 """
 Flipkart Label Sorter
@@ -2219,6 +2220,12 @@ def _fk_sync_sales_from(account, from_date):
         if sentinel_date in store2 and store2[sentinel_date] == []:
             del store2[sentinel_date]
             _save_sales_store(account, store2)
+
+
+@app.route('/api/version', methods=['GET'])
+def get_version():
+    """Returns build version to confirm latest deploy is live."""
+    return jsonify({'build': '2026-05-08-v2', 'postdispatch_format': 'T00:00:00.000Z'})
 
 
 @app.route('/api/sales-debug-postdispatch/<account>', methods=['GET'])
