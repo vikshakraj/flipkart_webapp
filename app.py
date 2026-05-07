@@ -61,9 +61,13 @@ def _fk_env_key(account):
     return 'FK_' + account.upper().replace(' ', '_')
 
 def _fk_credentials(account):
-    """Return (app_id, app_secret) from env vars, or (None, None) if not set."""
-    prefix = _fk_env_key(account)
-    return os.environ.get(f'{prefix}_APP_ID'), os.environ.get(f'{prefix}_APP_SECRET')
+    """Return (app_id, app_secret) from env vars, or (None, None) if not set.
+    Tries FK_<ACCOUNT>_APP_ID first, then <ACCOUNT>_APP_ID as fallback."""
+    prefix     = _fk_env_key(account)                     # e.g. FK_REFRESHWAVE
+    bare       = account.upper().replace(' ', '_')         # e.g. REFRESHWAVE
+    app_id     = os.environ.get(f'{prefix}_APP_ID')     or os.environ.get(f'{bare}_APP_ID')
+    app_secret = os.environ.get(f'{prefix}_APP_SECRET') or os.environ.get(f'{bare}_APP_SECRET')
+    return app_id, app_secret
 
 def _fk_load_token_cache():
     if not os.path.exists(FK_TOKEN_CACHE_PATH):
