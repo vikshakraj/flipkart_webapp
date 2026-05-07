@@ -1594,6 +1594,16 @@
               style="display:none;background:transparent;border:1px solid var(--accent);color:var(--accent);font-weight:600;padding:7px 14px;font-size:.78rem;">
               🔄 Full Re-sync
             </button>
+            <button id="saBackfillBtn" class="sa-filter-btn" onclick="showBackfillPicker()"
+              style="display:none;background:transparent;border:1px solid var(--border);color:var(--muted);font-weight:600;padding:7px 14px;font-size:.78rem;"
+              title="Backfill from a specific start date">
+              📅 Sync from Date
+            </button>
+            <span id="saBackfillArea" style="display:none;align-items:center;gap:6px;margin-left:4px;">
+              <input type="date" id="saBackfillDate" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:7px;font-size:.78rem;font-family:inherit;">
+              <button class="sa-filter-btn" onclick="triggerBackfill()" style="padding:6px 12px;font-size:.78rem;">Go</button>
+              <button class="sa-filter-btn" onclick="hideBackfillPicker()" style="padding:6px 10px;font-size:.78rem;background:transparent;border-color:var(--border);">✕</button>
+            </span>
             <span id="saSyncStatus" style="font-size:.75rem;color:var(--muted);display:none;"></span>
             <button class="sa-clear-btn" onclick="clearSaData()" title="Wipe stored data and re-upload from scratch">🗑 Clear & Re-upload</button>
             <button class="sa-reupload" onclick="showSaUpload()">↑ Upload new file</button>
@@ -2014,9 +2024,9 @@
     <div class="lst-wrap">
       <div class="lst-account-tabs-bar">
         <button class="lst-acct-tab active" onclick="lstSwitchAccount('CUTEST-CLUB',this)">Cutest Club</button>
-        <button class="lst-acct-tab" disabled title="API not configured">Refreshwave</button>
-        <button class="lst-acct-tab" disabled title="API not configured">Eonspark</button>
-        <button class="lst-acct-tab" disabled title="API not configured">Hellohi</button>
+        <button class="lst-acct-tab" onclick="lstSwitchAccount('REFRESHWAVE',this)">Refreshwave</button>
+        <button class="lst-acct-tab" onclick="lstSwitchAccount('EONSPARK',this)">Eonspark</button>
+        <button class="lst-acct-tab" onclick="lstSwitchAccount('HELLOHI',this)">Hellohi</button>
       </div>
       <div class="lst-toolbar">
         <label style="font-size:.78rem;color:var(--muted);">Product</label>
@@ -6390,6 +6400,8 @@ function _applySyncStatus(data) {
   if (acctInfo && acctInfo.api_configured) {
     syncBtn.style.display    = 'inline-flex';
     if (fullResyncBtn) fullResyncBtn.style.display = 'inline-flex';
+    const backfillBtn = document.getElementById('saBackfillBtn');
+    if (backfillBtn) backfillBtn.style.display = 'inline-flex';
     syncStatus.style.display = 'inline';
     syncStatus.textContent   = acctInfo.updated_at && acctInfo.updated_at !== 'never'
       ? `Last sync: ${acctInfo.updated_at}`
@@ -6398,6 +6410,8 @@ function _applySyncStatus(data) {
   } else {
     syncBtn.style.display    = 'none';
     if (fullResyncBtn) fullResyncBtn.style.display = 'none';
+    const backfillBtnH = document.getElementById('saBackfillBtn');
+    if (backfillBtnH) backfillBtnH.style.display = 'none';
     syncStatus.style.display = 'none';
     if (uploadSync) uploadSync.style.display = 'none';
   }
@@ -7375,6 +7389,60 @@ function lstResolveProduct(skuId) {
 
 })();
 
+
+
+function showBackfillPicker() {
+  const area = document.getElementById('saBackfillArea');
+  const btn  = document.getElementById('saBackfillBtn');
+  if (area) { area.style.display = 'inline-flex'; }
+  if (btn)  { btn.style.display  = 'none'; }
+  // Set default date to 90 days ago
+  const d = new Date(); d.setDate(d.getDate() - 90);
+  const dateInput = document.getElementById('saBackfillDate');
+  if (dateInput) dateInput.value = d.toISOString().slice(0,10);
+}
+
+function hideBackfillPicker() {
+  const area = document.getElementById('saBackfillArea');
+  const btn  = document.getElementById('saBackfillBtn');
+  if (area) area.style.display = 'none';
+  if (btn)  btn.style.display  = 'inline-flex';
+}
+
+function triggerBackfill() {
+  const dateInput = document.getElementById('saBackfillDate');
+  const fromDate  = dateInput ? dateInput.value : '';
+  if (!fromDate) { alert('Please select a start date.'); return; }
+
+  const syncStatus = document.getElementById('saSyncStatus');
+  const area       = document.getElementById('saBackfillArea');
+  if (syncStatus) syncStatus.textContent = `Backfilling from ${fromDate}… this may take a few minutes.`;
+  if (area) area.style.display = 'none';
+
+  const apiAcct = _saAccount.replace(/ /g, '-');
+  fetch('/api/sales-backfill/' + apiAcct, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ from_date: fromDate }),
+  })
+  .then(r => r.json())
+  .then(result => {
+    if (result.error) {
+      if (syncStatus) syncStatus.textContent = '⚠ ' + result.error;
+      hideBackfillPicker();
+      return;
+    }
+    if (syncStatus) syncStatus.textContent = `Backfill running from ${fromDate}… refresh in a few minutes.`;
+    // Poll same as regular sync
+    const syncBtn = document.getElementById('saSyncBtn');
+    _syncInProgress = true;
+    _pollSaSync(apiAcct, syncBtn, syncStatus, 0);
+  })
+  .catch(e => {
+    if (syncStatus) syncStatus.textContent = '⚠ Network error: ' + e.message;
+    hideBackfillPicker();
+  });
+}
 
 // ── Public: Refresh button ──
 window.lstLoadListings = function() {
