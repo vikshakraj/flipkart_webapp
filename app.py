@@ -1643,7 +1643,7 @@ def _fk_sync_sales(account, full_resync=False):
         'filter': {
             'type':   'preDispatch',
             'states': ['APPROVED', 'READY_TO_DISPATCH', 'PACKED', 'PACKING_IN_PROGRESS'],
-            'locationId': FK_AUTO_DISPATCH_LOCATION,
+            # No locationId — sales sync should fetch all locations for this seller account
         },
         'pagination': {'pageSize': 20},
     }
