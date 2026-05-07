@@ -1713,8 +1713,8 @@ def _fk_sync_sales(account, full_resync=False):
             'filter': {
                 'type': 'postDispatch', 'states': state_list,
                 'orderDate': {
-                    'from': f'{fetch_from}T00:00:00+05:30',
-                    'to':   f'{fetch_to}T23:59:59+05:30',
+                    'from': f'{fetch_from}T00:00:00.000Z',
+                    'to':   f'{fetch_to}T23:59:59.000Z',
                 },
             },
             'pagination': {'pageSize': 20},
@@ -1769,8 +1769,8 @@ def _fk_sync_sales(account, full_resync=False):
                 'type': 'cancelled', 'states': ['CANCELLED'],
                 'cancellationType': ctype,
                 'cancellationDate': {
-                    'from': f'{fetch_from}T00:00:00+05:30',
-                    'to':   f'{fetch_to}T23:59:59+05:30',
+                    'from': f'{fetch_from}T00:00:00.000Z',
+                    'to':   f'{fetch_to}T23:59:59.000Z',
                 },
             },
             'pagination': {'pageSize': 20},
