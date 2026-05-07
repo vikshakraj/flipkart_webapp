@@ -1336,6 +1336,7 @@ def _compute_analytics(store):
     store = {k: v for k, v in store.items() if not k.startswith('__')}
 
     ACTIVE    = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD','SHIPPED','READY_TO_DISPATCH','PACKED','PACKING_IN_PROGRESS'}
+    REVENUE_STATES = {'SHIPPED', 'DELIVERED', 'READY_TO_SHIP'}  # only count realized/near-realized revenue
     RETURNED  = {'RETURNED', 'RETURN_REQUESTED'}
     CANCELLED = {'CANCELLED','RETURN_REQUESTED','REJECTED'}
     # Only these return reasons count as genuine returns; all others → cancellation
@@ -1362,7 +1363,7 @@ def _compute_analytics(store):
     dispatched_tot  = sum(1 for r in all_rows if r['disp_breach'] in ('Y','N'))
     delivered_tot   = sum(1 for r in all_rows if r['dlv_breach']  in ('Y','N'))
     # Revenue — sum sellingPrice × qty for active (non-cancelled, non-returned) orders
-    total_revenue   = sum(r.get('revenue', 0) for r in all_rows if r['status'] in ACTIVE)
+    total_revenue   = sum(r.get('revenue', 0) for r in all_rows if r['status'] in REVENUE_STATES)
 
     all_dates  = sorted(store.keys())
     date_from  = all_dates[0]  if all_dates else ''
@@ -1399,10 +1400,11 @@ def _compute_analytics(store):
             if r['status'] in ACTIVE:
                 prod_day[r['product']][d]   += r['qty']
                 prod_total[r['product']]    += r['qty']
-                rev = r.get('revenue', 0)
-                prod_revenue[r['product']]         += rev
-                prod_rev_daily[r['product']][d]    += rev
-                daily_revenue[d]                   += rev
+                if r['status'] in REVENUE_STATES:
+                    rev = r.get('revenue', 0)
+                    prod_revenue[r['product']]         += rev
+                    prod_rev_daily[r['product']][d]    += rev
+                    daily_revenue[d]                   += rev
             if _is_genuine_return(r, VALID_RETURN_REASONS):
                 prod_ret_daily[r['product']][d] += r['qty']
             elif r['status'] in CANCELLED or r['status'] in RETURNED:
