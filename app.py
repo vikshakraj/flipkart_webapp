@@ -1711,7 +1711,7 @@ def _fk_sync_sales(account, full_resync=False):
     print(f'[FKSync] preDispatch → {fetched} items')
 
     # --- postDispatch: SHIPPED + DELIVERED ---
-    for state_list in [['SHIPPED', 'DELIVERED', 'READY_TO_SHIP']]:
+    for state_list in [['SHIPPED', 'DELIVERED']]:
         payload  = {
             'filter': {
                 'type': 'postDispatch', 'states': state_list,
