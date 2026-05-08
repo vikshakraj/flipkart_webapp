@@ -1736,24 +1736,14 @@ def _fk_sync_sales(account, full_resync=False):
                     break
                 data = r.json()
                 for shipment in data.get('shipments', []):
-                    raw_sd = shipment.get('orderDate', '')
-                    if isinstance(raw_sd, (int, float)) or (isinstance(raw_sd, str) and str(raw_sd).isdigit() and len(str(raw_sd)) > 10):
-                        import datetime as _dt
-                        shipment_date = _dt.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
-                    else:
-                        shipment_date = str(raw_sd)[:10] if raw_sd else ''
-                    if fetched < 2:
-                        print(f'[FKSync] postDispatch shipment keys: {list(shipment.keys())}')
-                        print(f'[FKSync] postDispatch SLA fields: { {f: shipment.get(f) for f in ["dispatchByDate","dispatchedDate","deliverByDate","deliveryDate"]} }')
+                    # orderDate is on the orderItems, not the shipment — use updatedAt as fallback
+                    shipment_fallback_date = str(shipment.get('updatedAt', '') or '')[:10]
                     for item in shipment.get('orderItems', []):
-                        inject = {}
-                        if not item.get('orderDate') and shipment_date:
-                            inject['orderDate'] = shipment_date
-                        for sla_field in ['dispatchByDate','dispatchedDate','deliverByDate','deliveryDate']:
-                            if not item.get(sla_field) and shipment.get(sla_field):
-                                inject[sla_field] = shipment[sla_field]
-                        if inject:
-                            item = {**item, **inject}
+                        # item.orderDate is the real order date — use it directly
+                        item_order_date = str(item.get('orderDate', '') or '')[:10]
+                        if not item_order_date:
+                            item_order_date = shipment_fallback_date
+                        item = {**item, 'orderDate': item_order_date}
                         ds, row = _fk_item_to_store_row(item, resolve_product)
                         if ds and ds >= cutoff:
                             new_rows[ds].append(row)
