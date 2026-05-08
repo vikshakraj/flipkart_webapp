@@ -2214,6 +2214,20 @@ def _fk_sync_sales_from(account, from_date):
             _save_sales_store(account, store2)
 
 
+@app.route('/api/sales-store-debug/<account>', methods=['GET'])
+def sales_store_debug(account):
+    """Show what dates and row counts are stored for an account."""
+    account = account.upper().replace('-', ' ')
+    store = _load_sales_store(account)
+    dates = sorted([k for k in store if not k.startswith('__')])
+    return jsonify({
+        'account': account,
+        'total_dates': len(dates),
+        'date_row_counts': {d: len(store[d]) for d in dates},
+        'meta': store.get('__meta__', {}),
+    })
+
+
 @app.route('/api/version', methods=['GET'])
 def get_version():
     """Returns build version to confirm latest deploy is live."""
