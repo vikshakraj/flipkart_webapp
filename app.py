@@ -3590,8 +3590,9 @@ def _fk_auto_dispatch(test_mode=False):
                 'subShipments': sub_shipments,
             })
         try:
-            print(f'[AutoDispatch] Pack payload batch {i//25+1}: {json.dumps(pack_payload)[:500]}')
+            print(f'[AutoDispatch] Pack payload batch {i//25+1}: {json.dumps(pack_payload)[:800]}')
             r = _req.post(pack_url, json=pack_payload, headers=headers, timeout=60)
+            print(f'[AutoDispatch] Pack response {r.status_code}: {r.text[:500]}')
             if r.status_code == 200:
                 resp_json = r.json()
                 print(f'[AutoDispatch] Pack batch {i//25+1} response: {json.dumps(resp_json)[:300]}')
