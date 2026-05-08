@@ -1805,6 +1805,8 @@ def _fk_sync_sales(account, full_resync=False):
     # Returns data comes from the XLSX upload. Skipping returns API fetch.
     print(f'[FKSync] returns → skipped (not supported by API)')
 
+    total_new = sum(len(v) for v in new_rows.values())
+    print(f'[FKSync] {account} fetch complete — {total_new} new rows across {len(new_rows)} dates. Saving...')
     # Merge new_rows into store — upsert by order_item_id so we never lose existing orders.
     # For each date: build a map of existing rows keyed by order_item_id, then overwrite
     # with fresh API rows (which have updated status), keeping any rows the API didn't return.
@@ -2086,8 +2088,9 @@ def sales_sync(account):
             _fk_sync_sales(account, full_resync=full_resync)
             print(f'[BgSync] {account} completed successfully')
         except Exception as e:
-            print(f'[BgSync] {account} error: {e}')
-            traceback.print_exc()
+            import traceback as _tb2
+            print(f'[BgSync] {account} error: {type(e).__name__}: {e}')
+            _tb2.print_exc()
         finally:
             # Always clear sync flag
             try:
@@ -3595,6 +3598,10 @@ def _fk_auto_dispatch(test_mode=False):
                 'subShipments': sub_shipments,
             })
         try:
+            # Log shipment states before packing
+            sids_in_batch = [s.get('shipmentId','') for s in batch]
+            print(f'[AutoDispatch] Packing shipments: {sids_in_batch}')
+            print(f'[AutoDispatch] Their states: {[s.get("orderItems",[{}])[0].get("status","?") if s.get("orderItems") else "?" for s in batch]}')
             print(f'[AutoDispatch] Pack payload batch {i//25+1}: {json.dumps(pack_payload)[:800]}')
             r = _req.post(pack_url, json=pack_payload, headers=headers, timeout=60)
             print(f'[AutoDispatch] Pack response {r.status_code}: {r.text[:500]}')
