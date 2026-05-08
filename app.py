@@ -3575,12 +3575,12 @@ def _fk_auto_dispatch(test_mode=False):
                     }
                 if sub_id:
                     sub_shipments.append({
-                        'subShipmentId': sub_id,
-                        'dimensions':    dims,
+                        'subShipment': sub_id,
+                        'dimensions':  dims,
                     })
             # Fallback: if no subShipments in API response, use SS-1 (standard for single-item)
             if not sub_shipments:
-                sub_shipments = [{'subShipmentId': 'SS-1', 'dimensions': FK_DEFAULT_DIMS}]
+                sub_shipments = [{'subShipment': 'SS-1', 'dimensions': FK_DEFAULT_DIMS}]
 
             pack_payload['shipments'].append({
                 'shipmentId':   sid,
