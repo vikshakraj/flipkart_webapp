@@ -2075,9 +2075,16 @@ def sales_sync(account):
     # Check if a sync is already running for this account
     sync_key = f'__syncing_{account}__'
     store_check = _load_sales_store(account)
-    if store_check.get(sync_key):
-        return jsonify({'ok': True, 'status': 'already_running',
-                        'message': 'Sync already in progress for this account.'})
+    force = bool((request.get_json() or {}).get('force', False))
+    if store_check.get(sync_key) and not force:
+        # Clear stale flag if it's been stuck (full_resync button implies user wants to force)
+        if full_resync:
+            store_check.pop(sync_key, None)
+            _save_sales_store(account, store_check)
+            print(f'[BgSync] Cleared stale sync flag for {account} (full_resync=True)')
+        else:
+            return jsonify({'ok': True, 'status': 'already_running',
+                            'message': 'Sync already in progress for this account.'})
 
     def _bg_sync():
         try:
@@ -2205,6 +2212,36 @@ def _fk_sync_sales_from(account, from_date):
         if sentinel_date in store2 and store2[sentinel_date] == []:
             del store2[sentinel_date]
             _save_sales_store(account, store2)
+
+
+@app.route('/api/sales-store-export/<account>', methods=['GET'])
+def sales_store_export(account):
+    account = account.upper().replace('-', ' ')
+    store = _load_sales_store(account)
+    data  = {k: v for k, v in store.items() if not k.startswith('__')}
+    resp  = jsonify({'account': account, 'dates': data, 'meta': store.get('__meta__', {})})
+    resp.headers['Content-Disposition'] = f'attachment; filename="{account}_store.json"'
+    return resp
+
+
+@app.route('/api/sales-raw-export/<account>', methods=['GET'])
+def sales_raw_export(account):
+    """Export raw store data as JSON for analysis."""
+    account = account.upper().replace('-', ' ')
+    store = _load_sales_store(account)
+    dates = sorted([k for k in store if not k.startswith('__')])
+    # Build flat list of all rows with date attached
+    rows = []
+    for d in dates:
+        for r in store[d]:
+            rows.append({**r, 'date': d})
+    return jsonify({
+        'account': account,
+        'total_rows': len(rows),
+        'dates': len(dates),
+        'date_range': {'from': dates[0] if dates else None, 'to': dates[-1] if dates else None},
+        'rows': rows,
+    })
 
 
 @app.route('/api/sales-store-debug/<account>', methods=['GET'])
