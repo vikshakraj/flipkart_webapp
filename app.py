@@ -3557,20 +3557,30 @@ def _fk_auto_dispatch(test_mode=False):
                         # purchasePrice intentionally omitted — only for refurbished products
                     })
 
-            # Build sub-shipment entries with default dimensions
-            # Skip any SS-* IDs (Flipkart placeholder values that the pack API rejects)
+            # Build sub-shipment entries using the subShipmentId returned by Flipkart API
+            # e.g. "SS-1", "SS-2" — these are the correct IDs for the pack API, NOT the shipmentId UUID
             sub_shipments = []
             for sub in s.get('subShipments', []):
                 sub_id = sub.get('subShipmentId', '')
-                # Skip placeholder SS-* IDs
-                if sub_id and not sub_id.startswith('SS-'):
+                # Use actual dimensions from the shipment if available, else default
+                dims = FK_DEFAULT_DIMS
+                pkgs = sub.get('packages', [])
+                if pkgs and pkgs[0].get('dimensions'):
+                    pd = pkgs[0]['dimensions']
+                    dims = {
+                        'length':  pd.get('length',  FK_DEFAULT_DIMS['length']),
+                        'breadth': pd.get('breadth', FK_DEFAULT_DIMS['breadth']),
+                        'height':  pd.get('height',  FK_DEFAULT_DIMS['height']),
+                        'weight':  pd.get('weight',  FK_DEFAULT_DIMS['weight']),
+                    }
+                if sub_id:
                     sub_shipments.append({
                         'subShipmentId': sub_id,
-                        'dimensions':    FK_DEFAULT_DIMS,
+                        'dimensions':    dims,
                     })
-            # If no valid sub-shipment IDs, use the shipmentId itself
+            # Fallback: if no subShipments in API response, use SS-1 (standard for single-item)
             if not sub_shipments:
-                sub_shipments = [{'subShipmentId': sid, 'dimensions': FK_DEFAULT_DIMS}]
+                sub_shipments = [{'subShipmentId': 'SS-1', 'dimensions': FK_DEFAULT_DIMS}]
 
             pack_payload['shipments'].append({
                 'shipmentId':   sid,
