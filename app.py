@@ -1667,31 +1667,22 @@ def _fk_sync_sales(account, full_resync=False):
                     shipment_date = datetime.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
                 else:
                     shipment_date = str(raw_sd)[:10] if raw_sd else ''
-                # preDispatch shipments often have no orderDate — use dispatchAfterDate - 1 day as proxy
-                if not shipment_date:
-                    for date_field in ['dispatchAfterDate', 'dispatchByDate', 'updatedAt']:
-                        alt = str(shipment.get(date_field, ''))
-                        if alt and len(alt) >= 10:
-                            try:
-                                proxy = (datetime.datetime.strptime(alt[:10], '%Y-%m-%d')
-                                         - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-                                shipment_date = proxy
-                            except Exception:
-                                shipment_date = alt[:10]
-                            break
-                # Final fallback: use today
-                if not shipment_date:
-                    shipment_date = datetime.datetime.now(tz=IST).strftime('%Y-%m-%d')
-                if fetched < 3:
-                    print(f'[FKSync] preDispatch sample orderDate={repr(raw_sd)} resolved={shipment_date}')
                 for item in shipment.get('orderItems', []):
-                    # Log first item keys to see what date fields are available
-                    if fetched == 0:
-                        print(f'[FKSync] preDispatch item keys: {list(item.keys())[:12]}')
-                    # Inject shipment-level fields if item-level is missing
-                    inject = {}
-                    if not item.get('orderDate') and not item.get('order_date') and shipment_date:
-                        inject['orderDate'] = shipment_date
+                    # Use item-level orderDate first (most accurate)
+                    item_date = str(item.get('orderDate', '') or item.get('order_date', '') or '')[:10]
+                    if not item_date:
+                        # Fall back to shipment updatedAt (close to order time for new orders)
+                        item_date = str(shipment.get('updatedAt', '') or '')[:10]
+                    if not item_date:
+                        # Last resort: dispatchAfterDate - 1 day
+                        daf = str(shipment.get('dispatchAfterDate', '') or '')[:10]
+                        if daf:
+                            try:
+                                item_date = (datetime.datetime.strptime(daf, '%Y-%m-%d')
+                                             - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                            except Exception:
+                                item_date = daf
+                    inject = {'orderDate': item_date} if item_date else {}
                     for sla_field in ['dispatchByDate','dispatchedDate','deliverByDate','deliveryDate']:
                         if not item.get(sla_field) and shipment.get(sla_field):
                             inject[sla_field] = shipment[sla_field]
