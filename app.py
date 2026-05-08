@@ -3344,7 +3344,7 @@ FK_AUTO_DISPATCH_ACCOUNT  = 'CUTEST CLUB'
 FK_AUTO_DISPATCH_LOCATION = 'LOC87f71f39207645b9b9427c976d4a7da1'
 
 # Default package dimensions for orders with no pre-existing dimensions
-FK_DEFAULT_DIMS = {'length': 10, 'breadth': 5, 'height': 5, 'weight': 0.2}
+FK_DEFAULT_DIMS = {'length': 10, 'breadth': 5, 'height': 5, 'width': 0.2}
 
 # ── Cron schedule config — stored in /data so editable at runtime ────────────
 CRON_CONFIG_PATH = os.path.join(_data_dir, 'cron_config.json')
@@ -3571,7 +3571,7 @@ def _fk_auto_dispatch(test_mode=False):
                         'length':  pd.get('length',  FK_DEFAULT_DIMS['length']),
                         'breadth': pd.get('breadth', FK_DEFAULT_DIMS['breadth']),
                         'height':  pd.get('height',  FK_DEFAULT_DIMS['height']),
-                        'weight':  pd.get('weight',  FK_DEFAULT_DIMS['weight']),
+                        'width':   pd.get('weight',  FK_DEFAULT_DIMS['width']),  # API uses 'width' not 'weight'
                     }
                 if sub_id:
                     sub_shipments.append({
@@ -3584,7 +3584,7 @@ def _fk_auto_dispatch(test_mode=False):
 
             pack_payload['shipments'].append({
                 'shipmentId':   sid,
-                'locationId':   location,
+                'locationId':   s.get('locationId', location),  # use shipment's own locationId
                 'invoices':     invoices,
                 'taxItems':     tax_items,
                 'subShipments': sub_shipments,
