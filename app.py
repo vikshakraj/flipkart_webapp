@@ -3531,7 +3531,12 @@ def _fk_auto_dispatch(test_mode=False):
                 oid = item.get('orderId', '')
                 if oid and oid not in seen_orders:
                     seen_orders[oid] = True
-            invoices = [{'orderId': oid, 'invoiceDate': now_iso} for oid in seen_orders]
+            # Generate invoice numbers in format LWAABB427XXXXXXX
+            import random as _rand
+            invoices = []
+            for oid in seen_orders:
+                inv_num = f'LWAABB427{_rand.randint(1000000, 9999999)}'
+                invoices.append({'orderId': oid, 'invoiceDate': now_iso, 'invoiceNumber': inv_num})
 
             # Build taxItems — one entry per orderItem with correct GST rate per product
             tax_items = []
