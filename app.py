@@ -3407,6 +3407,21 @@ def listings_by_skus(account):
                         'locations':     [{'id': loc.get('id', '')} for loc in locs],
                         'product_id':    det.get('product_id', ''),
                     }
+        # For SKUs missing product_id from details, fetch via GET /listings/v3/{sku_ids}
+        missing_pids = [s for s in sku_ids if not detail_map.get(s, {}).get('product_id')]
+        if missing_pids:
+            for i in range(0, len(missing_pids), 10):
+                batch_str = ','.join(missing_pids[i:i+10])
+                gr = _req.get(f'{FK_API_BASE}/sellers/listings/v3/{batch_str}',
+                              headers=headers, timeout=30)
+                if gr.status_code == 200:
+                    for sku_id, item in gr.json().items():
+                        if sku_id in detail_map:
+                            detail_map[sku_id]['product_id'] = item.get('product_id', '')
+                        else:
+                            detail_map[sku_id] = {'product_id': item.get('product_id', '')}
+                        print(f'[Listings] GET fallback product_id for {sku_id}: {item.get("product_id")}')
+
         listings = []
         for sku_id in sku_ids:
             det = detail_map.get(sku_id, {})
