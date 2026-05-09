@@ -3203,7 +3203,8 @@ def listings_get(account):
         # ── Step 2: fetch details in batches of 10 ──
         details_url = f'{FK_API_BASE}/sellers/listings/v3/details'
         detail_map  = {}
-        sku_ids     = [e['sku_id'] for e in sku_entries]
+        sku_ids       = [e['sku_id'] for e in sku_entries]
+        sku_entry_map = {e['sku_id']: e for e in sku_entries}
         for i in range(0, len(sku_ids), 10):
             batch = sku_ids[i:i+10]
             dr = _req.post(details_url, json={'sku_ids': batch}, headers=headers, timeout=30)
@@ -3408,9 +3409,11 @@ def listings_by_skus(account):
         listings = []
         for sku_id in sku_ids:
             det = detail_map.get(sku_id, {})
+            # Fall back to product_id from search step if details didn't return it
+            product_id = det.get('product_id', '') or sku_entry_map.get(sku_id, {}).get('product_id', '')
             listings.append({
                 'sku_id':        sku_id,
-                'product_id':    det.get('product_id', ''),
+                'product_id':    product_id,
                 'fsn':           det.get('fsn', ''),
                 'selling_price': det.get('selling_price', ''),
                 'mrp':           det.get('mrp', ''),
