@@ -2056,10 +2056,11 @@
   <div id="lstBulkModal" class="lst-modal-overlay" style="display:none;" onclick="if(event.target===this)lstCloseBulkModal()">
     <div class="lst-modal">
       <h3>⚡ Bulk Action</h3>
-      <p class="lst-modal-sub">Update stock count for all SKUs under a product in one shot.</p>
+      <p class="lst-modal-sub" id="lstBulkSub">Update stock count for all SKUs under a product in one shot.</p>
 
       <div class="lst-modal-tabs">
         <button class="lst-modal-tab active" id="lstBulkTabStock" onclick="lstSwitchBulkTab('stock')">📦 Stock Count</button>
+        <button class="lst-modal-tab" id="lstBulkTabPrice" onclick="lstSwitchBulkTab('price')">💰 Selling Price</button>
       </div>
 
       <!-- Stock tab -->
@@ -2073,6 +2074,21 @@
         <div class="lst-modal-field">
           <label class="lst-modal-label">New Stock Count</label>
           <input type="number" min="0" step="1" class="lst-modal-input" id="lstBulkStockValue" placeholder="e.g. 50">
+        </div>
+      </div>
+
+      <!-- Price tab -->
+      <div id="lstBulkPricePane" style="display:none;">
+        <div class="lst-modal-field">
+          <label class="lst-modal-label">Product</label>
+          <select class="lst-modal-input" id="lstBulkPriceProduct" style="font-family:inherit;">
+            <option value="__all__">All Products</option>
+          </select>
+        </div>
+        <div class="lst-modal-field">
+          <label class="lst-modal-label">New Selling Price (₹)</label>
+          <input type="number" min="1" step="1" class="lst-modal-input" id="lstBulkPriceValue" placeholder="e.g. 299">
+          <small style="color:var(--muted);font-size:.72rem;margin-top:4px;display:block;">MRP will be kept unchanged. Only selling price will be updated.</small>
         </div>
       </div>
 
@@ -6646,7 +6662,7 @@ function lstPopulateProductDropdowns() {
   const opts = ['<option value="__all__">All Products</option>',
     ..._lstProducts.map(p => `<option value="${p}">${p}</option>`)
   ].join('');
-  ['lstProductFilter','lstBulkStockProduct'].forEach(id => {
+  ['lstProductFilter','lstBulkStockProduct','lstBulkPriceProduct'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = opts;
   });
@@ -7615,10 +7631,22 @@ function lstRenderRow(r, idx) {
   const stockEdit   = _lstEditing[r.sku_id + ':stock'];
   const safeKey     = r.sku_id.replace(/[^a-z0-9]/gi, '_');
 
-  // Selling price — read-only display
-  const priceCell = r.selling_price
-    ? `<span style="font-weight:600;">₹${Number(r.selling_price).toLocaleString('en-IN')}</span>`
-    : `<span style="color:var(--muted);font-size:.75rem;">—</span>`;
+  // Selling price — editable
+  const priceEdit = _lstEditing[r.sku_id + ':price'];
+  const priceCell = priceEdit
+    ? `<div class="lst-inline-edit">
+         <input class="lst-edit-input" id="lst-inp-price-${idx}" type="number" min="1" step="1"
+           value="${r.selling_price || ''}"
+           onkeydown="if(event.key==='Enter')lstSaveInline('${r.sku_id}','price',${idx});if(event.key==='Escape')lstCancelInline('${r.sku_id}','price')">
+         <button class="lst-save-btn" onclick="lstSaveInline('${r.sku_id}','price',${idx})">✓</button>
+         <button class="lst-cancel-btn" onclick="lstCancelInline('${r.sku_id}','price')">✕</button>
+       </div>
+       <span class="lst-err" id="lst-err-price-${idx}"></span>`
+    : `<div class="lst-inline-edit">
+         <span class="lst-val">${r.selling_price ? '₹' + Number(r.selling_price).toLocaleString('en-IN') : '<span style="color:var(--muted);font-size:.75rem;">—</span>'}</span>
+         <button class="lst-edit-btn" title="Edit price" onclick="lstStartInline('${r.sku_id}','price')">✏️</button>
+       </div>
+       <span class="lst-ok" id="lst-ok-price-${safeKey}"></span>`;
 
   // Stock count — editable
   const stockCell = stockEdit
@@ -7752,6 +7780,12 @@ window.lstSwitchBulkTab = function(tab) {
   document.getElementById('lstBulkTabPrice').classList.toggle('active', tab === 'price');
   document.getElementById('lstBulkTabStock').classList.toggle('active', tab === 'stock');
   document.getElementById('lstBulkStockPane').style.display = tab === 'stock' ? '' : 'none';
+  document.getElementById('lstBulkPricePane').style.display = tab === 'price' ? '' : 'none';
+  const sub = document.getElementById('lstBulkSub');
+  if(sub) sub.textContent = tab === 'price'
+    ? 'Update selling price for all SKUs under a product in one shot.'
+    : 'Update stock count for all SKUs under a product in one shot.';
+  document.getElementById('lstBulkStockPane').style.display = tab === 'stock' ? '' : 'none';
   document.getElementById('lstBulkResult').style.display = 'none';
 };
 
@@ -7759,12 +7793,17 @@ window.lstSubmitBulk = function() {
   const result    = document.getElementById('lstBulkResult');
   const submitBtn = document.getElementById('lstBulkSubmitBtn');
   const isPrice   = false;  // price update removed — stock only
-  const prod      = document.getElementById('lstBulkStockProduct').value;
-  const val       = parseInt(document.getElementById('lstBulkStockValue').value, 10);
+  const isPrice   = _lstBulkTab === 'price';
+  const prod      = isPrice
+    ? document.getElementById('lstBulkPriceProduct').value
+    : document.getElementById('lstBulkStockProduct').value;
+  const val       = parseInt(isPrice
+    ? document.getElementById('lstBulkPriceValue').value
+    : document.getElementById('lstBulkStockValue').value, 10);
 
-  if (isNaN(val) || val < 0) {
+  if (isNaN(val) || val < (isPrice ? 1 : 0)) {
     result.className = 'lst-modal-result err'; result.style.display = 'block';
-    result.textContent = 'Enter a valid stock count (min 0).'; return;
+    result.textContent = isPrice ? 'Enter a valid selling price (min ₹1).' : 'Enter a valid stock count (min 0).'; return;
   }
 
   submitBtn.disabled = true;
