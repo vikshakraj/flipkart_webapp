@@ -3284,9 +3284,10 @@ def listings_update_price(account):
             batch   = skus[i:i+10]
             payload = {}
             for s in batch:
-                print(f'[PriceUpdate] sku={s["sku_id"]} product_id={repr(s.get("product_id"))} selling_price={s.get("selling_price")}')
+                pid = s.get('product_id') or s.get('fsn', '')
+                print(f'[PriceUpdate] sku={s["sku_id"]} product_id={repr(pid)} selling_price={s.get("selling_price")}')
                 payload[s['sku_id']] = {
-                    'product_id': s['product_id'],
+                    'product_id': pid,
                     'price': {
                         'mrp':           int(s['mrp']),
                         'selling_price': int(s['selling_price']),
@@ -3405,29 +3406,14 @@ def listings_by_skus(account):
                         'stock_count':   stock,
                         'fsn':           det.get('fsn', ''),
                         'locations':     [{'id': loc.get('id', '')} for loc in locs],
-                        'product_id':    det.get('product_id', ''),
+                        'product_id':    det.get('product_id', '') or det.get('fsn', ''),
                     }
-        # For SKUs missing product_id from details, fetch via GET /listings/v3/{sku_ids}
-        missing_pids = [s for s in sku_ids if not detail_map.get(s, {}).get('product_id')]
-        if missing_pids:
-            for i in range(0, len(missing_pids), 10):
-                batch_str = ','.join(missing_pids[i:i+10])
-                gr = _req.get(f'{FK_API_BASE}/sellers/listings/v3/{batch_str}',
-                              headers=headers, timeout=30)
-                if gr.status_code == 200:
-                    for sku_id, item in gr.json().items():
-                        if sku_id in detail_map:
-                            detail_map[sku_id]['product_id'] = item.get('product_id', '')
-                        else:
-                            detail_map[sku_id] = {'product_id': item.get('product_id', '')}
-                        print(f'[Listings] GET fallback product_id for {sku_id}: {item.get("product_id")}')
-
         listings = []
         for sku_id in sku_ids:
             det = detail_map.get(sku_id, {})
             listings.append({
                 'sku_id':        sku_id,
-                'product_id':    det.get('product_id', ''),
+                'product_id':    det.get('product_id', '') or det.get('fsn', ''),
                 'fsn':           det.get('fsn', ''),
                 'selling_price': det.get('selling_price', ''),
                 'mrp':           det.get('mrp', ''),
