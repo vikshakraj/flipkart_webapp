@@ -7530,10 +7530,14 @@ window.lstApplyFilter = function() {
     '<div class="lst-loading"><div class="lst-spinner"></div> Loading listings…</div>';
   document.getElementById('lstPagination').style.display = 'none';
 
+  // Pass any product_ids we already know (from prior loads) to help backend
+  const knownPids = {};
+  _lstAllRows.forEach(r => { if (r.product_id) knownPids[r.sku_id] = r.product_id; });
+
   fetch(`/api/listings/${_lstAccount}/by-skus`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ sku_ids: masterSkuIds }),
+    body: JSON.stringify({ sku_ids: masterSkuIds, known_product_ids: knownPids }),
   })
     .then(r => r.json())
     .then(data => {
