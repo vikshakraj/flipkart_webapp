@@ -3380,8 +3380,9 @@ def listings_by_skus(account):
     account = account.upper().replace('-', ' ')
     if account not in KNOWN_ACCOUNTS:
         return jsonify({'error': f'Unknown account: {account}'}), 400
-    body    = request.get_json() or {}
-    sku_ids = body.get('sku_ids', [])
+    body              = request.get_json() or {}
+    sku_ids           = body.get('sku_ids', [])
+    known_product_ids = body.get('known_product_ids', {})
     if not sku_ids:
         return jsonify({'ok': True, 'listings': [], 'total': 0})
     try:
