@@ -7689,7 +7689,7 @@ window.lstSaveInline = function(skuId, field, rowIdx) {
 
   const endpoint = field === 'price' ? 'update-price' : 'update-inventory';
   const body     = field === 'price'
-    ? { skus: [{ sku_id: skuId, product_id: row.product_id, mrp: row.mrp || val, mop: val }] }
+    ? { skus: [{ sku_id: skuId, product_id: row.product_id, mrp: row.mrp || val, selling_price: val }] }
     : { skus: [{ sku_id: skuId, product_id: row.product_id, locations: row.locations || [], stock_count: val }] };
 
   fetch(`/api/listings/${_lstAccount}/${endpoint}`, {
@@ -7726,7 +7726,7 @@ function lstHandleInlineResult(data, skuId, field, val, rowIdx) {
   // Success — update local state
   [_lstAllRows, _lstFiltered].forEach(arr => {
     const r = arr.find(r => r.sku_id === skuId);
-    if (r) { if (field === 'price') r.mop = val; else r.stock_count = val; }
+    if (r) { if (field === 'price') r.selling_price = val; else r.stock_count = val; }
   });
   delete _lstEditing[skuId + ':' + field];
   lstRenderTable();
@@ -7803,7 +7803,7 @@ window.lstSubmitBulk = function() {
 
   const endpoint = isPrice ? 'update-price' : 'update-inventory';
   const skus     = isPrice
-    ? targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id, mrp: r.mrp || val, mop: val }))
+    ? targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id, mrp: r.mrp || val, selling_price: val }))
     : targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id, locations: r.locations || [], stock_count: val }));
 
   fetch(`/api/listings/${_lstAccount}/${endpoint}`, {
@@ -7835,7 +7835,7 @@ function lstHandleBulkResult(data, total, field, val) {
     if ((res.status||'').toUpperCase() === 'SUCCESS') {
       [_lstAllRows, _lstFiltered].forEach(arr => {
         const r = arr.find(r => r.sku_id === skuId);
-        if (r) { if (field === 'price') r.mop = val; else r.stock_count = val; }
+        if (r) { if (field === 'price') r.selling_price = val; else r.stock_count = val; }
       });
     }
   });
