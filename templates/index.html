@@ -6687,7 +6687,7 @@ window.lstSwitchAccount = function(account, btn) {
 
 // ── Fetch one Flipkart search page + details ──
 // page_id = null → first page; otherwise the cursor from the previous response
-function lstFetchPage(page_id) {
+window.lstFetchPage = function(page_id) {
   if (_lstFetching) return;
   _lstFetching = true;
 
