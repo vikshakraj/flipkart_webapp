@@ -1645,7 +1645,7 @@ def _fk_sync_sales(account, full_resync=False):
     payload = {
         'filter': {
             'type':   'preDispatch',
-            'states': ['APPROVED', 'READY_TO_DISPATCH', 'PACKED', 'PACKING_IN_PROGRESS'],
+            'states': ['APPROVED', 'READY_TO_DISPATCH', 'PACKED', 'PACKING_IN_PROGRESS', 'SHIPPED'],
             # No locationId — sales sync should fetch all locations for this seller account
         },
         'pagination': {'pageSize': 20},
