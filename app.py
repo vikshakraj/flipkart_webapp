@@ -1837,6 +1837,40 @@ def _fk_sync_sales(account, full_resync=False):
                 unkeyed.append(row)
         store[d] = list(indexed.values()) + unkeyed
 
+    # Global cross-date dedup — same order_item_id can appear on different dates
+    # if preDispatch and postDispatch bucket it differently. Keep the one with
+    # the most "final" status (DELIVERED > SHIPPED > others), preferring later status.
+    STATUS_RANK = {'DELIVERED': 10, 'RETURNED': 9, 'RETURN_REQUESTED': 8,
+                   'SHIPPED': 7, 'READY_TO_SHIP': 6, 'PACKED': 5,
+                   'READY_TO_DISPATCH': 4, 'APPROVED': 3, 'CANCELLED': 2}
+    seen_oiids  = {}   # order_item_id → (date, rank)
+    all_dates   = [k for k in store if not k.startswith('__')]
+    for d in sorted(all_dates):
+        rows = store[d]
+        kept = []
+        for row in rows:
+            oid  = row.get('order_item_id', '')
+            if not oid:
+                kept.append(row)
+                continue
+            rank = STATUS_RANK.get(row.get('status', ''), 0)
+            if oid not in seen_oiids:
+                seen_oiids[oid] = (d, rank)
+                kept.append(row)
+            else:
+                prev_date, prev_rank = seen_oiids[oid]
+                if rank > prev_rank:
+                    # This version has a better status — replace previous
+                    seen_oiids[oid] = (d, rank)
+                    kept.append(row)
+                    # Remove from previous date
+                    store[prev_date] = [r for r in store[prev_date]
+                                        if r.get('order_item_id') != oid]
+                # else: keep previous, skip this one
+        store[d] = kept
+    dedup_removed = sum(len(store.get(d,[])) for d in all_dates)
+    print(f'[FKSync] After global dedup: {dedup_removed} rows across {len(all_dates)} dates')
+
     store['__meta__'] = {
         'updated_at':   now_ist.strftime('%d %b %Y, %H:%M IST'),
         'account':      account,
