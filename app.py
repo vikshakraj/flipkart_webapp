@@ -3284,6 +3284,7 @@ def listings_update_price(account):
             batch   = skus[i:i+10]
             payload = {}
             for s in batch:
+                print(f'[PriceUpdate] sku={s["sku_id"]} product_id={repr(s.get("product_id"))} selling_price={s.get("selling_price")}')
                 payload[s['sku_id']] = {
                     'product_id': s['product_id'],
                     'price': {
