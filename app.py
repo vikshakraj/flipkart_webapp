@@ -3279,9 +3279,9 @@ def listings_update_price(account):
                 payload[s['sku_id']] = {
                     'product_id': s['product_id'],
                     'price': {
-                        'mrp':      int(s['mrp']),
-                        'mop':      int(s['mop']),
-                        'currency': 'INR',
+                        'mrp':           int(s['mrp']),
+                        'selling_price': int(s['selling_price']),
+                        'currency':      'INR',
                     }
                 }
             r = _req.post(url, json=payload, headers=headers, timeout=30)
