@@ -3208,7 +3208,14 @@ def listings_get(account):
             batch = sku_ids[i:i+10]
             dr = _req.post(details_url, json={'sku_ids': batch}, headers=headers, timeout=30)
             if dr.status_code == 200:
-                for sku_id, det in dr.json().get('available', {}).items():
+                raw = dr.json()
+                # Log first item to see actual field names
+                avail = raw.get('available', {})
+                if avail:
+                    first_sku, first_det = next(iter(avail.items()))
+                    print(f'[Listings] detail keys for {first_sku}: {list(first_det.keys())}')
+                    print(f'[Listings] product_id variants: product_id={first_det.get("product_id")}, productId={first_det.get("productId")}, product_Id={first_det.get("product_Id")}')
+                for sku_id, det in avail.items():
                     price = det.get('price', {})
                     locs  = det.get('locations', [])
                     stock = sum(loc.get('inventory', 0) for loc in locs if loc.get('status') == 'ENABLED')
@@ -3378,7 +3385,14 @@ def listings_by_skus(account):
             batch = sku_ids[i:i+10]
             dr = _req.post(details_url, json={'sku_ids': batch}, headers=headers, timeout=30)
             if dr.status_code == 200:
-                for sku_id, det in dr.json().get('available', {}).items():
+                raw = dr.json()
+                # Log first item to see actual field names
+                avail = raw.get('available', {})
+                if avail:
+                    first_sku, first_det = next(iter(avail.items()))
+                    print(f'[Listings] detail keys for {first_sku}: {list(first_det.keys())}')
+                    print(f'[Listings] product_id variants: product_id={first_det.get("product_id")}, productId={first_det.get("productId")}, product_Id={first_det.get("product_Id")}')
+                for sku_id, det in avail.items():
                     price = det.get('price', {})
                     locs  = det.get('locations', [])
                     stock = sum(loc.get('inventory', 0) for loc in locs if loc.get('status') == 'ENABLED')
