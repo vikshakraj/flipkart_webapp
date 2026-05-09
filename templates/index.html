@@ -2033,6 +2033,7 @@
         <select class="lst-select" id="lstProductFilter" onchange="lstApplyFilter()" style="min-width:180px;">
           <option value="__all__">All Products</option>
         </select>
+        <button id="lstRefreshBtn" class="lst-btn" onclick="lstFetchPage(null)">↻ Load Listings</button>
         <button class="lst-btn" onclick="lstOpenBulkModal()">⚡ Bulk Action</button>
         <button class="lst-btn lgen-btn-primary" onclick="lgenOpen()" style="margin-left:6px;">✨ Add New Listing</button>
         <span class="lst-status" id="lstStatus"></span>
