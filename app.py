@@ -1821,21 +1821,20 @@ def _fk_sync_sales(account, full_resync=False):
     total_new = sum(len(v) for v in new_rows.values())
     print(f'[FKSync] {account} fetch complete — {total_new} new rows across {len(new_rows)} dates. Saving...')
     # Merge new_rows into store — upsert by order_item_id so we never lose existing orders.
-    # For each date: build a map of existing rows keyed by order_item_id, then overwrite
-    # with fresh API rows (which have updated status), keeping any rows the API didn't return.
+    # When API rows exist for a date, they supersede any XLSX-uploaded rows (no order_item_id)
+    # for that date, since those are stale pre-API data for orders now tracked via API.
     for d, api_rows in new_rows.items():
         existing = store.get(d, [])
-        # Index existing rows by order_item_id (rows without one are kept as-is)
+        # Index existing rows by order_item_id
         indexed = {r['order_item_id']: r for r in existing if r.get('order_item_id')}
-        unkeyed = [r for r in existing if not r.get('order_item_id')]
+        # Drop XLSX rows (no order_item_id) for this date — API data supersedes them
+        # This prevents double-counting orders that were in old XLSX uploads
         # Overwrite/add API rows
         for row in api_rows:
             oid = row.get('order_item_id', '')
             if oid:
                 indexed[oid] = row
-            else:
-                unkeyed.append(row)
-        store[d] = list(indexed.values()) + unkeyed
+        store[d] = list(indexed.values())
 
     # Global cross-date dedup — same order_item_id can appear on different dates
     # if preDispatch and postDispatch bucket it differently. Keep the one with
