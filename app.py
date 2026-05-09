@@ -1676,21 +1676,13 @@ def _fk_sync_sales(account, full_resync=False):
                     shipment_date = datetime.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
                 else:
                     shipment_date = str(raw_sd)[:10] if raw_sd else ''
+                # dispatchAfterDate on shipment = moment order was placed (most accurate for preDispatch)
+                # item.orderDate exists as key but is always empty for preDispatch items
+                dispatch_after = str(shipment.get('dispatchAfterDate', '') or '')[:10]
                 for item in shipment.get('orderItems', []):
-                    # Use item-level orderDate first (most accurate)
-                    item_date = str(item.get('orderDate', '') or item.get('order_date', '') or '')[:10]
+                    item_date = str(item.get('orderDate', '') or '')[:10]
                     if not item_date:
-                        # Fall back to shipment updatedAt (close to order time for new orders)
-                        item_date = str(shipment.get('updatedAt', '') or '')[:10]
-                    if not item_date:
-                        # Last resort: dispatchAfterDate - 1 day
-                        daf = str(shipment.get('dispatchAfterDate', '') or '')[:10]
-                        if daf:
-                            try:
-                                item_date = (datetime.datetime.strptime(daf, '%Y-%m-%d')
-                                             - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-                            except Exception:
-                                item_date = daf
+                        item_date = dispatch_after  # use dispatchAfterDate as order date proxy
                     inject = {'orderDate': item_date} if item_date else {}
                     for sla_field in ['dispatchByDate','dispatchedDate','deliverByDate','deliveryDate']:
                         if not item.get(sla_field) and shipment.get(sla_field):
@@ -1740,11 +1732,13 @@ def _fk_sync_sales(account, full_resync=False):
                 for shipment in data.get('shipments', []):
                     # orderDate is on the orderItems, not the shipment — use updatedAt as fallback
                     shipment_fallback_date = str(shipment.get('updatedAt', '') or '')[:10]
+                    shipment_dispatch_after = str(shipment.get('dispatchAfterDate', '') or '')[:10]
                     for item in shipment.get('orderItems', []):
-                        # item.orderDate is the real order date — use it directly
+                        # item.orderDate is the real order date for postDispatch
                         item_order_date = str(item.get('orderDate', '') or '')[:10]
                         if not item_order_date:
-                            item_order_date = shipment_fallback_date
+                            # dispatchAfterDate ≈ order placement time (more accurate than updatedAt)
+                            item_order_date = shipment_dispatch_after or shipment_fallback_date
                         item = {**item, 'orderDate': item_order_date}
                         ds, row = _fk_item_to_store_row(item, resolve_product)
                         if ds and ds >= cutoff:
