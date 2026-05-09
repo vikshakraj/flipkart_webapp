@@ -1676,13 +1676,12 @@ def _fk_sync_sales(account, full_resync=False):
                     shipment_date = datetime.datetime.fromtimestamp(int(raw_sd)/1000, tz=IST).strftime('%Y-%m-%d')
                 else:
                     shipment_date = str(raw_sd)[:10] if raw_sd else ''
-                # dispatchAfterDate on shipment = moment order was placed (most accurate for preDispatch)
-                # item.orderDate exists as key but is always empty for preDispatch items
                 dispatch_after = str(shipment.get('dispatchAfterDate', '') or '')[:10]
                 for item in shipment.get('orderItems', []):
+                    # item.orderDate IS populated for preDispatch items
                     item_date = str(item.get('orderDate', '') or '')[:10]
                     if not item_date:
-                        item_date = dispatch_after  # use dispatchAfterDate as order date proxy
+                        item_date = dispatch_after  # fallback to dispatchAfterDate
                     inject = {'orderDate': item_date} if item_date else {}
                     for sla_field in ['dispatchByDate','dispatchedDate','deliverByDate','deliveryDate']:
                         if not item.get(sla_field) and shipment.get(sla_field):
@@ -1703,13 +1702,11 @@ def _fk_sync_sales(account, full_resync=False):
     print(f'[FKSync] preDispatch → {fetched} items')
 
     # --- postDispatch: SHIPPED + DELIVERED ---
-    # Docs: must send separately for NORMAL and SELF shipment types
-    for shipment_type in ['NORMAL', 'SELF']:
+    for shipment_type in ['combined']:
         payload  = {
             'filter': {
                 'type': 'postDispatch',
                 'states': ['SHIPPED', 'DELIVERED'],
-                'shipmentType': shipment_type,
                 'orderDate': {
                     'from': f'{fetch_from}T00:00:00.000Z',
                     'to':   f'{fetch_to}T23:59:59.000Z',
@@ -1719,7 +1716,7 @@ def _fk_sync_sales(account, full_resync=False):
         }
         next_url = base_url
         fetched  = 0
-        print(f'[FKSync] postDispatch {shipment_type} fetch_from={fetch_from} fetch_to={fetch_to}')
+        print(f'[FKSync] postDispatch fetch_from={fetch_from} fetch_to={fetch_to}')
         while next_url and fetched < 5000:
             try:
                 r = (_req.post(next_url, json=payload, headers=headers, timeout=30)
@@ -1751,7 +1748,7 @@ def _fk_sync_sales(account, full_resync=False):
                 print(f'[FKSync] postDispatch error: {e}')
                 break
         total_fetched += fetched
-        print(f'[FKSync] postDispatch {shipment_type} → {fetched} items')
+        print(f'[FKSync] postDispatch → {fetched} items')
         if new_rows:
             date_counts = {d: len(v) for d,v in new_rows.items() if not d.startswith('__')}
             print(f'[FKSync] postDispatch date distribution: {dict(sorted(date_counts.items()))}')
