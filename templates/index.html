@@ -5968,17 +5968,23 @@ function renderSkuCharts(d, product, from, to){
     return { sku: s.sku, total };
   }).filter(s=>s.total>0).sort((a,b)=>b.total-a.total);
 
-  // Dynamic top-N: show SKUs contributing >= 3% of total, capped at 12
-  const namedSkus    = allDonutData.filter(s=>s.sku!=='Others');
-  const grandTotal   = namedSkus.reduce((s,x)=>s+x.total, 0);
-  const threshold    = grandTotal * 0.03;
-  const aboveThresh  = namedSkus.filter(s=>s.total >= threshold).slice(0, 12);
-  const topN         = aboveThresh.length >= 2 ? aboveThresh : namedSkus.slice(0, Math.min(12, namedSkus.length));
-  const topSkuNames  = new Set(topN.map(s=>s.sku));
+  // Dynamic top-N: keep adding SKUs (up to 15 max) until Others < top named SKU
+  // This ensures Others is never the dominant line on the chart
+  const namedSkus = allDonutData.filter(s=>s.sku!=='Others');
+  const grandTotal = namedSkus.reduce((s,x)=>s+x.total, 0);
+  let topN = [];
+  for(let n = 2; n <= Math.min(15, namedSkus.length); n++) {
+    topN = namedSkus.slice(0, n);
+    const othersTotal = namedSkus.slice(n).reduce((s,x)=>s+x.total, 0);
+    const topSku1Total = topN[0]?.total || 0;
+    // Stop when Others is smaller than the #1 SKU, or we've hit 15
+    if(othersTotal <= topSku1Total || n === Math.min(15, namedSkus.length)) break;
+  }
+  const topSkuNames = new Set(topN.map(s=>s.sku));
 
   // Update subtitle dynamically
   const subEl = document.getElementById('saSkuChartSub');
-  if(subEl) subEl.textContent = `Top ${topN.length} SKUs (≥3% share in selected range) + Others`;
+  if(subEl) subEl.textContent = `Top ${topN.length} SKUs (Others < #1 SKU) + Others`;
 
   const donutTop = topN;
   const donutOthersTotal = namedSkus.filter(s=>!topSkuNames.has(s.sku))
