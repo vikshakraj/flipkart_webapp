@@ -7643,7 +7643,7 @@ function lstRenderRow(r, idx) {
        </div>
        <span class="lst-err" id="lst-err-price-${idx}"></span>`
     : `<div class="lst-inline-edit">
-         <span class="lst-val">${r.selling_price ? '₹' + Number(r.selling_price).toLocaleString('en-IN') : '<span style="color:var(--muted);font-size:.75rem;">—</span>'}</span>
+         <span class="lst-val">${r.selling_price ? '₹' + Number(r.selling_price).toLocaleString('en-IN') : '—'}</span>
          <button class="lst-edit-btn" title="Edit price" onclick="lstStartInline('${r.sku_id}','price')">✏️</button>
        </div>
        <span class="lst-ok" id="lst-ok-price-${safeKey}"></span>`;
