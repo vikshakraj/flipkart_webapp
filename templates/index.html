@@ -7793,7 +7793,6 @@ window.lstSwitchBulkTab = function(tab) {
 window.lstSubmitBulk = function() {
   const result    = document.getElementById('lstBulkResult');
   const submitBtn = document.getElementById('lstBulkSubmitBtn');
-  const isPrice   = false;  // price update removed — stock only
   const isPrice   = _lstBulkTab === 'price';
   const prod      = isPrice
     ? document.getElementById('lstBulkPriceProduct').value
