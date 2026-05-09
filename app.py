@@ -1702,39 +1702,46 @@ def _fk_sync_sales(account, full_resync=False):
     print(f'[FKSync] preDispatch → {fetched} items')
 
     # --- postDispatch: SHIPPED + DELIVERED ---
-    for shipment_type in ['combined']:
-        payload  = {
+    # Split into 14-day windows to stay under Flipkart's 5000-item cap per request
+    from_dt     = datetime.datetime.strptime(fetch_from, '%Y-%m-%d')
+    to_dt       = datetime.datetime.strptime(fetch_to,   '%Y-%m-%d')
+    windows     = []
+    cur = from_dt
+    while cur <= to_dt:
+        w_end = min(cur + datetime.timedelta(days=13), to_dt)
+        windows.append((cur.strftime('%Y-%m-%d'), w_end.strftime('%Y-%m-%d')))
+        cur = w_end + datetime.timedelta(days=1)
+
+    total_post_fetched = 0
+    for w_from, w_to in windows:
+        payload = {
             'filter': {
                 'type': 'postDispatch',
                 'states': ['SHIPPED', 'DELIVERED'],
                 'orderDate': {
-                    'from': f'{fetch_from}T00:00:00.000Z',
-                    'to':   f'{fetch_to}T23:59:59.000Z',
+                    'from': f'{w_from}T00:00:00.000Z',
+                    'to':   f'{w_to}T23:59:59.000Z',
                 },
             },
             'pagination': {'pageSize': 20},
         }
         next_url = base_url
         fetched  = 0
-        print(f'[FKSync] postDispatch fetch_from={fetch_from} fetch_to={fetch_to}')
         while next_url and fetched < 5000:
             try:
                 r = (_req.post(next_url, json=payload, headers=headers, timeout=30)
                      if next_url == base_url
                      else _req.get(next_url, headers=headers, timeout=30))
                 if r.status_code != 200:
-                    print(f'[FKSync] postDispatch {r.status_code}: {r.text[:200]}')
+                    print(f'[FKSync] postDispatch {w_from}→{w_to} {r.status_code}: {r.text[:200]}')
                     break
                 data = r.json()
                 for shipment in data.get('shipments', []):
-                    # orderDate is on the orderItems, not the shipment — use updatedAt as fallback
-                    shipment_fallback_date = str(shipment.get('updatedAt', '') or '')[:10]
                     shipment_dispatch_after = str(shipment.get('dispatchAfterDate', '') or '')[:10]
+                    shipment_fallback_date  = str(shipment.get('updatedAt', '') or '')[:10]
                     for item in shipment.get('orderItems', []):
-                        # item.orderDate is the real order date for postDispatch
                         item_order_date = str(item.get('orderDate', '') or '')[:10]
                         if not item_order_date:
-                            # dispatchAfterDate ≈ order placement time (more accurate than updatedAt)
                             item_order_date = shipment_dispatch_after or shipment_fallback_date
                         item = {**item, 'orderDate': item_order_date}
                         ds, row = _fk_item_to_store_row(item, resolve_product)
@@ -1747,11 +1754,14 @@ def _fk_sync_sales(account, full_resync=False):
             except Exception as e:
                 print(f'[FKSync] postDispatch error: {e}')
                 break
-        total_fetched += fetched
-        print(f'[FKSync] postDispatch → {fetched} items')
-        if new_rows:
-            date_counts = {d: len(v) for d,v in new_rows.items() if not d.startswith('__')}
-            print(f'[FKSync] postDispatch date distribution: {dict(sorted(date_counts.items()))}')
+        total_post_fetched += fetched
+        print(f'[FKSync] postDispatch {w_from}→{w_to} → {fetched} items')
+
+    total_fetched += total_post_fetched
+    print(f'[FKSync] postDispatch total → {total_post_fetched} items')
+    if new_rows:
+        date_counts = {d: len(v) for d,v in new_rows.items() if not d.startswith('__')}
+        print(f'[FKSync] postDispatch date distribution: {dict(sorted(date_counts.items()))}')
 
     # --- cancelled orders (all 3 cancellation types) ---
     for ctype in ['buyerCancellation', 'sellerCancellation', 'marketplaceCancellation']:
