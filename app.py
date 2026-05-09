@@ -3188,7 +3188,12 @@ def listings_get(account):
             for item in raw_listings:
                 sid = item.get('sku_id') or item.get('skuId', '')
                 if sid:
-                    sku_entries.append({'sku_id': sid, 'product_id': item.get('product_id') or item.get('productId', '')})
+                    pid = item.get('product_id') or item.get('productId', '')
+                    sku_entries.append({'sku_id': sid, 'product_id': pid})
+            # Log first item keys to understand structure
+            if raw_listings:
+                print(f'[Listings] search item keys: {list(raw_listings[0].keys())}')
+                print(f'[Listings] search sample: sku_id={raw_listings[0].get("sku_id") or raw_listings[0].get("skuId")}, product_id={raw_listings[0].get("product_id") or raw_listings[0].get("productId")}')
         elif isinstance(raw_listings, dict):
             for sid, item in raw_listings.items():
                 sku_entries.append({'sku_id': sid, 'product_id': item.get('product_id') or item.get('productId', '')})
@@ -3406,14 +3411,14 @@ def listings_by_skus(account):
                         'stock_count':   stock,
                         'fsn':           det.get('fsn', ''),
                         'locations':     [{'id': loc.get('id', '')} for loc in locs],
-                        'product_id':    det.get('product_id', '') or det.get('fsn', ''),
+                        'product_id':    det.get('product_id', '') or det.get('fsn', '') or known_product_ids.get(sku_id, ''),
                     }
         listings = []
         for sku_id in sku_ids:
             det = detail_map.get(sku_id, {})
             listings.append({
                 'sku_id':        sku_id,
-                'product_id':    det.get('product_id', '') or det.get('fsn', ''),
+                'product_id':    det.get('product_id', '') or det.get('fsn', '') or known_product_ids.get(sku_id, ''),
                 'fsn':           det.get('fsn', ''),
                 'selling_price': det.get('selling_price', ''),
                 'mrp':           det.get('mrp', ''),
