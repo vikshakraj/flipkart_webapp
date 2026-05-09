@@ -1735,7 +1735,7 @@
                 <div class="sa-chart-header">
                   <div>
                     <h3 class="sa-chart-title">📈 Daily Units — by SKU</h3>
-                    <p class="sa-chart-sub">Top 7 SKUs + Others for selected product</p>
+                    <p class="sa-chart-sub" id="saSkuChartSub">Top SKUs + Others for selected product</p>
                   </div>
                 </div>
                 <div style="position:relative;height:300px;"><canvas id="saSkuLineCanvas"></canvas></div>
@@ -5962,14 +5962,26 @@ function renderSkuCharts(d, product, from, to){
   // Filter dates
   const dates = (d.trend_dates || []).filter(dt => (!from||dt>=from) && (!to||dt<=to));
 
-  // ── Donut: total units per SKU in filtered range — cap at 7 for readability ──
+  // ── Donut: total units per SKU in filtered range ──
   const allDonutData = series.map(s=>{
     const total = dates.reduce((sum,dt)=>(s.daily[dt]||0)+sum, 0);
     return { sku: s.sku, total };
   }).filter(s=>s.total>0).sort((a,b)=>b.total-a.total);
-  // Keep top 7 named SKUs + roll rest into Others
-  const donutTop = allDonutData.filter(s=>s.sku!=='Others').slice(0,7);
-  const donutOthersTotal = allDonutData.filter(s=>s.sku!=='Others').slice(7)
+
+  // Dynamic top-N: show SKUs contributing >= 3% of total, capped at 12
+  const namedSkus    = allDonutData.filter(s=>s.sku!=='Others');
+  const grandTotal   = namedSkus.reduce((s,x)=>s+x.total, 0);
+  const threshold    = grandTotal * 0.03;
+  const aboveThresh  = namedSkus.filter(s=>s.total >= threshold).slice(0, 12);
+  const topN         = aboveThresh.length >= 2 ? aboveThresh : namedSkus.slice(0, Math.min(12, namedSkus.length));
+  const topSkuNames  = new Set(topN.map(s=>s.sku));
+
+  // Update subtitle dynamically
+  const subEl = document.getElementById('saSkuChartSub');
+  if(subEl) subEl.textContent = `Top ${topN.length} SKUs (≥3% share in selected range) + Others`;
+
+  const donutTop = topN;
+  const donutOthersTotal = namedSkus.filter(s=>!topSkuNames.has(s.sku))
     .reduce((sum,s)=>sum+s.total,0)
     + (allDonutData.find(s=>s.sku==='Others')?.total||0);
   const donutData = donutOthersTotal > 0
@@ -6006,11 +6018,11 @@ function renderSkuCharts(d, product, from, to){
 
   // ── Line chart: daily units per SKU ──────────────────────────────────────
   if(_saSkuLineChart){ _saSkuLineChart.destroy(); }
-  // Cap to top 7 named SKUs + Others (same as donut) — avoids crowded legend
-  const lineTop7 = series.filter(s=>s.sku!=='Others').slice(0,7);
-  const lineOthersRows = series.filter(s=>s.sku!=='Others').slice(7);
+  // Use same dynamic topN computed above for the line chart
+  const lineTopN = series.filter(s=>topSkuNames.has(s.sku));
+  const lineOthersRows = series.filter(s=>s.sku!=='Others' && !topSkuNames.has(s.sku));
   const lineOthersSrc  = series.find(s=>s.sku==='Others');
-  let lineSeries = [...lineTop7];
+  let lineSeries = [...lineTopN];
   if (lineOthersRows.length > 0 || lineOthersSrc) {
     const othersDaily = {};
     [...lineOthersRows, ...(lineOthersSrc ? [lineOthersSrc] : [])].forEach(s => {
