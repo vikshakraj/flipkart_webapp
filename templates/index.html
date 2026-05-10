@@ -1618,6 +1618,11 @@
                   <p class="sa-chart-sub">Top 15 products · active orders only</p>
                 </div>
                 <select class="sa-product-select" id="saProductSelect" onchange="renderTrendChart()"></select>
+                <button id="saRevenueToggle" onclick="window.toggleSaRevenue()"
+                  style="font-size:.72rem;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap;"
+                  title="Show/hide revenue bars">
+                  💰 Revenue: Off
+                </button>
               </div>
               <div style="position:relative;height:260px;"><canvas id="saTrendCanvas"></canvas></div>
             </div>
@@ -5193,7 +5198,8 @@ window.AdsApp = AdsAccountShell;
 ═══════════════════════════════════════════════════════════ */
 let _saAccount    = 'REFRESHWAVE';
 let _saData       = {};   // cache: account -> analytics payload
-let _saTrendChart = null;
+let _saTrendChart   = null;
+let _saShowRevenue  = false;  // revenue bars hidden by default
 let _saRetChart   = null;
 
 const SA_COLORS = [
@@ -5370,13 +5376,22 @@ function renderSaDashboard(d){
   renderSaSkuAnalysis(d);
 }
 
+window.toggleSaRevenue = function() {
+  _saShowRevenue = !_saShowRevenue;
+  const btn = document.getElementById('saRevenueToggle');
+  if (btn) btn.textContent = '💰 Revenue: ' + (_saShowRevenue ? 'On' : 'Off');
+  if (btn) btn.style.color = _saShowRevenue ? '#00ff88' : 'var(--muted)';
+  if (btn) btn.style.borderColor = _saShowRevenue ? '#00ff88' : 'var(--border)';
+  renderTrendChart();
+};
+
 function renderTrendChart(){
   if(!_saData[_saAccount]) return;
   const d      = _saData[_saAccount];
   const chosen = document.getElementById('saProductSelect').value;
   const series = chosen === '__ALL__' ? d.trend_series : d.trend_series.filter(s=>s.name===chosen);
   const labels = d.trend_dates;
-  const hasRevenue = d.daily_revenue && Object.values(d.daily_revenue).some(v=>v>0);
+  const hasRevenue = _saShowRevenue && d.daily_revenue && Object.values(d.daily_revenue).some(v=>v>0);
 
   const datasets = series.map((s,i)=>({
     label: s.name,
