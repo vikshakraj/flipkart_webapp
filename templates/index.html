@@ -176,6 +176,7 @@
   .sa-kpi-label{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
   .sa-kpi-sub{font-size:.72rem;color:var(--muted);margin-top:4px;}
   .sa-charts-row{display:grid;grid-template-columns:1fr 380px;gap:20px;align-items:start;}
+  .sa-chart-col-left{display:flex;flex-direction:column;min-width:0;}
   .sa-chart-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px 24px;}
   .sa-chart-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;gap:12px;flex-wrap:wrap;}
   .sa-chart-title{font-size:.95rem;font-weight:700;color:var(--text);margin-bottom:3px;}
@@ -1611,24 +1612,26 @@
           </div>
           <div class="sa-kpi-grid" id="saKpiGrid"></div>
           <div class="sa-charts-row">
-            <div class="sa-chart-card sa-chart-wide">
-              <div class="sa-chart-header">
-                <div>
-                  <h3 class="sa-chart-title">📦 Daily Units — by Product</h3>
-                  <p class="sa-chart-sub" id="saUnitsChartSub">Top 15 products · active orders only</p>
+            <div class="sa-chart-col-left">
+              <div class="sa-chart-card sa-chart-wide">
+                <div class="sa-chart-header">
+                  <div>
+                    <h3 class="sa-chart-title">📦 Daily Units — by Product</h3>
+                    <p class="sa-chart-sub" id="saUnitsChartSub">Top 15 products · active orders only</p>
+                  </div>
+                  <select class="sa-product-select" id="saProductSelect" onchange="renderTrendCharts()"></select>
                 </div>
-                <select class="sa-product-select" id="saProductSelect" onchange="renderTrendCharts()"></select>
+                <div style="position:relative;height:260px;"><canvas id="saTrendCanvas"></canvas></div>
               </div>
-              <div style="position:relative;height:260px;"><canvas id="saTrendCanvas"></canvas></div>
-            </div>
-            <div class="sa-chart-card sa-chart-wide" style="margin-top:12px;">
-              <div class="sa-chart-header">
-                <div>
-                  <h3 class="sa-chart-title">💰 Daily Revenue</h3>
-                  <p class="sa-chart-sub" id="saRevChartSub">All active orders · ₹</p>
+              <div class="sa-chart-card sa-chart-wide" style="margin-top:12px;">
+                <div class="sa-chart-header">
+                  <div>
+                    <h3 class="sa-chart-title">💰 Daily Revenue</h3>
+                    <p class="sa-chart-sub" id="saRevChartSub">All active orders · ₹</p>
+                  </div>
                 </div>
+                <div style="position:relative;height:260px;"><canvas id="saRevCanvas"></canvas></div>
               </div>
-              <div style="position:relative;height:220px;"><canvas id="saRevCanvas"></canvas></div>
             </div>
             <div class="sa-chart-card sa-chart-narrow">
               <div class="sa-chart-header">
@@ -1638,6 +1641,7 @@
                 </div>
               </div>
               <div style="position:relative;height:320px;"><canvas id="saReturnCanvas"></canvas></div>
+            </div>
             </div>
           </div>
 
@@ -5411,13 +5415,19 @@ function renderTrendCharts(){
 
   // ── UNITS CHART ───────────────────────────────────────────────────────────
   let unitsDatasets;
-  if(hasAcctData && chosen !== '__ALL__'){
-    // Consolidated + product selected → stack by account
+  if(hasAcctData){
+    // Consolidated tab → always stack by account
     unitsDatasets = SA_ACCT_LABELS.map(acc => {
       const acctDay = d.account_daily[acc] || {};
       return {
         label: acc.charAt(0) + acc.slice(1).toLowerCase(),
-        data:  labels.map(dt => (acctDay[dt] && acctDay[dt][chosen]) || 0),
+        data:  labels.map(dt => {
+          if(chosen === '__ALL__'){
+            // Sum all products for this account on this day
+            return Object.values(acctDay[dt] || {}).reduce((s,v)=>s+v, 0);
+          }
+          return (acctDay[dt] && acctDay[dt][chosen]) || 0;
+        }),
         backgroundColor: SA_ACCT_COLORS[acc] + 'cc',
         borderColor:     SA_ACCT_COLORS[acc],
         borderWidth: 1, borderRadius: 2,
@@ -5425,9 +5435,9 @@ function renderTrendCharts(){
       };
     });
     const sub = document.getElementById('saUnitsChartSub');
-    if(sub) sub.textContent = chosen + ' · stacked by account';
+    if(sub) sub.textContent = (chosen==='__ALL__' ? 'All products' : chosen) + ' · stacked by account';
   } else {
-    // All products or individual account → stack by product (top 15)
+    // Individual account → stack by product (top 15)
     const series = chosen === '__ALL__'
       ? d.trend_series
       : d.trend_series.filter(s=>s.name===chosen);
@@ -5440,7 +5450,7 @@ function renderTrendCharts(){
       stack: 'units',
     }));
     const sub = document.getElementById('saUnitsChartSub');
-    if(sub) sub.textContent = chosen==='__ALL__' ? 'Top 15 products · active orders only' : chosen+' · all accounts';
+    if(sub) sub.textContent = chosen==='__ALL__' ? 'Top 15 products · active orders only' : chosen+' · daily units';
   }
 
   const uCanvas = document.getElementById('saTrendCanvas');
@@ -5464,8 +5474,8 @@ function renderTrendCharts(){
 
   // ── REVENUE CHART ─────────────────────────────────────────────────────────
   let revDatasets;
-  if(hasAcctData && chosen !== '__ALL__'){
-    // Consolidated + product selected → stack revenue by account
+  if(hasAcctData){
+    // Consolidated tab → always stack revenue by account
     // Approximate per-account per-product revenue by scaling account total rev
     // by that product's share of units for that account on each day
     revDatasets = SA_ACCT_LABELS.map(acc => {
@@ -5474,6 +5484,9 @@ function renderTrendCharts(){
       return {
         label: acc.charAt(0) + acc.slice(1).toLowerCase(),
         data:  labels.map(dt => {
+          if(chosen === '__ALL__'){
+            return Math.round(acctRev[dt] || 0);
+          }
           const totalUnitsOnDay = Object.values(acctDay[dt] || {}).reduce((s,v)=>s+v,0);
           const prodUnits = (acctDay[dt] && acctDay[dt][chosen]) || 0;
           const dayRev    = acctRev[dt] || 0;
@@ -5486,7 +5499,7 @@ function renderTrendCharts(){
       };
     });
     const sub = document.getElementById('saRevChartSub');
-    if(sub) sub.textContent = chosen + ' · stacked by account';
+    if(sub) sub.textContent = (chosen==='__ALL__' ? 'All products' : chosen) + ' · stacked by account';
   } else {
     // Total daily revenue as single bars
     const revData = labels.map(dt => d.daily_revenue ? (d.daily_revenue[dt] || 0) : 0);
