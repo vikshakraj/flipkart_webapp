@@ -1337,7 +1337,7 @@ def _compute_analytics(store):
     store = {k: v for k, v in store.items() if not k.startswith('__')}
 
     ACTIVE    = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD','SHIPPED','READY_TO_DISPATCH','PACKED','PACKING_IN_PROGRESS'}
-    REVENUE_STATES = {'SHIPPED', 'DELIVERED', 'READY_TO_SHIP'}  # only count realized/near-realized revenue
+    REVENUE_STATES = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD','SHIPPED','READY_TO_DISPATCH','PACKED','PACKING_IN_PROGRESS'}  # all active states
     RETURNED  = {'RETURNED', 'RETURN_REQUESTED'}
     CANCELLED = {'CANCELLED','RETURN_REQUESTED','REJECTED'}
     # Only these return reasons count as genuine returns; all others → cancellation
@@ -2068,6 +2068,27 @@ def sales_data(account):
         result = _compute_analytics(merged)
         if not result:
             return jsonify({'empty': True})
+        # Build per-account daily units + revenue for stacked charts
+        ACTIVE_S  = {'DELIVERED','READY_TO_SHIP','APPROVED','APPROVAL_HOLD','SHIPPED','READY_TO_DISPATCH','PACKED','PACKING_IN_PROGRESS'}
+        REV_S     = ACTIVE_S
+        acct_daily = {}   # account → {date: {product: units}}
+        acct_rev   = {}   # account → {date: revenue}
+        for acc in SALES_ACCOUNTS:
+            store = _load_sales_store(acc)
+            store = _prune_old_dates(store)
+            day_prod = defaultdict(lambda: defaultdict(int))
+            day_rev  = defaultdict(float)
+            for d, rows in store.items():
+                if d.startswith('__'): continue
+                for r in rows:
+                    if r['status'] in ACTIVE_S:
+                        day_prod[d][r['product']] += r['qty']
+                        if r['status'] in REV_S:
+                            day_rev[d] += r.get('revenue', 0)
+            acct_daily[acc] = {d: dict(v) for d, v in day_prod.items()}
+            acct_rev[acc]   = {d: round(v, 2) for d, v in day_rev.items()}
+        result['account_daily'] = acct_daily
+        result['account_rev']   = acct_rev
         # Collect per-account last-updated
         updates = {}
         for acc in SALES_ACCOUNTS:
@@ -3414,12 +3435,30 @@ def listings_by_skus(account):
                         'locations':     [{'id': loc.get('id', '')} for loc in locs],
                         'product_id':    det.get('product_id', '') or det.get('fsn', '') or known_product_ids.get(sku_id, ''),
                     }
+        # For SKUs still missing product_id, do a quick search call to get it
+        missing = [s for s in sku_ids if not (detail_map.get(s, {}).get('product_id') or detail_map.get(s, {}).get('fsn') or known_product_ids.get(s))]
+        search_pid_map = {}
+        if missing:
+            try:
+                sr = _req.post(f'{FK_API_BASE}/sellers/listings/v3/search',
+                               json={'listing_status': 'ACTIVE', 'sku_ids': missing},
+                               headers=headers, timeout=30)
+                if sr.status_code == 200:
+                    for item in sr.json().get('listings', []):
+                        sid = item.get('sku_id') or item.get('skuId', '')
+                        pid = item.get('product_id') or item.get('productId', '')
+                        if sid and pid:
+                            search_pid_map[sid] = pid
+                            print(f'[Listings] search fallback product_id for {sid}: {pid}')
+            except Exception as se:
+                print(f'[Listings] search fallback error: {se}')
+
         listings = []
         for sku_id in sku_ids:
             det = detail_map.get(sku_id, {})
             listings.append({
                 'sku_id':        sku_id,
-                'product_id':    det.get('product_id', '') or det.get('fsn', '') or known_product_ids.get(sku_id, ''),
+                'product_id':    det.get('product_id', '') or det.get('fsn', '') or known_product_ids.get(sku_id, '') or search_pid_map.get(sku_id, ''),
                 'fsn':           det.get('fsn', ''),
                 'selling_price': det.get('selling_price', ''),
                 'mrp':           det.get('mrp', ''),
