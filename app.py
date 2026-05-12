@@ -4482,24 +4482,22 @@ LISTING_PROFILES_PATH  = os.path.join(_data_dir, 'listing_profiles.json')
 
 @app.route('/api/listing-gen/upload-template', methods=['POST'])
 def listing_gen_upload_template():
-    """Store the blank XLSX template server-side for the listing generator."""
+    """Store the blank XLSX template and return dynamic fields parsed from it."""    import openpyxl, io as _io
     f = request.files.get('template')
     if not f:
         return jsonify({'error': 'No file uploaded'}), 400
     data = f.read()
-    # Validate it's a real xlsx
     try:
-        import openpyxl, io as _io
-        openpyxl.load_workbook(_io.BytesIO(data))
+        wb = openpyxl.load_workbook(_io.BytesIO(data))
     except Exception as e:
         return jsonify({'error': f'Invalid XLSX: {e}'}), 400
     tmp = LISTING_TEMPLATE_PATH + '.tmp'
     with open(tmp, 'wb') as out:
         out.write(data)
     os.replace(tmp, LISTING_TEMPLATE_PATH)
-    # Return sheet names so frontend can confirm category sheet
-    wb = openpyxl.load_workbook(LISTING_TEMPLATE_PATH)
-    return jsonify({'ok': True, 'sheets': wb.sheetnames, 'filename': f.filename})
+    # Parse dynamic fields from this template and return inline
+    meta = _parse_template_meta(wb)
+    return jsonify({'ok': True, 'sheets': wb.sheetnames, 'filename': f.filename, **meta})
 
 @app.route('/api/listing-gen/template-status', methods=['GET'])
 def listing_gen_template_status():
@@ -4545,16 +4543,8 @@ def listing_gen_upload_images():
     return jsonify({'urls': urls, 'errors': errors})
 
 
-@app.route('/api/listing-gen/template-meta', methods=['GET'])
-def listing_gen_template_meta():
-    """Return parsed template metadata: blue/purple col names and Index dropdowns."""
-    import openpyxl, io as _io
-    template_file = request.files.get('template') if request.method == 'POST' else None
-    # Load from stored template
-    if not os.path.exists(LISTING_TEMPLATE_PATH):
-        return jsonify({'error': 'No template stored'}), 404
-    wb = openpyxl.load_workbook(LISTING_TEMPLATE_PATH)
-
+def _parse_template_meta(wb):
+    """Parse dynamic fields and Index dropdowns from a loaded openpyxl workbook."""
     SKIP_SHEETS = {'Summary Sheet', 'DropDownValuesForColumn27', 'DropDownValuesForColumn33',
                    'Listing FAQ Sheet', 'Image GuideLines', 'MatchingAttributes',
                    'VariantAttributes', 'Parent Variant Products', 'template_version'}
@@ -4564,14 +4554,12 @@ def listing_gen_template_meta():
             category_sheet = name
             break
     if not category_sheet:
-        return jsonify({'error': 'Could not identify category sheet'}), 400
+        return {'error': 'Could not identify category sheet'}
 
-    ws   = wb[category_sheet]
+    ws     = wb[category_sheet]
     BLUE   = 'FF8DB4E2'
     PURPLE = 'FFCC99FF'
-    GREY   = 'FFC0C0C0'
 
-    # Fields handled automatically (not shown in form)
     AUTO_FIELDS = {
         'Flipkart Serial Number', 'Catalog QC Status', 'QC Failed Reason (if any)',
         'Flipkart Product Link', 'Product Data Status', 'Disapproval Reason (if any)',
@@ -4621,22 +4609,33 @@ def listing_gen_template_meta():
     for dv in ws.data_validations.dataValidation:
         if dv.type == 'list' and dv.formula1:
             formula = dv.formula1.strip('"')
-            # Check if this validation covers the Quantity - Measuring Unit column
             if 'AN' in str(dv.sqref) or 'Quantity' in str(dv.formula1):
                 if ',' in formula and 'DropDown' not in formula and 'REF' not in formula:
                     qty_unit_options = [v.strip() for v in formula.split(',')]
                     break
-            # Also catch by content — if values look like unit options
             if ',' in formula and any(u in formula for u in ['Patches','Units','ml','Bottles']):
                 qty_unit_options = [v.strip() for v in formula.split(',')]
 
-    return jsonify({
-        'ok':              True,
-        'category_sheet':  category_sheet,
-        'dynamic_fields':  dynamic_fields,
-        'index_values':    index_values,
-        'qty_unit_options': qty_unit_options,  # e.g. ['g','ml','L','Patches','Units']
-    })
+    return {
+        'ok':               True,
+        'category_sheet':   category_sheet,
+        'dynamic_fields':   dynamic_fields,
+        'index_values':     index_values,
+        'qty_unit_options': qty_unit_options,
+    }
+
+
+@app.route('/api/listing-gen/template-meta', methods=['GET'])
+def listing_gen_template_meta():
+    """Return parsed template metadata from the stored template."""
+    import openpyxl
+    if not os.path.exists(LISTING_TEMPLATE_PATH):
+        return jsonify({'error': 'No template stored'}), 404
+    wb   = openpyxl.load_workbook(LISTING_TEMPLATE_PATH)
+    meta = _parse_template_meta(wb)
+    if 'error' in meta:
+        return jsonify(meta), 400
+    return jsonify(meta)
 
 
 @app.route('/api/listing-gen/profiles', methods=['GET'])
