@@ -4482,23 +4482,33 @@ LISTING_PROFILES_PATH  = os.path.join(_data_dir, 'listing_profiles.json')
 
 @app.route('/api/listing-gen/upload-template', methods=['POST'])
 def listing_gen_upload_template():
-    """Store the blank XLSX template and return dynamic fields parsed from it."""
-    import openpyxl, io as _io
+    """Store the blank XLS/XLSX template and return dynamic fields parsed from it."""
+    import io as _io
     f = request.files.get('template')
     if not f:
         return jsonify({'error': 'No file uploaded'}), 400
-    data = f.read()
+    data   = f.read()
+    fname  = (f.filename or '').lower()
+    is_xls = fname.endswith('.xls') and not fname.endswith('.xlsx')
     try:
-        wb = openpyxl.load_workbook(_io.BytesIO(data))
+        if is_xls:
+            import xlrd
+            wb = xlrd.open_workbook(file_contents=data, formatting_info=True)
+        else:
+            import openpyxl
+            wb = openpyxl.load_workbook(_io.BytesIO(data))
     except Exception as e:
-        return jsonify({'error': f'Invalid XLSX: {e}'}), 400
+        return jsonify({'error': f'Invalid file: {e}'}), 400
     tmp = LISTING_TEMPLATE_PATH + '.tmp'
     with open(tmp, 'wb') as out:
         out.write(data)
+    # Also store whether it's xls so template-meta knows how to re-read it
+    with open(LISTING_TEMPLATE_PATH + '.fmt', 'w') as out:
+        out.write('xls' if is_xls else 'xlsx')
     os.replace(tmp, LISTING_TEMPLATE_PATH)
-    # Parse dynamic fields from this template and return inline
-    meta = _parse_template_meta(wb)
-    return jsonify({'ok': True, 'sheets': wb.sheetnames, 'filename': f.filename, **meta})
+    meta   = _parse_template_meta(wb, is_xls=is_xls)
+    sheets = wb.sheet_names() if is_xls else wb.sheetnames
+    return jsonify({'ok': True, 'sheets': sheets, 'filename': f.filename, **meta})
 
 @app.route('/api/listing-gen/template-status', methods=['GET'])
 def listing_gen_template_status():
@@ -4544,78 +4554,124 @@ def listing_gen_upload_images():
     return jsonify({'urls': urls, 'errors': errors})
 
 
-def _parse_template_meta(wb):
-    """Parse dynamic fields and Index dropdowns from a loaded openpyxl workbook."""
+def _parse_template_meta(wb, is_xls=False):
+    """Parse dynamic fields and Index dropdowns from a workbook (openpyxl or xlrd)."""
     SKIP_SHEETS = {'Summary Sheet', 'DropDownValuesForColumn27', 'DropDownValuesForColumn33',
-                   'Listing FAQ Sheet', 'Image GuideLines', 'MatchingAttributes',
-                   'VariantAttributes', 'Parent Variant Products', 'template_version'}
-    category_sheet = None
-    for name in wb.sheetnames:
-        if name not in SKIP_SHEETS and name != 'Index':
-            category_sheet = name
-            break
-    if not category_sheet:
-        return {'error': 'Could not identify category sheet'}
-
-    ws     = wb[category_sheet]
-    BLUE   = 'FF8DB4E2'
-    PURPLE = 'FFCC99FF'
-
+                   'DropDownValuesForColumn31', 'Listing FAQ Sheet', 'Image GuideLines',
+                   'MatchingAttributes', 'VariantAttributes', 'Parent Variant Products',
+                   'template_version'}
     AUTO_FIELDS = {
         'Flipkart Serial Number', 'Catalog QC Status', 'QC Failed Reason (if any)',
         'Flipkart Product Link', 'Product Data Status', 'Disapproval Reason (if any)',
-        'Seller SKU ID', 'Listing Status', 'MRP (INR)', 'Your selling price (INR)',
-        'Fullfilment by', 'Procurement type', 'Procurement SLA (DAY)', 'Stock',
-        'Shipping provider', 'Local handling fee (INR)', 'Zonal handling fee (INR)',
-        'National handling fee (INR)', 'Length (CM)', 'Breadth (CM)', 'Height (CM)',
-        'Weight (KG)', 'HSN', 'Country Of Origin', 'Manufacturer Details',
-        'Packer Details', 'Importer Details', 'Tax Code', 'Brand',
+        'Seller SKU ID', 'Group ID', 'Parent Variant FSN', 'Listing Status',
+        'MRP (INR)', 'Your selling price (INR)', 'Fullfilment by',
+        'Procurement type', 'Procurement SLA (DAY)', 'Stock', 'Shipping provider',
+        'Local handling fee (INR)', 'Zonal handling fee (INR)', 'National handling fee (INR)',
+        'Length (CM)', 'Breadth (CM)', 'Height (CM)', 'Weight (KG)', 'HSN',
+        'Luxury Cess', 'Country Of Origin', 'Manufacturer Details', 'Packer Details',
+        'Importer Details', 'Tax Code', 'Minimum Order Quantity (MinOQ)', 'Brand',
         'Model Name', 'Quantity', 'Quantity - Measuring Unit', 'Pack of',
         'Main Image URL', 'Other Image URL 1', 'Other Image URL 2',
         'Other Image URL 3', 'Other Image URL 4', 'Description', 'Key Features',
-        'Search Keywords', 'Items Included',
+        'Search Keywords', 'Items Included', 'EAN/UPC', 'EAN/UPC - Measuring Unit',
+        'Net Quantity', 'Model Number', 'Supplier Image',
     }
 
-    # Parse Index sheet for dropdown values
-    index_values = {}
-    if 'Index' in wb.sheetnames:
-        ws_idx = wb['Index']
-        for col in range(4, ws_idx.max_column + 1):
-            field = ws_idx.cell(row=2, column=col).value
-            if not field: continue
-            if field not in index_values:
-                index_values[field] = []
-            for row in range(3, ws_idx.max_row + 1):
-                v = ws_idx.cell(row=row, column=col).value
-                if v and str(v).strip() and str(v).strip() not in index_values[field]:
-                    index_values[field].append(str(v).strip())
+    if is_xls:
+        # ── xlrd path ────────────────────────────────────────────────────────
+        all_sheets = wb.sheet_names()
+        category_sheet = next((n for n in all_sheets
+                                if n not in SKIP_SHEETS and n != 'Index'), None)
+        if not category_sheet:
+            return {'error': 'Could not identify category sheet'}
+        ws = wb.sheet_by_name(category_sheet)
 
-    # Collect dynamic fields (blue/purple NOT in AUTO_FIELDS)
-    dynamic_fields = []
-    for col in range(1, ws.max_column + 1):
-        cell  = ws.cell(row=1, column=col)
-        hdr   = cell.value
-        if not hdr or hdr in AUTO_FIELDS: continue
-        fill  = cell.fill
-        color = fill.fgColor.rgb if fill and fill.fgColor and fill.fgColor.type == 'rgb' else None
-        if color not in (BLUE, PURPLE): continue
-        dynamic_fields.append({
-            'name':     hdr,
-            'required': color == BLUE,
-            'options':  index_values.get(hdr, []),
-        })
+        # Colour indices in .xls palette
+        BLUE_IDX   = 12   # (141, 180, 226) — mandatory
+        PURPLE_IDX = 46   # (204, 153, 255) — optional
 
-    # Parse data validations for Quantity - Measuring Unit
-    qty_unit_options = []
-    for dv in ws.data_validations.dataValidation:
-        if dv.type == 'list' and dv.formula1:
-            formula = dv.formula1.strip('"')
-            if 'AN' in str(dv.sqref) or 'Quantity' in str(dv.formula1):
-                if ',' in formula and 'DropDown' not in formula and 'REF' not in formula:
+        # Parse Index sheet
+        index_values = {}
+        if 'Index' in all_sheets:
+            ws_idx = wb.sheet_by_name('Index')
+            for col in range(ws_idx.ncols):
+                field = ws_idx.cell_value(1, col)   # row 1 = field names
+                if not field: continue
+                vals = []
+                for row in range(2, ws_idx.nrows):
+                    v = ws_idx.cell_value(row, col)
+                    if v and str(v).strip() and str(v).strip() not in vals:
+                        vals.append(str(v).strip())
+                if vals:
+                    index_values[str(field)] = vals
+
+        # Collect dynamic fields
+        dynamic_fields = []
+        for c in range(ws.ncols):
+            hdr = ws.cell_value(0, c)
+            if not hdr or hdr in AUTO_FIELDS: continue
+            xf_idx = ws.cell_xf_index(0, c)
+            xf     = wb.xf_list[xf_idx]
+            ci     = xf.background.pattern_colour_index
+            if ci not in (BLUE_IDX, PURPLE_IDX): continue
+            dynamic_fields.append({
+                'name':     str(hdr),
+                'required': ci == BLUE_IDX,
+                'options':  index_values.get(str(hdr), []),
+            })
+
+        # qty_unit_options from data validations not easily available in xlrd
+        # Fall back to looking in Index sheet for 'Quantity - Measuring Unit'
+        qty_unit_options = index_values.get('Quantity - Measuring Unit', [])
+
+    else:
+        # ── openpyxl path ────────────────────────────────────────────────────
+        all_sheets = wb.sheetnames
+        category_sheet = next((n for n in all_sheets
+                                if n not in SKIP_SHEETS and n != 'Index'), None)
+        if not category_sheet:
+            return {'error': 'Could not identify category sheet'}
+        ws     = wb[category_sheet]
+        BLUE   = 'FF8DB4E2'
+        PURPLE = 'FFCC99FF'
+
+        index_values = {}
+        if 'Index' in all_sheets:
+            ws_idx = wb['Index']
+            for col in range(4, ws_idx.max_column + 1):
+                field = ws_idx.cell(row=2, column=col).value
+                if not field: continue
+                if field not in index_values:
+                    index_values[field] = []
+                for row in range(3, ws_idx.max_row + 1):
+                    v = ws_idx.cell(row=row, column=col).value
+                    if v and str(v).strip() and str(v).strip() not in index_values[field]:
+                        index_values[field].append(str(v).strip())
+
+        dynamic_fields = []
+        for col in range(1, ws.max_column + 1):
+            cell  = ws.cell(row=1, column=col)
+            hdr   = cell.value
+            if not hdr or hdr in AUTO_FIELDS: continue
+            fill  = cell.fill
+            color = fill.fgColor.rgb if fill and fill.fgColor and fill.fgColor.type == 'rgb' else None
+            if color not in (BLUE, PURPLE): continue
+            dynamic_fields.append({
+                'name':     hdr,
+                'required': color == BLUE,
+                'options':  index_values.get(hdr, []),
+            })
+
+        qty_unit_options = []
+        for dv in ws.data_validations.dataValidation:
+            if dv.type == 'list' and dv.formula1:
+                formula = dv.formula1.strip('"')
+                if 'AN' in str(dv.sqref) or 'Quantity' in str(dv.formula1):
+                    if ',' in formula and 'DropDown' not in formula and 'REF' not in formula:
+                        qty_unit_options = [v.strip() for v in formula.split(',')]
+                        break
+                if ',' in formula and any(u in formula for u in ['Patches','Units','ml','Bottles']):
                     qty_unit_options = [v.strip() for v in formula.split(',')]
-                    break
-            if ',' in formula and any(u in formula for u in ['Patches','Units','ml','Bottles']):
-                qty_unit_options = [v.strip() for v in formula.split(',')]
 
     return {
         'ok':               True,
@@ -4629,11 +4685,17 @@ def _parse_template_meta(wb):
 @app.route('/api/listing-gen/template-meta', methods=['GET'])
 def listing_gen_template_meta():
     """Return parsed template metadata from the stored template."""
-    import openpyxl
     if not os.path.exists(LISTING_TEMPLATE_PATH):
         return jsonify({'error': 'No template stored'}), 404
-    wb   = openpyxl.load_workbook(LISTING_TEMPLATE_PATH)
-    meta = _parse_template_meta(wb)
+    fmt_file = LISTING_TEMPLATE_PATH + '.fmt'
+    is_xls   = os.path.exists(fmt_file) and open(fmt_file).read().strip() == 'xls'
+    if is_xls:
+        import xlrd
+        wb = xlrd.open_workbook(LISTING_TEMPLATE_PATH, formatting_info=True)
+    else:
+        import openpyxl
+        wb = openpyxl.load_workbook(LISTING_TEMPLATE_PATH)
+    meta = _parse_template_meta(wb, is_xls=is_xls)
     if 'error' in meta:
         return jsonify(meta), 400
     return jsonify(meta)
