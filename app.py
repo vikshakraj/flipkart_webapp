@@ -4482,7 +4482,8 @@ LISTING_PROFILES_PATH  = os.path.join(_data_dir, 'listing_profiles.json')
 
 @app.route('/api/listing-gen/upload-template', methods=['POST'])
 def listing_gen_upload_template():
-    """Store the blank XLSX template and return dynamic fields parsed from it."""    import openpyxl, io as _io
+    """Store the blank XLSX template and return dynamic fields parsed from it."""
+    import openpyxl, io as _io
     f = request.files.get('template')
     if not f:
         return jsonify({'error': 'No file uploaded'}), 400
