@@ -1864,9 +1864,9 @@
             <div id="lgenTemplateDrop" class="lgen-drop" onclick="document.getElementById('lgenTemplateFile').click()" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="lgenHandleTemplateDrop(event)">
               <div class="lgen-drop-icon">📊</div>
               <div class="lgen-drop-text">Drop your empty Flipkart XLSX template here</div>
-              <div class="lgen-drop-hint">or click to browse · .xlsx files only</div>
+              <div class="lgen-drop-hint">or click to browse · .xlsx or .xls files</div>
             </div>
-            <input type="file" id="lgenTemplateFile" accept=".xlsx" style="display:none" onchange="lgenHandleTemplateFile(this.files[0])">
+            <input type="file" id="lgenTemplateFile" accept=".xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none" onchange="lgenHandleTemplateFile(this.files[0])">
             <div id="lgenTemplateErr" class="lgen-err" style="display:none;"></div>
           </div>
           <div class="lgen-card">
@@ -7102,8 +7102,8 @@ function lstResolveProduct(skuId) {
   };
 
   window.lgenHandleTemplateFile = function(f) {
-    if(!f || !f.name.endsWith('.xlsx')) {
-      showErr('lgenTemplateErr', 'Please upload a .xlsx file');
+    if(!f || (!f.name.endsWith('.xlsx') && !f.name.endsWith('.xls'))) {
+      showErr('lgenTemplateErr', 'Please upload a .xlsx or .xls file');
       return;
     }
     _lgenTemplate = { file: f, name: f.name };
