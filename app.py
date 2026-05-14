@@ -4997,21 +4997,24 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
     is_xls = upload_is_xls or (not tpl_file and stored_is_xls)
 
     if is_xls:
-        # Convert xls → xlsx in memory using xlrd + openpyxl
+        # Convert xls → xlsx in memory — copy cell values only, no data validations
         import xlrd as _xlrd
-        xls_wb  = _xlrd.open_workbook(file_contents=template_bytes)
-        new_wb  = openpyxl.Workbook()
+        xls_wb = _xlrd.open_workbook(file_contents=template_bytes)
+        new_wb = openpyxl.Workbook()
         new_wb.remove(new_wb.active)
         for sheet_name in xls_wb.sheet_names():
             xls_ws = xls_wb.sheet_by_name(sheet_name)
             new_ws = new_wb.create_sheet(title=sheet_name)
             for row in range(xls_ws.nrows):
                 for col in range(xls_ws.ncols):
-                    new_ws.cell(row=row+1, column=col+1, value=xls_ws.cell_value(row, col))
+                    new_ws.cell(row=row+1, column=col+1,
+                                value=xls_ws.cell_value(row, col))
+            # Clear all data validations — xls validation strings cause openpyxl errors
+            new_ws.data_validations.dataValidation = []
         buf = _io.BytesIO()
         new_wb.save(buf)
         buf.seek(0)
-        wb = load_workbook(buf)
+        wb = load_workbook(buf, data_only=True)
         original_filename = (original_filename or 'listing_output').rsplit('.', 1)[0] + '.xlsx'
     else:
         wb = load_workbook(_io.BytesIO(template_bytes))
