@@ -7134,8 +7134,9 @@ function lstResolveProduct(skuId) {
         const statusEl = document.getElementById('lgenTemplateStatusText');
         if(statusEl && dynCount > 0) statusEl.textContent += ` · ${dynCount} fields loaded`;
       } else {
-        const err = await resp.json().catch(()=>({}));
-        console.error('[lgen] upload-template failed:', err);
+        const errText = await resp.text().catch(()=>'unknown');
+        console.error('[lgen] upload-template failed:', resp.status, errText.slice(0,200));
+        showErr('lgenTemplateErr', `Upload failed (${resp.status}) — check console`);
       }
     } catch(e) { console.warn('Template upload for meta failed:', e); }
   }
