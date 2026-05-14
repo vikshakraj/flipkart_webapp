@@ -7359,10 +7359,13 @@ function lstResolveProduct(skuId) {
     if(kw.length < 2 || kw.length > 15) {
       showErr('lgenKeywordsErr', 'Enter 2–15 comma-separated keywords'); return false;
     }
-    // Validate qty_per_unit
+    // Validate qty_per_unit only when the field is visible
+    const qpuWrap = document.getElementById('lgenQtyUnitWrap');
     const qpu = document.getElementById('lgenQtyPerUnit');
-    if(!qpu || !qpu.value || parseInt(qpu.value) < 1) {
-      showErr('lgenKeywordsErr', 'Quantity per Pack of 1 is required (minimum 1)'); return false;
+    if(qpuWrap && qpuWrap.style.display !== 'none') {
+      if(!qpu || !qpu.value || parseInt(qpu.value) < 1) {
+        showErr('lgenKeywordsErr', 'Quantity per Pack of 1 is required (minimum 1)'); return false;
+      }
     }
     // Change 7: validate required dynamic fields
     let dynOk = true;
