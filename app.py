@@ -4747,6 +4747,14 @@ def listing_gen_generate():
       - form_data: JSON string with all listing parameters
       - template: optional XLSX file (else uses stored template)
     """
+    try:
+        return _listing_gen_generate_inner()
+    except Exception as _e:
+        import traceback as _tb
+        _tb.print_exc()
+        return jsonify({'error': f'Server error: {_e}'}), 500
+
+def _listing_gen_generate_inner():
     import requests as _req, random, string, io as _io, json as _json
     import openpyxl
     from openpyxl import load_workbook
@@ -4979,6 +4987,7 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
             print(f'[ListingGen] Title save failed: {_te}')
 
     # ── Load and fill the template ───────────────────────────
+    # ── Load and fill the template (xls/xlsx) ───────────────────────
     # Detect format — .xls needs xlrd→openpyxl conversion
     fmt_file = LISTING_TEMPLATE_PATH + '.fmt'
     stored_is_xls = os.path.exists(fmt_file) and open(fmt_file).read().strip() == 'xls'
@@ -5153,6 +5162,10 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
         download_name=safe_name,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     ), 200, {'X-Unfilled-Fields': _json.dumps(unfilled_blue)}
+
+
+
+
 
 
 # ─────────────────────────────────────────────
