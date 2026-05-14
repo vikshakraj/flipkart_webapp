@@ -4920,7 +4920,7 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
                 'max_tokens': 4096,
                 'messages': [{'role': 'user', 'content': prompt}]
             },
-            timeout=60
+            timeout=120
         )
         if ai_resp.status_code != 200:
             return jsonify({'error': f'Anthropic API error {ai_resp.status_code}: {ai_resp.text[:200]}'}), 500
@@ -5313,7 +5313,7 @@ Rules:
             'max_tokens': 4000,
             'messages': [{'role': 'user', 'content': prompt}]
         },
-        timeout=60
+        timeout=120
     )
     if resp.status_code != 200:
         raise RuntimeError(f'Claude API error {resp.status_code}: {resp.text[:200]}')
