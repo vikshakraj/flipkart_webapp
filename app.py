@@ -5002,14 +5002,20 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
         xls_wb = _xlrd.open_workbook(file_contents=template_bytes)
         new_wb = openpyxl.Workbook()
         new_wb.remove(new_wb.active)
+        # Illegal chars in xlsx (openpyxl rejects them)
+        import re as _re
+        _illegal = _re.compile(r'[--]')
+        def _clean(v):
+            if isinstance(v, str):
+                return _illegal.sub('', v)
+            return v
         for sheet_name in xls_wb.sheet_names():
             xls_ws = xls_wb.sheet_by_name(sheet_name)
             new_ws = new_wb.create_sheet(title=sheet_name)
             for row in range(xls_ws.nrows):
                 for col in range(xls_ws.ncols):
                     new_ws.cell(row=row+1, column=col+1,
-                                value=xls_ws.cell_value(row, col))
-            # Clear all data validations — xls validation strings cause openpyxl errors
+                                value=_clean(xls_ws.cell_value(row, col)))
             new_ws.data_validations.dataValidation = []
         buf = _io.BytesIO()
         new_wb.save(buf)
