@@ -7122,11 +7122,20 @@ function lstResolveProduct(skuId) {
       const resp = await fetch('/api/listing-gen/upload-template', { method: 'POST', body: fd });
       if(resp.ok) {
         const data = await resp.json();
+        if(data.error) { console.error('Template parse error:', data.error); return; }
         // Use dynamic fields returned directly from upload — always fresh from this template
         _lgenDynFields      = data.dynamic_fields  || [];
         _lgenQtyUnitOptions = data.qty_unit_options || [];
+        console.log('[lgen] dynamic_fields from upload:', _lgenDynFields.length, _lgenDynFields.map(f=>f.name));
         lgenRenderDynamicFields();
         lgenRenderQtyUnitField();
+        // Show count in template status
+        const dynCount = _lgenDynFields.length;
+        const statusEl = document.getElementById('lgenTemplateStatusText');
+        if(statusEl && dynCount > 0) statusEl.textContent += ` · ${dynCount} fields loaded`;
+      } else {
+        const err = await resp.json().catch(()=>({}));
+        console.error('[lgen] upload-template failed:', err);
       }
     } catch(e) { console.warn('Template upload for meta failed:', e); }
   }
