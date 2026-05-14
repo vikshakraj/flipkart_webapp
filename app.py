@@ -4492,12 +4492,16 @@ def listing_gen_upload_template():
     is_xls = fname.endswith('.xls') and not fname.endswith('.xlsx')
     try:
         if is_xls:
-            import xlrd
-            wb = xlrd.open_workbook(file_contents=data, formatting_info=True)
+            try:
+                import xlrd
+                wb = xlrd.open_workbook(file_contents=data, formatting_info=True)
+            except ImportError:
+                return jsonify({'error': 'xlrd not installed — add xlrd to requirements.txt and redeploy'}), 500
         else:
             import openpyxl
             wb = openpyxl.load_workbook(_io.BytesIO(data))
     except Exception as e:
+        import traceback; traceback.print_exc()
         return jsonify({'error': f'Invalid file: {e}'}), 400
     tmp = LISTING_TEMPLATE_PATH + '.tmp'
     with open(tmp, 'wb') as out:
