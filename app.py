@@ -4997,67 +4997,59 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
     is_xls = upload_is_xls or (not tpl_file and stored_is_xls)
 
     if is_xls:
-        # Convert xls to xlsx using LibreOffice — preserves all formatting, colours, fonts
-        import subprocess as _sp, tempfile as _tf, shutil as _sh, os as _os
-        _tmpdir = _tf.mkdtemp()
-        try:
-            _xls_path = _os.path.join(_tmpdir, 'template.xls')
-            with open(_xls_path, 'wb') as _f:
-                _f.write(template_bytes)
-            _r = _sp.run(
-                ['libreoffice', '--headless', '--convert-to', 'xlsx',
-                 '--outdir', _tmpdir, _xls_path],
-                capture_output=True, timeout=60
-            )
-            if _r.returncode != 0:
-                raise RuntimeError(f'LibreOffice failed: {_r.stderr.decode()[:200]}')
-            _outfiles = [f for f in _os.listdir(_tmpdir) if f.endswith('.xlsx')]
-            if not _outfiles:
-                raise RuntimeError('LibreOffice produced no xlsx output')
-            _xlsx_path = _os.path.join(_tmpdir, _outfiles[0])
-            with open(_xlsx_path, 'rb') as _f:
-                _xlsx_bytes = _f.read()
-        finally:
-            _sh.rmtree(_tmpdir, ignore_errors=True)
-        wb = load_workbook(_io.BytesIO(_xlsx_bytes))
-        original_filename = (original_filename or 'listing_output').rsplit('.', 1)[0] + '.xlsx'
+        # Use xlutils to fill xls directly — preserves all formatting, returns .xls
+        import xlrd as _xlrd
+        from xlutils.copy import copy as _xl_copy
+        _xls_rb = _xlrd.open_workbook(file_contents=template_bytes, formatting_info=True)
+        _xls_wb = _xl_copy(_xls_rb)
+        # Find category sheet index
+        _sheet_names = _xls_rb.sheet_names()
+        _SKIP = {'Summary Sheet','Index','DropDownValuesForColumn27','DropDownValuesForColumn33',
+                 'DropDownValuesForColumn31','Listing FAQ Sheet','Image GuideLines',
+                 'MatchingAttributes','VariantAttributes','Parent Variant Products','template_version'}
+        _cat_sheet = next((n for n in _sheet_names if n not in _SKIP), None)
+        if not _cat_sheet:
+            raise RuntimeError('Could not identify category sheet in xls template')
+        _xls_ws_r = _xls_rb.sheet_by_name(_cat_sheet)  # read-only for column lookup
+        _xls_ws_w = _xls_wb.get_sheet(_cat_sheet)       # writable sheet
+
+        # Build column name → index map from header row
+        _col_map = {}
+        for _c in range(_xls_ws_r.ncols):
+            _h = _xls_ws_r.cell_value(0, _c)
+            if _h: _col_map[str(_h)] = _c
+
+        # Find first empty data row (skip header)
+        _data_start_row = 1
+        # Helper to write a value to a named column in a given row
+        def _write_col(row, col_name, value):
+            if col_name in _col_map and value is not None and str(value).strip():
+                _xls_ws_w.write(row, _col_map[col_name], value)
+
+        # We'll fill data row by row below (same logic as xlsx path but using _write_col)
+        # Store reference for later use
+        _xls_mode   = True
+        _xls_out_wb = _xls_wb
+        wb           = None  # signal to use xls path below
+        original_filename = (original_filename or 'listing_output').rsplit('.', 1)[0] + '.xls'
     else:
+        _xls_mode = False
         wb = load_workbook(_io.BytesIO(template_bytes))
 
     # Identify the category sheet (3rd-ish sheet, not a known utility sheet)
     SKIP_SHEETS = {'Summary Sheet', 'Index', 'DropDownValuesForColumn27', 'DropDownValuesForColumn33',
-                   'Listing FAQ Sheet', 'Image GuideLines', 'MatchingAttributes',
+                   'DropDownValuesForColumn31', 'Listing FAQ Sheet', 'Image GuideLines', 'MatchingAttributes',
                    'VariantAttributes', 'Parent Variant Products', 'template_version'}
-    category_sheet = None
-    for name in wb.sheetnames:
-        if name not in SKIP_SHEETS:
-            category_sheet = name
-            break
-
-    if not category_sheet:
-        return jsonify({'error': 'Could not identify category sheet in template'}), 400
-
-    ws = wb[category_sheet]
-
-    # Build column name → index map from row 1
-    col_map = {}
     unfilled_blue = []
-    BLUE   = 'FF8DB4E2'
-    PURPLE = 'FFCC99FF'
-    GREEN  = 'FF94D050'
-    GREEN_FILL = {'Other Image URL 1', 'Other Image URL 2', 'Other Image URL 3', 'Other Image URL 4', 'Description', 'Key Features'}
 
-    for col in range(1, ws.max_column + 1):
-        cell  = ws.cell(row=1, column=col)
-        hdr   = cell.value
-        if not hdr: continue
-        fill  = cell.fill
-        color = fill.fgColor.rgb if fill and fill.fgColor and fill.fgColor.type == 'rgb' else None
-        is_blue   = color == BLUE
-        is_purple = color == PURPLE
-        is_green  = color == GREEN
-        col_map[hdr] = col
-        # Track unfilled mandatory blue columns (change 7: dynamic — anything blue not in form_data and not auto-filled)
+    if _xls_mode:
+        # XLS path — use xlrd col_map and xlutils writable sheet already set up above
+        category_sheet = _cat_sheet
+        ws = None
+        col_map = _col_map
+
+        # Track unfilled blue fields using xlrd colour info
+        BLUE_IDX   = 12
         AUTO_HANDLED = {
             'Flipkart Product Link', 'Flipkart Serial Number', 'Catalog QC Status',
             'QC Failed Reason (if any)', 'Product Data Status', 'Disapproval Reason (if any)',
@@ -5074,12 +5066,60 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
             'Search Keywords', 'Items Included',
         }
         dynamic_provided = set(fd.get('dynamic_fields', {}).keys())
-        if is_blue and hdr not in AUTO_HANDLED and hdr not in dynamic_provided:
-            unfilled_blue.append(hdr)
+        for _c in range(_xls_ws_r.ncols):
+            _h = _xls_ws_r.cell_value(0, _c)
+            if not _h: continue
+            _xf = _xls_rb.xf_list[_xls_ws_r.cell_xf_index(0, _c)]
+            if _xf.background.pattern_colour_index == BLUE_IDX and str(_h) not in AUTO_HANDLED and str(_h) not in dynamic_provided:
+                unfilled_blue.append(str(_h))
 
-    def set_cell(row, col_name, value):
-        if col_name in col_map:
-            ws.cell(row=row, column=col_map[col_name]).value = value
+        def set_cell(row, col_name, value):
+            if col_name in col_map and value is not None and str(value).strip() != '':
+                _xls_ws_w.write(row - 1, col_map[col_name], value)  # xlwt is 0-indexed
+    else:
+        # XLSX path
+        category_sheet = None
+        for name in wb.sheetnames:
+            if name not in SKIP_SHEETS:
+                category_sheet = name
+                break
+        if not category_sheet:
+            return jsonify({'error': 'Could not identify category sheet in template'}), 400
+        ws = wb[category_sheet]
+        col_map = {}
+        BLUE   = 'FF8DB4E2'
+        PURPLE = 'FFCC99FF'
+        GREEN  = 'FF94D050'
+        GREEN_FILL = {'Other Image URL 1', 'Other Image URL 2', 'Other Image URL 3', 'Other Image URL 4', 'Description', 'Key Features'}
+        for col in range(1, ws.max_column + 1):
+            cell  = ws.cell(row=1, column=col)
+            hdr   = cell.value
+            if not hdr: continue
+            fill  = cell.fill
+            color = fill.fgColor.rgb if fill and fill.fgColor and fill.fgColor.type == 'rgb' else None
+            col_map[hdr] = col
+            AUTO_HANDLED = {
+                'Flipkart Product Link', 'Flipkart Serial Number', 'Catalog QC Status',
+                'QC Failed Reason (if any)', 'Product Data Status', 'Disapproval Reason (if any)',
+                'Seller SKU ID', 'Listing Status', 'MRP (INR)', 'Your selling price (INR)',
+                'Fullfilment by', 'Procurement type', 'Procurement SLA (DAY)', 'Stock',
+                'Shipping provider', 'Local handling fee (INR)', 'Zonal handling fee (INR)',
+                'National handling fee (INR)', 'Length (CM)', 'Breadth (CM)', 'Height (CM)',
+                'Weight (KG)', 'HSN', 'Country Of Origin', 'Manufacturer Details',
+                'Packer Details', 'Importer Details', 'Tax Code', 'Brand', 'Ideal For',
+                'Ingredient Type', 'Type', 'Minimum Age (Month)', 'Maximum Age (Month)',
+                'Model Name', 'Quantity', 'Quantity - Measuring Unit', 'Pack of',
+                'Main Image URL', 'Other Image URL 1', 'Other Image URL 2',
+                'Other Image URL 3', 'Other Image URL 4', 'Description', 'Key Features',
+                'Search Keywords', 'Items Included',
+            }
+            dynamic_provided = set(fd.get('dynamic_fields', {}).keys())
+            if color == BLUE and hdr not in AUTO_HANDLED and hdr not in dynamic_provided:
+                unfilled_blue.append(hdr)
+
+        def set_cell(row, col_name, value):
+            if col_name in col_map:
+                ws.cell(row=row, column=col_map[col_name]).value = value
 
     # ── Write rows starting at row 5 ────────────────────────
     search_kw_str = '::'.join(top_keywords)
@@ -5158,18 +5198,26 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
 
     # ── Save and return ──────────────────────────────────────
     out_buf = _io.BytesIO()
-    wb.save(out_buf)
-    out_buf.seek(0)
-
-    # Sanitise filename
-    safe_name = original_filename if original_filename.endswith('.xlsx') else original_filename + '.xlsx'
-
-    return send_file(
-        out_buf,
-        as_attachment=True,
-        download_name=safe_name,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    ), 200, {'X-Unfilled-Fields': _json.dumps(unfilled_blue)}
+    if _xls_mode:
+        _xls_out_wb.save(out_buf)
+        out_buf.seek(0)
+        safe_name = original_filename if original_filename.endswith('.xls') else original_filename + '.xls'
+        return send_file(
+            out_buf,
+            as_attachment=True,
+            download_name=safe_name,
+            mimetype='application/vnd.ms-excel'
+        ), 200, {'X-Unfilled-Fields': _json.dumps(unfilled_blue)}
+    else:
+        wb.save(out_buf)
+        out_buf.seek(0)
+        safe_name = original_filename if original_filename.endswith('.xlsx') else original_filename + '.xlsx'
+        return send_file(
+            out_buf,
+            as_attachment=True,
+            download_name=safe_name,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        ), 200, {'X-Unfilled-Fields': _json.dumps(unfilled_blue)}
 
 
 
