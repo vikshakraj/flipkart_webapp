@@ -5,3 +5,5 @@ openpyxl
 requests
 pandas
 xlrd
+xlwt
+xlutils
