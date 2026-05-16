@@ -7218,17 +7218,26 @@ function lstResolveProduct(skuId) {
       // Restore URL-only previews from saved profile if no files loaded yet
       if(_lgenMainImgsByPack[pack].length === 0) {
         const savedUrls = saved[`main_urls_pack_${pack}`] || [];
+        const existingPackUrls = new Set(_lgenMainImgsByPack[pack].map(i => i.previewUrl));
         savedUrls.forEach(url => {
-          _lgenMainImgsByPack[pack].push({ file: null, previewUrl: url, savedUrl: url });
+          if(!existingPackUrls.has(url)) {
+            _lgenMainImgsByPack[pack].push({ file: null, previewUrl: url, savedUrl: url });
+            existingPackUrls.add(url);
+          }
         });
       }
       lgenRenderPackImgGrid(pack);
     });
-    // Gallery
+    // Gallery — only restore saved URLs if no gallery images loaded yet
+    // Deduplicate by URL to prevent double-push on repeated step visits
     if(_lgenGalleryImgs.length === 0) {
       const savedGallery = saved['gallery_urls'] || [];
+      const existingUrls = new Set(_lgenGalleryImgs.map(i => i.previewUrl));
       savedGallery.forEach(url => {
-        _lgenGalleryImgs.push({ file: null, previewUrl: url, savedUrl: url });
+        if(!existingUrls.has(url)) {
+          _lgenGalleryImgs.push({ file: null, previewUrl: url, savedUrl: url });
+          existingUrls.add(url);
+        }
       });
       lgenRenderImgGrid('gallery');
     }
@@ -7393,8 +7402,16 @@ function lstResolveProduct(skuId) {
         return false;
       }
     }
-    if(_lgenGalleryImgs.length < 5 || _lgenGalleryImgs.length > 20) {
-      showErr('lgenGalleryImgErr', 'Upload 5–20 gallery images'); return false;
+    const galCount = _lgenGalleryImgs.length;
+    if(galCount < 5 || galCount > 20) {
+      const errMsg = galCount === 0
+        ? 'Please upload at least 5 gallery images'
+        : `Upload 5–20 gallery images (currently ${galCount})`;
+      showErr('lgenGalleryImgErr', errMsg);
+      // Scroll to gallery error so user sees it
+      const errEl = document.getElementById('lgenGalleryImgErr');
+      if(errEl) errEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return false;
     }
     return true;
   }
