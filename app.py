@@ -4997,30 +4997,29 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
     is_xls = upload_is_xls or (not tpl_file and stored_is_xls)
 
     if is_xls:
-        # Convert xls → xlsx in memory — copy cell values only, no data validations
-        import xlrd as _xlrd
-        xls_wb = _xlrd.open_workbook(file_contents=template_bytes)
-        new_wb = openpyxl.Workbook()
-        new_wb.remove(new_wb.active)
-        # Illegal chars in xlsx (openpyxl rejects them)
-        import re as _re
-        _illegal = _re.compile(r'[--]')
-        def _clean(v):
-            if isinstance(v, str):
-                return _illegal.sub('', v)
-            return v
-        for sheet_name in xls_wb.sheet_names():
-            xls_ws = xls_wb.sheet_by_name(sheet_name)
-            new_ws = new_wb.create_sheet(title=sheet_name)
-            for row in range(xls_ws.nrows):
-                for col in range(xls_ws.ncols):
-                    new_ws.cell(row=row+1, column=col+1,
-                                value=_clean(xls_ws.cell_value(row, col)))
-            new_ws.data_validations.dataValidation = []
-        buf = _io.BytesIO()
-        new_wb.save(buf)
-        buf.seek(0)
-        wb = load_workbook(buf, data_only=True)
+        # Convert xls to xlsx using LibreOffice — preserves all formatting, colours, fonts
+        import subprocess as _sp, tempfile as _tf, shutil as _sh, os as _os
+        _tmpdir = _tf.mkdtemp()
+        try:
+            _xls_path = _os.path.join(_tmpdir, 'template.xls')
+            with open(_xls_path, 'wb') as _f:
+                _f.write(template_bytes)
+            _r = _sp.run(
+                ['libreoffice', '--headless', '--convert-to', 'xlsx',
+                 '--outdir', _tmpdir, _xls_path],
+                capture_output=True, timeout=60
+            )
+            if _r.returncode != 0:
+                raise RuntimeError(f'LibreOffice failed: {_r.stderr.decode()[:200]}')
+            _outfiles = [f for f in _os.listdir(_tmpdir) if f.endswith('.xlsx')]
+            if not _outfiles:
+                raise RuntimeError('LibreOffice produced no xlsx output')
+            _xlsx_path = _os.path.join(_tmpdir, _outfiles[0])
+            with open(_xlsx_path, 'rb') as _f:
+                _xlsx_bytes = _f.read()
+        finally:
+            _sh.rmtree(_tmpdir, ignore_errors=True)
+        wb = load_workbook(_io.BytesIO(_xlsx_bytes))
         original_filename = (original_filename or 'listing_output').rsplit('.', 1)[0] + '.xlsx'
     else:
         wb = load_workbook(_io.BytesIO(template_bytes))
