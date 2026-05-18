@@ -3671,6 +3671,10 @@ def _fk_auto_dispatch(test_mode=False):
     if test_mode:
         approved_shipments = approved_shipments[:1]
         print(f'[AutoDispatch TEST MODE] Limiting to 1 shipment: {approved_shipments[0].get("shipmentId")}')
+        # Dump raw shipment so we can see what FK returns (keys, invoice fields, etc)
+        s0 = approved_shipments[0]
+        print(f'[AutoDispatch] Raw shipment keys: {list(s0.keys())}')
+        print(f'[AutoDispatch] Raw shipment (truncated): {json.dumps(s0)[:1000]}')
 
     print(f'[AutoDispatch] Found {len(approved_shipments)} APPROVED shipments for {account}')
 
@@ -3705,7 +3709,7 @@ def _fk_auto_dispatch(test_mode=False):
     for i in range(0, len(approved_shipments), 25):
         batch = approved_shipments[i:i+25]
         pack_payload = {'shipments': []}
-        now_iso = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        now_iso = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
         for s in batch:
             sid        = s.get('shipmentId') or s.get('shipment_id', '')
             order_items = s.get('orderItems', [])
@@ -3721,7 +3725,7 @@ def _fk_auto_dispatch(test_mode=False):
             invoices = []
             for oid in seen_orders:
                 inv_num = f'LWAABB427{_rand.randint(1000000, 9999999)}'
-                invoices.append({'orderId': oid, 'invoiceDate': now_iso, 'invoiceNumber': inv_num})
+                invoices.append({'orderId': oid, 'invoiceDate': now_iso[:10], 'invoiceNumber': inv_num})
 
             # Build taxItems — one entry per orderItem with correct GST rate per product
             tax_items = []
