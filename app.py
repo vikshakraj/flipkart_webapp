@@ -3512,7 +3512,8 @@ FK_AUTO_DISPATCH_ACCOUNT  = 'CUTEST CLUB'
 FK_AUTO_DISPATCH_LOCATION = 'LOC87f71f39207645b9b9427c976d4a7da1'
 
 # Default package dimensions for orders with no pre-existing dimensions
-FK_DEFAULT_DIMS   = {'length': 10, 'breadth': 5, 'height': 5, 'width': 0.2}
+FK_DEFAULT_DIMS   = {'length': 10, 'breadth': 5, 'height': 5}  # cm — width/weight sent separately
+FK_DEFAULT_WEIGHT = 0.2  # kg — sent as subShipment-level 'weight', not inside dimensions
 FK_SKU_DIMS_PATH  = os.path.join(_data_dir, 'sku_dimensions.json')
 
 def _load_sku_dims():
@@ -3769,10 +3770,9 @@ def _fk_auto_dispatch(test_mode=False):
                 if pkgs and pkgs[0].get('dimensions'):
                     pd = pkgs[0]['dimensions']
                     return {
-                        'length':  pd.get('length',  FK_DEFAULT_DIMS['length']),
-                        'breadth': pd.get('breadth', FK_DEFAULT_DIMS['breadth']),
-                        'height':  pd.get('height',  FK_DEFAULT_DIMS['height']),
-                        'width':   pd.get('width',   FK_DEFAULT_DIMS['width']),
+                        'length':  int(pd.get('length',  FK_DEFAULT_DIMS['length'])),
+                        'breadth': int(pd.get('breadth', FK_DEFAULT_DIMS['breadth'])),
+                        'height':  int(pd.get('height',  FK_DEFAULT_DIMS['height'])),
                     }
                 # Try SKU dimensions cache
                 for sku in sku_list:
@@ -3780,10 +3780,9 @@ def _fk_auto_dispatch(test_mode=False):
                         d = sku_dims_cache[sku]
                         print(f'[AutoDispatch] Using cached dims for {sku}: {d}')
                         return {
-                            'length':  d.get('length',  FK_DEFAULT_DIMS['length']),
-                            'breadth': d.get('breadth', FK_DEFAULT_DIMS['breadth']),
-                            'height':  d.get('height',  FK_DEFAULT_DIMS['height']),
-                            'width':   d.get('width',   FK_DEFAULT_DIMS['width']),
+                            'length':  int(d.get('length',  FK_DEFAULT_DIMS['length'])),
+                            'breadth': int(d.get('breadth', FK_DEFAULT_DIMS['breadth'])),
+                            'height':  int(d.get('height',  FK_DEFAULT_DIMS['height'])),
                         }
                 print(f'[AutoDispatch] No cached dims found for SKUs {sku_list}, using defaults')
                 return FK_DEFAULT_DIMS.copy()
@@ -3796,10 +3795,15 @@ def _fk_auto_dispatch(test_mode=False):
                     sub_shipments.append({
                         'subShipment': sub_id,
                         'dimensions':  dims,
+                        'weight':      FK_DEFAULT_WEIGHT,
                     })
             # Fallback: if no subShipments in API response, use SS-1
             if not sub_shipments:
-                sub_shipments = [{'subShipment': 'SS-1', 'dimensions': _get_dims_for_shipment(shipment_skus)}]
+                sub_shipments = [{
+                    'subShipment': 'SS-1',
+                    'dimensions':  _get_dims_for_shipment(shipment_skus),
+                    'weight':      FK_DEFAULT_WEIGHT,
+                }]
 
             pack_payload['shipments'].append({
                 'shipmentId':   sid,
