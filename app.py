@@ -3246,6 +3246,17 @@ def listings_get(account):
                     price = det.get('price', {})
                     locs  = det.get('locations', [])
                     stock = sum(loc.get('inventory', 0) for loc in locs if loc.get('status') == 'ENABLED')
+                    # Extract dimensions from packages
+                    pkgs = det.get('packages', [])
+                    dims = {}
+                    if pkgs and isinstance(pkgs, list) and pkgs[0].get('dimensions'):
+                        d = pkgs[0]['dimensions']
+                        dims = {
+                            'length':  d.get('length',  0),
+                            'breadth': d.get('breadth', 0),
+                            'height':  d.get('height',  0),
+                            'weight':  d.get('weight',  0),
+                        }
                     detail_map[sku_id] = {
                         'selling_price': price.get('selling_price', ''),
                         'mrp':           price.get('mrp', ''),
@@ -3253,6 +3264,7 @@ def listings_get(account):
                         'stock_count':   stock,
                         'fsn':           det.get('fsn', ''),
                         'locations':     [{'id': loc.get('id',''), 'status': loc.get('status','ENABLED')} for loc in locs],
+                        'dimensions':    dims,
                     }
 
         # ── Merge ──
@@ -3269,7 +3281,15 @@ def listings_get(account):
                 'mop':           det.get('mop', ''),
                 'stock_count':   det.get('stock_count', 0),
                 'locations':     det.get('locations', []),
+                'dimensions':    det.get('dimensions', {}),
             })
+
+        # Persist SKU dimensions to cache for auto-dispatch use
+        dims_cache = _load_sku_dims()
+        for row in listings:
+            if row.get('dimensions') and row['sku_id']:
+                dims_cache[row['sku_id']] = row['dimensions']
+        _save_sku_dims(dims_cache)
 
         return jsonify({
             'ok':             True,
@@ -3492,7 +3512,23 @@ FK_AUTO_DISPATCH_ACCOUNT  = 'CUTEST CLUB'
 FK_AUTO_DISPATCH_LOCATION = 'LOC87f71f39207645b9b9427c976d4a7da1'
 
 # Default package dimensions for orders with no pre-existing dimensions
-FK_DEFAULT_DIMS = {'length': 10, 'breadth': 5, 'height': 5, 'width': 0.2}
+FK_DEFAULT_DIMS   = {'length': 10, 'breadth': 5, 'height': 5, 'weight': 0.2}
+FK_SKU_DIMS_PATH  = os.path.join(_data_dir, 'sku_dimensions.json')
+
+def _load_sku_dims():
+    """Load SKU→dimensions map from persistent cache."""
+    if os.path.exists(FK_SKU_DIMS_PATH):
+        try:
+            with open(FK_SKU_DIMS_PATH) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def _save_sku_dims(dims_map):
+    """Persist SKU→dimensions map."""
+    with open(FK_SKU_DIMS_PATH, 'w') as f:
+        json.dump(dims_map, f)
 
 # ── Cron schedule config — stored in /data so editable at runtime ────────────
 CRON_CONFIG_PATH = os.path.join(_data_dir, 'cron_config.json')
@@ -3712,28 +3748,50 @@ def _fk_auto_dispatch(test_mode=False):
 
             # Build sub-shipment entries using the subShipmentId returned by Flipkart API
             # e.g. "SS-1", "SS-2" — these are the correct IDs for the pack API, NOT the shipmentId UUID
-            sub_shipments = []
-            for sub in s.get('subShipments', []):
-                sub_id = sub.get('subShipmentId', '')
-                # Use actual dimensions from the shipment if available, else default
-                dims = FK_DEFAULT_DIMS
-                pkgs = sub.get('packages', [])
+            # Load SKU dimensions cache for lookup
+            sku_dims_cache = _load_sku_dims()
+
+            # Get SKU IDs from this shipment's order items
+            shipment_skus = list({item.get('skuId', '') for item in s.get('orderItems', []) if item.get('skuId')})
+
+            def _get_dims_for_shipment(sku_list):
+                """Get dimensions: shipment packages → SKU cache → default."""
+                # Try shipment packages first
+                pkgs = s.get('packages', [])
                 if pkgs and pkgs[0].get('dimensions'):
                     pd = pkgs[0]['dimensions']
-                    dims = {
+                    return {
                         'length':  pd.get('length',  FK_DEFAULT_DIMS['length']),
                         'breadth': pd.get('breadth', FK_DEFAULT_DIMS['breadth']),
                         'height':  pd.get('height',  FK_DEFAULT_DIMS['height']),
-                        'width':   pd.get('weight',  FK_DEFAULT_DIMS['width']),  # API uses 'width' not 'weight'
+                        'weight':  pd.get('weight',  FK_DEFAULT_DIMS['weight']),
                     }
+                # Try SKU dimensions cache
+                for sku in sku_list:
+                    if sku in sku_dims_cache and sku_dims_cache[sku]:
+                        d = sku_dims_cache[sku]
+                        print(f'[AutoDispatch] Using cached dims for {sku}: {d}')
+                        return {
+                            'length':  d.get('length',  FK_DEFAULT_DIMS['length']),
+                            'breadth': d.get('breadth', FK_DEFAULT_DIMS['breadth']),
+                            'height':  d.get('height',  FK_DEFAULT_DIMS['height']),
+                            'weight':  d.get('weight',  FK_DEFAULT_DIMS['weight']),
+                        }
+                print(f'[AutoDispatch] No cached dims found for SKUs {sku_list}, using defaults')
+                return FK_DEFAULT_DIMS.copy()
+
+            sub_shipments = []
+            for sub in s.get('subShipments', []):
+                sub_id = sub.get('subShipmentId', '')
+                dims   = _get_dims_for_shipment(shipment_skus)
                 if sub_id:
                     sub_shipments.append({
                         'subShipment': sub_id,
                         'dimensions':  dims,
                     })
-            # Fallback: if no subShipments in API response, use SS-1 (standard for single-item)
+            # Fallback: if no subShipments in API response, use SS-1
             if not sub_shipments:
-                sub_shipments = [{'subShipment': 'SS-1', 'dimensions': FK_DEFAULT_DIMS}]
+                sub_shipments = [{'subShipment': 'SS-1', 'dimensions': _get_dims_for_shipment(shipment_skus)}]
 
             pack_payload['shipments'].append({
                 'shipmentId':   sid,
