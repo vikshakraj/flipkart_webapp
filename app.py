@@ -3752,15 +3752,15 @@ def _fk_auto_dispatch(test_mode=False):
             sku_dims_cache = _load_sku_dims()
 
             # Get SKU IDs from this shipment's order items
-            # Try both skuId and sku_id field names
+            # FK API returns field as 'sku' (confirmed from orderItem keys log)
             shipment_skus = list({
-                item.get('skuId') or item.get('sku_id') or item.get('sellerSKUId') or ''
+                item.get('sku') or item.get('skuId') or item.get('sku_id') or item.get('sellerSKUId') or ''
                 for item in s.get('orderItems', [])
-                if item.get('skuId') or item.get('sku_id') or item.get('sellerSKUId')
+                if item.get('sku') or item.get('skuId') or item.get('sku_id') or item.get('sellerSKUId')
             })
-            if not shipment_skus and s.get('orderItems'):
-                # Log available keys to help diagnose
+            if s.get('orderItems'):
                 print(f'[AutoDispatch] orderItem keys: {list(s["orderItems"][0].keys())}')
+                print(f'[AutoDispatch] shipment_skus resolved: {shipment_skus}')
 
             def _get_dims_for_shipment(sku_list):
                 """Get dimensions: shipment packages → SKU cache → default."""
@@ -3834,6 +3834,8 @@ def _fk_auto_dispatch(test_mode=False):
             else:
                 pack_errors.append(f'Batch {i//25+1} HTTP {r.status_code}: {r.text[:150]}')
         except Exception as e:
+            import traceback as _tb
+            print(f'[AutoDispatch] Batch {i//25+1} exception: {e}\n{_tb.format_exc()}')
             pack_errors.append(f'Batch {i//25+1} error: {e}')
 
     print(f'[AutoDispatch] Packed {len(shipment_ids_packed)} shipments. Errors: {len(pack_errors)}')
