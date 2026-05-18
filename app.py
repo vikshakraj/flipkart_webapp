@@ -3673,7 +3673,8 @@ def _fk_auto_dispatch(test_mode=False):
         # Dump raw shipment so we can see what FK returns (keys, invoice fields, etc)
         s0 = approved_shipments[0]
         print(f'[AutoDispatch] Raw shipment keys: {list(s0.keys())}')
-        print(f'[AutoDispatch] Raw shipment (truncated): {json.dumps(s0)[:1000]}')
+        print(f'[AutoDispatch] Raw shipment forms: {json.dumps(s0.get("forms", "NO_FORMS_KEY"))}')
+        print(f'[AutoDispatch] Raw shipment full: {json.dumps(s0)[:3000]}')
 
     print(f'[AutoDispatch] Found {len(approved_shipments)} APPROVED shipments for {account}')
 
@@ -3827,13 +3828,15 @@ def _fk_auto_dispatch(test_mode=False):
                     'dimensions':  _get_dims_for_shipment(shipment_skus),
                 }]
 
-            pack_payload['shipments'].append({
+            # DEBUG: Sending WITHOUT invoices to isolate if invoices causes the 400
+            shipment_entry = {
                 'shipmentId':   sid,
-                'locationId':   s.get('locationId', location),  # use shipment's own locationId
-                'invoices':     invoices,
-                'taxItems':     tax_items,
+                'locationId':   s.get('locationId', location),
                 'subShipments': sub_shipments,
-            })
+                'taxItems':     tax_items,
+                # 'invoices': invoices,  # DISABLED — testing if this is the bad field
+            }
+            pack_payload['shipments'].append(shipment_entry)
         try:
             # Log shipment states before packing
             sids_in_batch = [s.get('shipmentId','') for s in batch]
