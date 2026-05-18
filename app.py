@@ -4076,20 +4076,24 @@ def _fk_auto_dispatch(test_mode=False):
             r = _req.post(dispatch_url,
                           json={'shipmentIds': batch, 'locationId': location},
                           headers=headers, timeout=30)
+            print(f'[AutoDispatch] RTD batch {i//25+1} response [{r.status_code}]: {r.text[:400]}')
             if r.status_code == 200:
-                for result in r.json().get('shipments', []):
-                    if result.get('status', '').upper() in ('SUCCESS', 'READY_TO_DISPATCH', ''):
+                resp_data = r.json()
+                # Some API versions return empty shipments on full success
+                if not resp_data.get('shipments'):
+                    rtd_count += len(batch)
+                for result in resp_data.get('shipments', []):
+                    status = result.get('status', '').upper()
+                    if status in ('SUCCESS', 'READY_TO_DISPATCH', ''):
                         rtd_count += 1
                     else:
-                        rtd_errors.append(f"{result['shipmentId']}: {result.get('errorMessage','')}")
+                        err = f"{result.get('shipmentId')}: [{status}] {result.get('errorMessage','')}"
+                        rtd_errors.append(err)
+                        print(f'[AutoDispatch] RTD error: {err}')
             else:
                 rtd_errors.append(f'RTD batch {i//25+1} HTTP {r.status_code}: {r.text[:150]}')
         except Exception as e:
             rtd_errors.append(f'RTD batch {i//25+1} error: {e}')
-
-    # If API returns empty shipments list, count all as RTD (some API versions do this on full success)
-    if rtd_count == 0 and not rtd_errors:
-        rtd_count = len(shipment_ids_packed)
 
     print(f'[AutoDispatch] RTD: {rtd_count} marked, {len(rtd_errors)} errors')
 
