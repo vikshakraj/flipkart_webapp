@@ -3255,7 +3255,7 @@ def listings_get(account):
                             'length':  d.get('length',  0),
                             'breadth': d.get('breadth', 0),
                             'height':  d.get('height',  0),
-                            'weight':  d.get('weight',  0),
+                            'width':   d.get('width',   0),
                         }
                     detail_map[sku_id] = {
                         'selling_price': price.get('selling_price', ''),
@@ -3512,7 +3512,7 @@ FK_AUTO_DISPATCH_ACCOUNT  = 'CUTEST CLUB'
 FK_AUTO_DISPATCH_LOCATION = 'LOC87f71f39207645b9b9427c976d4a7da1'
 
 # Default package dimensions for orders with no pre-existing dimensions
-FK_DEFAULT_DIMS   = {'length': 10, 'breadth': 5, 'height': 5, 'weight': 0.2}
+FK_DEFAULT_DIMS   = {'length': 10, 'breadth': 5, 'height': 5, 'width': 0.2}
 FK_SKU_DIMS_PATH  = os.path.join(_data_dir, 'sku_dimensions.json')
 
 def _load_sku_dims():
@@ -3772,7 +3772,7 @@ def _fk_auto_dispatch(test_mode=False):
                         'length':  pd.get('length',  FK_DEFAULT_DIMS['length']),
                         'breadth': pd.get('breadth', FK_DEFAULT_DIMS['breadth']),
                         'height':  pd.get('height',  FK_DEFAULT_DIMS['height']),
-                        'weight':  pd.get('weight',  FK_DEFAULT_DIMS['weight']),
+                        'width':   pd.get('width',   FK_DEFAULT_DIMS['width']),
                     }
                 # Try SKU dimensions cache
                 for sku in sku_list:
@@ -3783,7 +3783,7 @@ def _fk_auto_dispatch(test_mode=False):
                             'length':  d.get('length',  FK_DEFAULT_DIMS['length']),
                             'breadth': d.get('breadth', FK_DEFAULT_DIMS['breadth']),
                             'height':  d.get('height',  FK_DEFAULT_DIMS['height']),
-                            'weight':  d.get('weight',  FK_DEFAULT_DIMS['weight']),
+                            'width':   d.get('width',   FK_DEFAULT_DIMS['width']),
                         }
                 print(f'[AutoDispatch] No cached dims found for SKUs {sku_list}, using defaults')
                 return FK_DEFAULT_DIMS.copy()
