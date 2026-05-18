@@ -3816,11 +3816,10 @@ def _fk_auto_dispatch(test_mode=False):
                     entry = {
                         'subShipment': sub_id,
                         'dimensions':  dims,
+                        # packageId REMOVED — testing if it's causing the 400
                     }
-                    if pkg_id:
-                        entry['packageId'] = pkg_id
                     sub_shipments.append(entry)
-                    print(f'[AutoDispatch] subShipment {sub_id}: packageId={pkg_id}, dims={dims}')
+                    print(f'[AutoDispatch] subShipment {sub_id}: packageId={pkg_id} (omitted), dims={dims}')
             # Fallback: if no subShipments in API response, use SS-1
             if not sub_shipments:
                 sub_shipments = [{
