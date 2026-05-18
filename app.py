@@ -3752,7 +3752,15 @@ def _fk_auto_dispatch(test_mode=False):
             sku_dims_cache = _load_sku_dims()
 
             # Get SKU IDs from this shipment's order items
-            shipment_skus = list({item.get('skuId', '') for item in s.get('orderItems', []) if item.get('skuId')})
+            # Try both skuId and sku_id field names
+            shipment_skus = list({
+                item.get('skuId') or item.get('sku_id') or item.get('sellerSKUId') or ''
+                for item in s.get('orderItems', [])
+                if item.get('skuId') or item.get('sku_id') or item.get('sellerSKUId')
+            })
+            if not shipment_skus and s.get('orderItems'):
+                # Log available keys to help diagnose
+                print(f'[AutoDispatch] orderItem keys: {list(s["orderItems"][0].keys())}')
 
             def _get_dims_for_shipment(sku_list):
                 """Get dimensions: shipment packages → SKU cache → default."""
@@ -3805,7 +3813,7 @@ def _fk_auto_dispatch(test_mode=False):
             sids_in_batch = [s.get('shipmentId','') for s in batch]
             print(f'[AutoDispatch] Packing shipments: {sids_in_batch}')
             print(f'[AutoDispatch] Their states: {[s.get("orderItems",[{}])[0].get("status","?") if s.get("orderItems") else "?" for s in batch]}')
-            print(f'[AutoDispatch] Pack payload batch {i//25+1}: {json.dumps(pack_payload)[:800]}')
+            print(f'[AutoDispatch] Pack payload batch {i//25+1}: {json.dumps(pack_payload)}')
             r = _req.post(pack_url, json=pack_payload, headers=headers, timeout=60)
             print(f'[AutoDispatch] Pack response {r.status_code}: {r.text[:500]}')
             if r.status_code == 200:
