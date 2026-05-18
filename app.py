@@ -3812,17 +3812,16 @@ def _fk_auto_dispatch(test_mode=False):
                 dims = _get_dims_for_shipment(shipment_skus)
                 if sub_id:
                     entry = {
-                        'subShipment': sub_id,
-                        'dimensions':  dims,
-                        # packageId REMOVED — testing if it's causing the 400
+                        'subShipmentId': sub_id,  # FK pack API uses subShipmentId (not subShipment)
+                        'dimensions':    dims,
                     }
                     sub_shipments.append(entry)
-                    print(f'[AutoDispatch] subShipment {sub_id}: packageId={pkg_id} (omitted), dims={dims}')
+                    print(f'[AutoDispatch] subShipmentId {sub_id}: dims={dims}')
             # Fallback: if no subShipments in API response, use SS-1
             if not sub_shipments:
                 sub_shipments = [{
-                    'subShipment': 'SS-1',
-                    'dimensions':  _get_dims_for_shipment(shipment_skus),
+                    'subShipmentId': 'SS-1',
+                    'dimensions':    _get_dims_for_shipment(shipment_skus),
                 }]
 
             # DEBUG: Bare minimum — no invoices, no taxItems
