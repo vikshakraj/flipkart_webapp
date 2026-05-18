@@ -3828,13 +3828,14 @@ def _fk_auto_dispatch(test_mode=False):
                     'dimensions':  _get_dims_for_shipment(shipment_skus),
                 }]
 
-            # DEBUG: Sending WITHOUT invoices to isolate if invoices causes the 400
+            # DEBUG: Bare minimum — no invoices, no taxItems
+            # invoices removed: still 400. Now removing taxItems too.
             shipment_entry = {
                 'shipmentId':   sid,
                 'locationId':   s.get('locationId', location),
                 'subShipments': sub_shipments,
-                'taxItems':     tax_items,
-                # 'invoices': invoices,  # DISABLED — testing if this is the bad field
+                # 'taxItems':  tax_items,   # DISABLED — testing
+                # 'invoices':  invoices,    # DISABLED — tested, not the cause
             }
             pack_payload['shipments'].append(shipment_entry)
         try:
