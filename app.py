@@ -3670,11 +3670,7 @@ def _fk_auto_dispatch(test_mode=False):
     if test_mode:
         approved_shipments = approved_shipments[:1]
         print(f'[AutoDispatch TEST MODE] Limiting to 1 shipment: {approved_shipments[0].get("shipmentId")}')
-        # Dump raw shipment so we can see what FK returns (keys, invoice fields, etc)
-        s0 = approved_shipments[0]
-        print(f'[AutoDispatch] Raw shipment keys: {list(s0.keys())}')
-        print(f'[AutoDispatch] Raw shipment forms: {json.dumps(s0.get("forms", "NO_FORMS_KEY"))}')
-        print(f'[AutoDispatch] Raw shipment full: {json.dumps(s0)[:3000]}')
+
 
     print(f'[AutoDispatch] Found {len(approved_shipments)} APPROVED shipments for {account}')
 
@@ -3763,9 +3759,10 @@ def _fk_auto_dispatch(test_mode=False):
                 for item in s.get('orderItems', [])
                 if item.get('sku') or item.get('skuId') or item.get('sku_id') or item.get('sellerSKUId')
             })
-            if s.get('orderItems'):
-                print(f'[AutoDispatch] orderItem keys: {list(s["orderItems"][0].keys())}')
-                print(f'[AutoDispatch] shipment_skus resolved: {shipment_skus}')
+            # Log order IDs being packed for traceability
+            for _item in order_items:
+                print(f'[AutoDispatch] Packing orderId={_item.get("orderId")} orderItemId={_item.get("orderItemId")} sku={_item.get("sku")}')
+            print(f'[AutoDispatch] shipment_skus resolved: {shipment_skus}')
 
             def _get_dims_for_shipment(sku_list):
                 """Get dimensions: subShipment packages → SKU cache → default."""
@@ -3818,7 +3815,7 @@ def _fk_auto_dispatch(test_mode=False):
                         'dimensions':    dims,
                     }
                     sub_shipments.append(entry)
-                    print(f'[AutoDispatch] subShipmentId {sub_id}: dims={dims}')
+
             # Fallback: if no subShipments in API response, use SS-1
             if not sub_shipments:
                 sub_shipments = [{
@@ -3873,53 +3870,13 @@ def _fk_auto_dispatch(test_mode=False):
         return {'ok': False, 'error': f'All shipments failed to pack. Details: {error_detail}',
                 'pack_errors': pack_errors}
 
-    # ── Step 3a: Re-fetch PACKED shipment IDs to get the exact IDs the download endpoint expects ──
-    # The pack API sometimes returns empty/different IDs. Re-querying for PACKED state
-    # gives us the canonical IDs that the label download endpoint will accept.
+    # ── Step 3a: Small delay to allow FK to process the pack ──
     import time as _time
-    _time.sleep(15)
+    _time.sleep(5)
 
-    packed_ids_verified = []
-    try:
-        next_url2 = f'{base}/v3/shipments/filter/'
-        payload2  = {
-            'filter': {
-                'type':       'preDispatch',
-                'states':     ['PACKED', 'READY_TO_DISPATCH'],
-                'locationId': location,
-            },
-            'pagination': {'pageSize': 20},
-        }
-        fetched2 = 0
-        while next_url2 and fetched2 < 2000:
-            r2 = (_req.post(next_url2, json=payload2, headers=headers, timeout=30)
-                  if next_url2.endswith('/filter/')
-                  else _req.get(next_url2, headers=headers, timeout=30))
-            if r2.status_code == 200:
-                data2 = r2.json()
-                for s in data2.get('shipments', []):
-                    sid = s.get('shipmentId', '')
-                    if sid:
-                        packed_ids_verified.append(sid)
-                        fetched2 += 1
-                if not data2.get('hasMore') or not data2.get('nextPageUrl'):
-                    break
-                raw_next2 = data2['nextPageUrl']
-                if raw_next2.startswith('/'):
-                    next_url2 = f'{FK_API_BASE}/sellers{raw_next2}' if not raw_next2.startswith('/sellers') else f'{FK_API_BASE}{raw_next2}'
-                elif not raw_next2.startswith('http'):
-                    next_url2 = f'{FK_API_BASE}/sellers/{raw_next2}'
-                else:
-                    next_url2 = raw_next2
-                payload2 = None
-            else:
-                break
-    except Exception as e:
-        print(f'[AutoDispatch] Re-fetch PACKED error: {e}')
-
-    # Use re-fetched IDs if we got them, else fall back to pack response IDs
-    download_ids = packed_ids_verified if packed_ids_verified else shipment_ids_packed
-    print(f'[AutoDispatch] Using {len(download_ids)} IDs for label download (re-fetched: {len(packed_ids_verified)})')
+    # Use only the shipment IDs packed in THIS run — not the full PACKED backlog
+    download_ids = shipment_ids_packed
+    print(f'[AutoDispatch] Downloading labels for {len(download_ids)} shipments packed this run: {download_ids}')
 
     # Download in batches of 25 IDs
     label_pdf_parts = []
