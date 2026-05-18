@@ -3774,11 +3774,11 @@ def _fk_auto_dispatch(test_mode=False):
                     pkgs = sub.get('packages', [])
                     if pkgs and pkgs[0].get('dimensions'):
                         pd = pkgs[0]['dimensions']
-                        # TEST: weight removed from dimensions — trying L/B/H only
                         return {
                             'length':  int(pd.get('length',  FK_DEFAULT_DIMS['length'])),
                             'breadth': int(pd.get('breadth', FK_DEFAULT_DIMS['breadth'])),
                             'height':  int(pd.get('height',  FK_DEFAULT_DIMS['height'])),
+                            'weight':  float(pd.get('weight', FK_DEFAULT_DIMS['weight'])),
                         }
                 # Legacy: try top-level packages
                 pkgs = s.get('packages', [])
@@ -3788,6 +3788,7 @@ def _fk_auto_dispatch(test_mode=False):
                         'length':  int(pd.get('length',  FK_DEFAULT_DIMS['length'])),
                         'breadth': int(pd.get('breadth', FK_DEFAULT_DIMS['breadth'])),
                         'height':  int(pd.get('height',  FK_DEFAULT_DIMS['height'])),
+                        'weight':  float(pd.get('weight', FK_DEFAULT_DIMS['weight'])),
                     }
                 # Try SKU dimensions cache
                 for sku in sku_list:
@@ -3798,9 +3799,10 @@ def _fk_auto_dispatch(test_mode=False):
                             'length':  int(d.get('length',  FK_DEFAULT_DIMS['length'])),
                             'breadth': int(d.get('breadth', FK_DEFAULT_DIMS['breadth'])),
                             'height':  int(d.get('height',  FK_DEFAULT_DIMS['height'])),
+                            'weight':  float(d.get('weight', FK_DEFAULT_DIMS['weight'])),
                         }
                 print(f'[AutoDispatch] No cached dims found for SKUs {sku_list}, using defaults')
-                return {'length': FK_DEFAULT_DIMS['length'], 'breadth': FK_DEFAULT_DIMS['breadth'], 'height': FK_DEFAULT_DIMS['height']}
+                return FK_DEFAULT_DIMS.copy()
 
             sub_shipments = []
             for sub in s.get('subShipments', []):
@@ -3824,16 +3826,13 @@ def _fk_auto_dispatch(test_mode=False):
                     'dimensions':    _get_dims_for_shipment(shipment_skus),
                 }]
 
-            # DEBUG: Bare minimum — no invoices, no taxItems
-            # invoices removed: still 400. Now removing taxItems too.
-            shipment_entry = {
+            pack_payload['shipments'].append({
                 'shipmentId':   sid,
                 'locationId':   s.get('locationId', location),
                 'subShipments': sub_shipments,
-                # 'taxItems':  tax_items,   # DISABLED — testing
-                # 'invoices':  invoices,    # DISABLED — tested, not the cause
-            }
-            pack_payload['shipments'].append(shipment_entry)
+                'invoices':     invoices,
+                'taxItems':     tax_items,
+            })
         try:
             # Log shipment states before packing
             sids_in_batch = [s.get('shipmentId','') for s in batch]
