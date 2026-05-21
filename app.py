@@ -3870,42 +3870,54 @@ def _fk_auto_dispatch(test_mode=False):
         return {'ok': False, 'error': f'All shipments failed to pack. Details: {error_detail}',
                 'pack_errors': pack_errors}
 
-    # ── Step 3a: Small delay to allow FK to process the pack ──
+    # ── Step 3a: Wait for FK to make packed shipments available for label download ──
+    # FK needs time to index newly-packed shipments before the label endpoint accepts them.
+    # We retry up to 4 times with 10s gaps (up to 40s total) rather than a fixed long sleep.
     import time as _time
-    _time.sleep(5)
 
     # Use only the shipment IDs packed in THIS run — not the full PACKED backlog
     download_ids = shipment_ids_packed
     print(f'[AutoDispatch] Downloading labels for {len(download_ids)} shipments packed this run: {download_ids}')
 
-    # Download in batches of 25 IDs
+    # Download in batches of 25 IDs, with retry on INVALID_SHIPMENTS
     label_pdf_parts = []
     label_dl_errors = []
     for i in range(0, len(download_ids), 25):
         batch_ids = ','.join(download_ids[i:i+25])
-        # Try the combined labels+invoice endpoint first, fall back to labelOnly
-        for endpoint_path in [
-            f'{base}/v3/shipments/{batch_ids}/labels',
-            f'{base}/v3/shipments/{batch_ids}/labelOnly/pdf',
-        ]:
-            try:
-                r = _req.get(
-                    endpoint_path,
-                    headers={**headers, 'Accept': 'application/pdf'},
-                    timeout=60,
-                )
-                if r.status_code == 200 and r.content and r.content[:4] == b'%PDF':
-                    label_pdf_parts.append(r.content)
-                    print(f'[AutoDispatch] Label batch {i//25+1} downloaded ({len(r.content)} bytes) via {endpoint_path}')
-                    break
-                else:
-                    label_dl_errors.append(
-                        f'Batch {i//25+1} [{r.status_code}] {endpoint_path}: {r.text[:200]}'
+        batch_success = False
+        # Retry up to 4 times waiting for FK to index the packed shipments
+        for attempt in range(1, 5):
+            if attempt > 1:
+                print(f'[AutoDispatch] Label batch {i//25+1} retry {attempt}/4 — waiting 10s for FK to index shipments...')
+                _time.sleep(10)
+            # Try the combined labels+invoice endpoint first, fall back to labelOnly
+            for endpoint_path in [
+                f'{base}/v3/shipments/{batch_ids}/labels',
+                f'{base}/v3/shipments/{batch_ids}/labelOnly/pdf',
+            ]:
+                try:
+                    r = _req.get(
+                        endpoint_path,
+                        headers={**headers, 'Accept': 'application/pdf'},
+                        timeout=60,
                     )
-                    print(f'[AutoDispatch] Label batch {i//25+1} failed [{r.status_code}]: {r.text[:200]}')
-            except Exception as e:
-                label_dl_errors.append(f'Batch {i//10+1} error: {e}')
-                print(f'[AutoDispatch] Label download error: {e}')
+                    if r.status_code == 200 and r.content and r.content[:4] == b'%PDF':
+                        label_pdf_parts.append(r.content)
+                        print(f'[AutoDispatch] Label batch {i//25+1} downloaded ({len(r.content)} bytes) via {endpoint_path}')
+                        batch_success = True
+                        break
+                    else:
+                        print(f'[AutoDispatch] Label batch {i//25+1} attempt {attempt} [{r.status_code}] {endpoint_path}: {r.text[:200]}')
+                        # Only retry on INVALID_SHIPMENTS (timing issue) — not on other errors
+                        if 'INVALID_SHIPMENTS' not in r.text:
+                            label_dl_errors.append(f'Batch {i//25+1} [{r.status_code}] {endpoint_path}: {r.text[:200]}')
+                except Exception as e:
+                    print(f'[AutoDispatch] Label download error attempt {attempt}: {e}')
+                    label_dl_errors.append(f'Batch {i//25+1} error: {e}')
+            if batch_success:
+                break
+        if not batch_success:
+            label_dl_errors.append(f'Batch {i//25+1}: all {4} attempts failed (INVALID_SHIPMENTS — FK indexing timeout)')
 
     if not label_pdf_parts:
         error_detail = '; '.join(label_dl_errors[:3]) if label_dl_errors else 'No response from API'
