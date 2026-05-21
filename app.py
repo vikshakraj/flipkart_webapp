@@ -4105,30 +4105,51 @@ def _fk_auto_dispatch(test_mode=False):
     dispatch_url = f'{base}/v3/shipments/dispatch'
     rtd_count    = 0
     rtd_errors   = []
-    for i in range(0, len(shipment_ids_packed), 25):
-        batch = shipment_ids_packed[i:i+25]
-        try:
-            r = _req.post(dispatch_url,
-                          json={'shipmentIds': batch, 'locationId': location},
-                          headers=headers, timeout=30)
-            print(f'[AutoDispatch] RTD batch {i//25+1} response [{r.status_code}]: {r.text[:400]}')
-            if r.status_code == 200:
-                resp_data = r.json()
-                # Some API versions return empty shipments on full success
-                if not resp_data.get('shipments'):
-                    rtd_count += len(batch)
-                for result in resp_data.get('shipments', []):
-                    status = result.get('status', '').upper()
-                    if status in ('SUCCESS', 'READY_TO_DISPATCH', ''):
-                        rtd_count += 1
-                    else:
-                        err = f"{result.get('shipmentId')}: [{status}] {result.get('errorMessage','')}"
-                        rtd_errors.append(err)
-                        print(f'[AutoDispatch] RTD error: {err}')
-            else:
-                rtd_errors.append(f'RTD batch {i//25+1} HTTP {r.status_code}: {r.text[:150]}')
-        except Exception as e:
-            rtd_errors.append(f'RTD batch {i//25+1} error: {e}')
+    # Track which IDs still need RTD — retry FF_DOCUMENT_NOT_PRINTED failures
+    pending_rtd  = list(shipment_ids_packed)
+
+    for rtd_attempt in range(1, 4):  # up to 3 attempts
+        if not pending_rtd:
+            break
+        if rtd_attempt > 1:
+            print(f'[AutoDispatch] RTD retry {rtd_attempt}/3 for {len(pending_rtd)} shipments — waiting 8s...')
+            _time.sleep(8)
+
+        still_failed = []
+        for i in range(0, len(pending_rtd), 25):
+            batch = pending_rtd[i:i+25]
+            try:
+                r = _req.post(dispatch_url,
+                              json={'shipmentIds': batch, 'locationId': location},
+                              headers=headers, timeout=30)
+                print(f'[AutoDispatch] RTD attempt {rtd_attempt} batch {i//25+1} [{r.status_code}]: {r.text[:400]}')
+                if r.status_code == 200:
+                    resp_data = r.json()
+                    if not resp_data.get('shipments'):
+                        rtd_count += len(batch)
+                    for result in resp_data.get('shipments', []):
+                        status = result.get('status', '').upper()
+                        sid    = result.get('shipmentId')
+                        if status in ('SUCCESS', 'READY_TO_DISPATCH', ''):
+                            rtd_count += 1
+                        elif result.get('errorCode') == 'FF_DOCUMENT_NOT_PRINTED':
+                            still_failed.append(sid)  # retry this one
+                        else:
+                            err = f"{sid}: [{status}] {result.get('errorMessage','')}"
+                            rtd_errors.append(err)
+                            print(f'[AutoDispatch] RTD error (no retry): {err}')
+                else:
+                    rtd_errors.append(f'RTD batch {i//25+1} HTTP {r.status_code}: {r.text[:150]}')
+            except Exception as e:
+                rtd_errors.append(f'RTD batch {i//25+1} error: {e}')
+
+        pending_rtd = still_failed
+
+    # Anything still in pending_rtd after all retries is a final error
+    for sid in pending_rtd:
+        err = f'{sid}: FF_DOCUMENT_NOT_PRINTED after 3 RTD attempts'
+        rtd_errors.append(err)
+        print(f'[AutoDispatch] RTD final error: {err}')
 
     print(f'[AutoDispatch] RTD: {rtd_count} marked, {len(rtd_errors)} errors')
 
