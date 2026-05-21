@@ -3508,8 +3508,15 @@ def listings_by_skus(account):
 #   6. Telegram notification + update OUTPUTS_META
 # ─────────────────────────────────────────────
 
-FK_AUTO_DISPATCH_ACCOUNT  = 'CUTEST CLUB'
-FK_AUTO_DISPATCH_LOCATION = 'LOC87f71f39207645b9b9427c976d4a7da1'
+# All 4 accounts share the same physical warehouse location.
+# Override per-account via env var FK_<ACCOUNT>_LOCATION_ID if needed.
+_FK_DEFAULT_LOCATION = os.environ.get('FK_LOCATION_ID', 'LOC87f71f39207645b9b9427c976d4a7da1')
+FK_ACCOUNT_LOCATIONS = {
+    account: os.environ.get(_fk_env_key(account) + '_LOCATION_ID', _FK_DEFAULT_LOCATION)
+    for account in KNOWN_ACCOUNTS
+}
+# Accounts enabled for auto-dispatch (those with API credentials configured)
+FK_DISPATCH_ACCOUNTS = [a for a in KNOWN_ACCOUNTS if _fk_credentials(a)[0]]
 
 # Default package dimensions for orders with no pre-existing dimensions
 FK_DEFAULT_DIMS   = {'length': 10, 'breadth': 5, 'height': 5, 'weight': 0.2}  # weight in kg, L/B/H in cm
@@ -3602,16 +3609,18 @@ def cron_config_save():
     return jsonify({'ok': True, 'config': cfg})
 
 
-def _fk_auto_dispatch(test_mode=False):
+def _fk_auto_dispatch(account=None):
     """
-    Core auto-dispatch pipeline.
-    If test_mode=True: processes only 1 shipment, skips RTD marking.
-    Used to verify invoice generation before enabling for all orders.
+    Core auto-dispatch pipeline for a single account.
+    Fetches all APPROVED shipments, packs them, downloads labels, marks RTD.
     """
     import requests as _req
 
-    account  = FK_AUTO_DISPATCH_ACCOUNT
-    location = FK_AUTO_DISPATCH_LOCATION
+    if account is None:
+        account = 'CUTEST CLUB'
+    location = FK_ACCOUNT_LOCATIONS.get(account, '')
+    if not location:
+        return {'ok': False, 'error': f'No location ID configured for {account}'}
 
     try:
         token   = fk_get_token(account)
@@ -3666,10 +3675,6 @@ def _fk_auto_dispatch(test_mode=False):
     if not approved_shipments:
         return {'ok': True, 'message': 'No APPROVED shipments found — nothing to process.',
                 'total': 0, 'packed': 0, 'rtd': 0}
-
-    if test_mode:
-        approved_shipments = approved_shipments[:1]
-        print(f'[AutoDispatch TEST MODE] Limiting to 1 shipment: {approved_shipments[0].get("shipmentId")}')
 
 
     print(f'[AutoDispatch] Found {len(approved_shipments)} APPROVED shipments for {account}')
@@ -4062,23 +4067,6 @@ def _fk_auto_dispatch(test_mode=False):
     finally:
         shutil.rmtree(req_tmp, ignore_errors=True)
 
-    # ── Step 5: Mark RTD in batches of 25 ────────────────────────────────────
-    if test_mode:
-        print(f'[AutoDispatch TEST MODE] Skipping RTD — verify the invoice PDF before proceeding.')
-        timestamp = datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST')
-        return {
-            'ok':           True,
-            'test_mode':    True,
-            'timestamp':    timestamp,
-            'total':        1,
-            'packed':       len(shipment_ids_packed),
-            'rtd':          0,
-            'rtd_skipped':  True,
-            'message':      'TEST MODE: 1 order packed and label generated. RTD was NOT marked — check the invoice in Label Sorter downloads, then run full dispatch if correct.',
-            'sort_results': sort_results,
-            'pack_errors':  pack_errors[:10],
-        }
-
     # ── Step 4a: Acknowledge label download (required before RTD) ──
     # FK requires confirmation that labels have been "printed" before allowing RTD.
     # Without this, RTD returns FF_DOCUMENT_NOT_PRINTED for each shipment.
@@ -4170,74 +4158,107 @@ def _fk_auto_dispatch(test_mode=False):
 @app.route('/api/auto-dispatch/preview', methods=['POST'])
 def auto_dispatch_preview():
     """
-    Returns count of APPROVED shipments without doing anything.
-    Used by the frontend confirmation step.
+    Returns count of APPROVED shipments per requested account without doing anything.
     """
     import requests as _req
     data = request.get_json() or {}
     if data.get('pin') != '848424':
         return jsonify({'error': 'Invalid PIN'}), 403
 
-    account  = FK_AUTO_DISPATCH_ACCOUNT
-    location = FK_AUTO_DISPATCH_LOCATION
-    try:
-        token = fk_get_token(account)
-    except RuntimeError as e:
-        return jsonify({'error': str(e)}), 500
+    requested = data.get('accounts', list(FK_ACCOUNT_LOCATIONS.keys()))
+    counts = {}
+    for account in requested:
+        location = FK_ACCOUNT_LOCATIONS.get(account, '')
+        if not location:
+            counts[account] = {'count': 0, 'error': 'No location ID configured'}
+            continue
+        try:
+            token = fk_get_token(account)
+        except RuntimeError as e:
+            counts[account] = {'count': 0, 'error': str(e)}
+            continue
 
-    headers  = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-    base     = FK_API_BASE + '/sellers'
-    count    = 0
-    next_url = f'{base}/v3/shipments/filter/'
-    payload  = {
-        'filter': {
-            'type':       'preDispatch',
-            'states':     ['APPROVED'],
-            'locationId': location,
-            # Only orders whose dispatch window has opened (excludes Upcoming Orders)
-            'dispatchAfterDate': {
-                'from': '2000-01-01T00:00:00+05:30',
-                'to':   datetime.datetime.now(tz=IST).strftime('%Y-%m-%dT%H:%M:%S+05:30'),
+        headers  = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+        base     = FK_API_BASE + '/sellers'
+        count    = 0
+        next_url = f'{base}/v3/shipments/filter/'
+        payload  = {
+            'filter': {
+                'type':       'preDispatch',
+                'states':     ['APPROVED'],
+                'locationId': location,
+                'dispatchAfterDate': {
+                    'from': '2000-01-01T00:00:00+05:30',
+                    'to':   datetime.datetime.now(tz=IST).strftime('%Y-%m-%dT%H:%M:%S+05:30'),
+                },
             },
-        },
-        'pagination': {'pageSize': 20},
-    }
-    try:
-        while next_url and count < 2000:
-            r = (_req.post(next_url, json=payload, headers=headers, timeout=30)
-                 if next_url.endswith('/filter/')
-                 else _req.get(next_url, headers=headers, timeout=30))
-            if r.status_code != 200:
-                return jsonify({'error': f'API error [{r.status_code}]: {r.text[:200]}'}), 502
-            resp_data = r.json()
-            count += len(resp_data.get('shipments', []))
-            if not resp_data.get('hasMore') or not resp_data.get('nextPageUrl'):
-                break
-            raw_next = resp_data['nextPageUrl']
-            if raw_next.startswith('/'):
-                next_url = f'{FK_API_BASE}/sellers{raw_next}' if not raw_next.startswith('/sellers') else f'{FK_API_BASE}{raw_next}'
-            elif not raw_next.startswith('http'):
-                next_url = f'{FK_API_BASE}/sellers/{raw_next}'
+            'pagination': {'pageSize': 20},
+        }
+        try:
+            while next_url and count < 2000:
+                r = (_req.post(next_url, json=payload, headers=headers, timeout=30)
+                     if next_url.endswith('/filter/')
+                     else _req.get(next_url, headers=headers, timeout=30))
+                if r.status_code != 200:
+                    counts[account] = {'count': 0, 'error': f'API error [{r.status_code}]'}
+                    break
+                resp_data = r.json()
+                count += len(resp_data.get('shipments', []))
+                if not resp_data.get('hasMore') or not resp_data.get('nextPageUrl'):
+                    break
+                raw_next = resp_data['nextPageUrl']
+                if raw_next.startswith('/'):
+                    next_url = f'{FK_API_BASE}/sellers{raw_next}' if not raw_next.startswith('/sellers') else f'{FK_API_BASE}{raw_next}'
+                elif not raw_next.startswith('http'):
+                    next_url = f'{FK_API_BASE}/sellers/{raw_next}'
+                else:
+                    next_url = raw_next
+                payload = None
             else:
-                next_url = raw_next
-            payload = None
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+                counts[account] = {'count': count}
+                continue
+        except Exception as e:
+            counts[account] = {'count': 0, 'error': str(e)}
+            continue
+        counts[account] = {'count': count}
 
-    return jsonify({'ok': True, 'count': count})
+    return jsonify({'ok': True, 'counts': counts, 'total': sum(v['count'] for v in counts.values())})
 
 @app.route('/api/auto-dispatch', methods=['POST'])
 def auto_dispatch_trigger():
     """
     Manual trigger for the auto-dispatch pipeline.
-    Pass test_mode: true to process only 1 order without marking RTD.
+    Pass accounts: ['CUTEST CLUB', 'REFRESHWAVE', ...] to select which to process.
+    If accounts is empty or missing, processes all configured accounts.
     """
     data = request.get_json() or {}
     if data.get('pin') != '848424':
         return jsonify({'error': 'Invalid PIN'}), 403
-    test_mode = bool(data.get('test_mode', False))
-    result = _fk_auto_dispatch(test_mode=test_mode)
-    return jsonify(result)
+
+    requested = data.get('accounts', [])
+    # Filter to only accounts that have a location ID configured
+    accounts_to_run = [
+        a for a in (requested if requested else FK_DISPATCH_ACCOUNTS)
+        if FK_ACCOUNT_LOCATIONS.get(a)
+    ]
+    if not accounts_to_run:
+        return jsonify({'error': 'No accounts selected or configured for dispatch'}), 400
+
+    results = {}
+    for account in accounts_to_run:
+        print(f'[AutoDispatch] Starting dispatch for {account}')
+        results[account] = _fk_auto_dispatch(account=account)
+
+    # Combined summary
+    total_packed = sum(r.get('packed', 0) for r in results.values())
+    total_rtd    = sum(r.get('rtd', 0) for r in results.values())
+    any_ok       = any(r.get('ok') for r in results.values())
+
+    return jsonify({
+        'ok':       any_ok,
+        'accounts': results,
+        'summary':  {'packed': total_packed, 'rtd': total_rtd, 'accounts_run': len(accounts_to_run)},
+    })
 
 
 @app.route('/api/sales-sync-cron', methods=['GET', 'POST'])
