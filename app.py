@@ -4079,6 +4079,18 @@ def _fk_auto_dispatch(test_mode=False):
             'pack_errors':  pack_errors[:10],
         }
 
+    # ── Step 4a: Acknowledge label download (required before RTD) ──
+    # FK requires confirmation that labels have been "printed" before allowing RTD.
+    # Without this, RTD returns FF_DOCUMENT_NOT_PRINTED for each shipment.
+    ack_url = f'{base}/v3/shipments/labels/acknowledge'
+    try:
+        ack_r = _req.post(ack_url,
+                          json={'shipmentIds': shipment_ids_packed},
+                          headers=headers, timeout=30)
+        print(f'[AutoDispatch] Label acknowledge [{ack_r.status_code}]: {ack_r.text[:200]}')
+    except Exception as e:
+        print(f'[AutoDispatch] Label acknowledge error (non-fatal): {e}')
+
     dispatch_url = f'{base}/v3/shipments/dispatch'
     rtd_count    = 0
     rtd_errors   = []
