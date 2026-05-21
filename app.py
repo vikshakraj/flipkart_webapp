@@ -3508,12 +3508,12 @@ def listings_by_skus(account):
 #   6. Telegram notification + update OUTPUTS_META
 # ─────────────────────────────────────────────
 
-# All 4 accounts share the same physical warehouse location.
-# Override per-account via env var FK_<ACCOUNT>_LOCATION_ID if needed.
-_FK_DEFAULT_LOCATION = os.environ.get('FK_LOCATION_ID', 'LOC87f71f39207645b9b9427c976d4a7da1')
+# Per-account warehouse location IDs
 FK_ACCOUNT_LOCATIONS = {
-    account: os.environ.get(_fk_env_key(account) + '_LOCATION_ID', _FK_DEFAULT_LOCATION)
-    for account in KNOWN_ACCOUNTS
+    'CUTEST CLUB': 'LOC87f71f39207645b9b9427c976d4a7da1',
+    'EONSPARK':    'LOCa88ab8bb82be46448032a763dae65944',
+    'REFRESHWAVE': 'LOC72055fcc84a143b897334c99c03e1ef8',
+    'HELLOHI':     'LOC11f1ba2fca9c4b15bb24cedd5a1a2955',
 }
 # Accounts enabled for auto-dispatch (those with API credentials configured)
 FK_DISPATCH_ACCOUNTS = [a for a in KNOWN_ACCOUNTS if _fk_credentials(a)[0]]
@@ -4200,10 +4200,11 @@ def auto_dispatch_preview():
                      if next_url.endswith('/filter/')
                      else _req.get(next_url, headers=headers, timeout=30))
                 if r.status_code != 200:
-                    counts[account] = {'count': 0, 'error': f'API error [{r.status_code}]'}
+                    counts[account] = {'count': 0, 'error': f'API error [{r.status_code}]: {r.text[:150]}'}
                     break
                 resp_data = r.json()
-                count += len(resp_data.get('shipments', []))
+                batch = resp_data.get('shipments', [])
+                count += len(batch)
                 if not resp_data.get('hasMore') or not resp_data.get('nextPageUrl'):
                     break
                 raw_next = resp_data['nextPageUrl']
