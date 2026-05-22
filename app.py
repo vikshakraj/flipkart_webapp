@@ -4071,8 +4071,9 @@ def _fk_auto_dispatch(account=None):
     # FK gates RTD on labels being "printed" (downloaded). Our GET /labels call registers
     # the download, but FK's system takes time to propagate this to the RTD eligibility check.
     # 60s gives FK enough time to sync the label download event across their systems.
-    print(f'[AutoDispatch] Waiting 60s for FK to register label download before RTD...')
-    _time.sleep(60)
+    # Wait 30s initially, then RTD retry loop handles remaining propagation time
+    print(f'[AutoDispatch] Waiting 30s for FK to register label download...')
+    _time.sleep(30)
 
     dispatch_url = f'{base}/v3/shipments/dispatch'
     rtd_count    = 0
@@ -4080,12 +4081,12 @@ def _fk_auto_dispatch(account=None):
     # Track which IDs still need RTD — retry FF_DOCUMENT_NOT_PRINTED failures
     pending_rtd  = list(shipment_ids_packed)
 
-    for rtd_attempt in range(1, 4):  # up to 3 attempts
+    for rtd_attempt in range(1, 6):  # up to 5 attempts
         if not pending_rtd:
             break
         if rtd_attempt > 1:
-            print(f'[AutoDispatch] RTD retry {rtd_attempt}/3 for {len(pending_rtd)} shipments — waiting 8s...')
-            _time.sleep(8)
+            print(f'[AutoDispatch] RTD retry {rtd_attempt}/5 for {len(pending_rtd)} shipments — waiting 30s for FK propagation...')
+            _time.sleep(30)
 
         still_failed = []
         for i in range(0, len(pending_rtd), 25):
@@ -4119,7 +4120,7 @@ def _fk_auto_dispatch(account=None):
 
     # Anything still in pending_rtd after all retries is a final error
     for sid in pending_rtd:
-        err = f'{sid}: FF_DOCUMENT_NOT_PRINTED after 3 RTD attempts'
+        err = f'{sid}: FF_DOCUMENT_NOT_PRINTED after 5 RTD attempts'
         rtd_errors.append(err)
         print(f'[AutoDispatch] RTD final error: {err}')
 
