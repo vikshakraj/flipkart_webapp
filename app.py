@@ -4067,28 +4067,32 @@ def _fk_auto_dispatch(account=None):
     finally:
         shutil.rmtree(req_tmp, ignore_errors=True)
 
-    # ── Step 4a: Acknowledge label download (required before RTD) ──
+    # ── Step 4a: Acknowledge label download in small batches (required before RTD) ──
     # FK requires confirmation that labels have been "printed" before allowing RTD.
-    # Without this, RTD returns FF_DOCUMENT_NOT_PRINTED for each shipment.
-    # Retry up to 3 times on 500 (transient FK-side failures).
+    # Bulk acknowledge (all at once) partially fails on FK's end — sending in batches of 5.
     ack_url = f'{base}/v3/shipments/labels/acknowledge'
-    for ack_attempt in range(1, 4):
-        try:
-            ack_r = _req.post(ack_url,
-                              json={'shipmentIds': shipment_ids_packed},
-                              headers=headers, timeout=30)
-            print(f'[AutoDispatch] Label acknowledge attempt {ack_attempt} [{ack_r.status_code}]: {ack_r.text[:200]}')
-            if ack_r.status_code in (200, 201, 204):
-                break
-            elif ack_r.status_code >= 500 and ack_attempt < 3:
-                print(f'[AutoDispatch] Label acknowledge 5xx — retrying in 5s...')
-                _time.sleep(5)
-            else:
-                break  # 4xx or other — no point retrying
-        except Exception as e:
-            print(f'[AutoDispatch] Label acknowledge error attempt {ack_attempt}: {e}')
-            if ack_attempt < 3:
-                _time.sleep(5)
+    ack_ok_count = 0
+    ack_batch_size = 5
+    for i in range(0, len(shipment_ids_packed), ack_batch_size):
+        ack_batch = shipment_ids_packed[i:i+ack_batch_size]
+        for ack_attempt in range(1, 4):
+            try:
+                ack_r = _req.post(ack_url,
+                                  json={'shipmentIds': ack_batch},
+                                  headers=headers, timeout=30)
+                if ack_r.status_code in (200, 201, 204):
+                    ack_ok_count += len(ack_batch)
+                    break
+                elif ack_r.status_code >= 500 and ack_attempt < 3:
+                    _time.sleep(3)
+                else:
+                    break
+            except Exception as e:
+                if ack_attempt < 3:
+                    _time.sleep(3)
+    print(f'[AutoDispatch] Label acknowledge: {ack_ok_count}/{len(shipment_ids_packed)} confirmed')
+    # Give FK a moment to propagate acknowledge status before RTD
+    _time.sleep(5)
 
     dispatch_url = f'{base}/v3/shipments/dispatch'
     rtd_count    = 0
