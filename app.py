@@ -4072,8 +4072,8 @@ def _fk_auto_dispatch(account=None):
     # the download, but FK's system takes time to propagate this to the RTD eligibility check.
     # 60s gives FK enough time to sync the label download event across their systems.
     # Wait 30s initially, then RTD retry loop handles remaining propagation time
-    print(f'[AutoDispatch] Waiting 30s for FK to register label download...')
-    _time.sleep(30)
+    print(f'[AutoDispatch] Waiting 15s for FK to register label download...')
+    _time.sleep(15)
 
     dispatch_url = f'{base}/v3/shipments/dispatch'
     rtd_count    = 0
@@ -4081,12 +4081,12 @@ def _fk_auto_dispatch(account=None):
     # Track which IDs still need RTD — retry FF_DOCUMENT_NOT_PRINTED failures
     pending_rtd  = list(shipment_ids_packed)
 
-    for rtd_attempt in range(1, 6):  # up to 5 attempts
+    for rtd_attempt in range(1, 4):  # up to 3 attempts
         if not pending_rtd:
             break
         if rtd_attempt > 1:
-            print(f'[AutoDispatch] RTD retry {rtd_attempt}/5 for {len(pending_rtd)} shipments — waiting 30s for FK propagation...')
-            _time.sleep(30)
+            print(f'[AutoDispatch] RTD retry {rtd_attempt}/3 for {len(pending_rtd)} shipments — waiting 15s...')
+            _time.sleep(15)
 
         still_failed = []
         for i in range(0, len(pending_rtd), 25):
@@ -4118,11 +4118,16 @@ def _fk_auto_dispatch(account=None):
 
         pending_rtd = still_failed
 
-    # Anything still in pending_rtd after all retries is a final error
+    # Anything still in pending_rtd after all retries — log shipment IDs for manual action
+    if pending_rtd:
+        print(f'[AutoDispatch] {len(pending_rtd)} shipments need manual RTD on seller portal (FF_DOCUMENT_NOT_PRINTED — package not approved for auto-dispatch):')
     for sid in pending_rtd:
-        err = f'{sid}: FF_DOCUMENT_NOT_PRINTED after 5 RTD attempts'
+        # Find matching order ID for easier lookup
+        order_id = next((s.get('invoices',[{}])[0].get('orderId','') 
+                        for s in [ps for ps in approved_shipments if ps.get('shipmentId') == sid]), '')
+        err = f'{sid} ({order_id}): needs manual RTD'
         rtd_errors.append(err)
-        print(f'[AutoDispatch] RTD final error: {err}')
+        print(f'[AutoDispatch] Manual RTD needed: shipmentId={sid} orderId={order_id}')
 
     print(f'[AutoDispatch] RTD: {rtd_count} marked, {len(rtd_errors)} errors')
 
