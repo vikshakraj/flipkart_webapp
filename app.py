@@ -3816,9 +3816,13 @@ def _fk_auto_dispatch(account=None):
                 dims = _get_dims_for_shipment(shipment_skus)
                 if sub_id:
                     entry = {
-                        'subShipmentId': sub_id,  # FK pack API uses subShipmentId (not subShipment)
+                        'subShipmentId': sub_id,
                         'dimensions':    dims,
                     }
+                    if pkg_id:
+                        entry['packageId'] = pkg_id
+                    else:
+                        print(f'[AutoDispatch] WARNING: no packageId for subShipment {sub_id} in shipment {sid} — RTD may fail')
                     sub_shipments.append(entry)
 
             # Fallback: if no subShipments in API response, use SS-1
