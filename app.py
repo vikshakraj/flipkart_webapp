@@ -3819,10 +3819,6 @@ def _fk_auto_dispatch(account=None):
                         'subShipmentId': sub_id,
                         'dimensions':    dims,
                     }
-                    if pkg_id:
-                        entry['packageId'] = pkg_id
-                    else:
-                        print(f'[AutoDispatch] WARNING: no packageId for subShipment {sub_id} in shipment {sid} — RTD may fail')
                     sub_shipments.append(entry)
 
             # Fallback: if no subShipments in API response, use SS-1
@@ -4071,32 +4067,12 @@ def _fk_auto_dispatch(account=None):
     finally:
         shutil.rmtree(req_tmp, ignore_errors=True)
 
-    # ── Step 4a: Acknowledge label download in small batches (required before RTD) ──
-    # FK requires confirmation that labels have been "printed" before allowing RTD.
-    # Bulk acknowledge (all at once) partially fails on FK's end — sending in batches of 5.
-    ack_url = f'{base}/v3/shipments/labels/acknowledge'
-    ack_ok_count = 0
-    ack_batch_size = 5
-    for i in range(0, len(shipment_ids_packed), ack_batch_size):
-        ack_batch = shipment_ids_packed[i:i+ack_batch_size]
-        for ack_attempt in range(1, 4):
-            try:
-                ack_r = _req.post(ack_url,
-                                  json={'shipmentIds': ack_batch},
-                                  headers=headers, timeout=30)
-                if ack_r.status_code in (200, 201, 204):
-                    ack_ok_count += len(ack_batch)
-                    break
-                elif ack_r.status_code >= 500 and ack_attempt < 3:
-                    _time.sleep(3)
-                else:
-                    break
-            except Exception as e:
-                if ack_attempt < 3:
-                    _time.sleep(3)
-    print(f'[AutoDispatch] Label acknowledge: {ack_ok_count}/{len(shipment_ids_packed)} confirmed')
-    # Give FK a moment to propagate acknowledge status before RTD
-    _time.sleep(5)
+    # ── Step 4a: Wait for FK to register label download before RTD ──
+    # FK gates RTD on labels being "printed" (downloaded). Our GET /labels call registers
+    # the download, but FK's system takes time to propagate this to the RTD eligibility check.
+    # 60s gives FK enough time to sync the label download event across their systems.
+    print(f'[AutoDispatch] Waiting 60s for FK to register label download before RTD...')
+    _time.sleep(60)
 
     dispatch_url = f'{base}/v3/shipments/dispatch'
     rtd_count    = 0
