@@ -4293,128 +4293,148 @@ def auto_dispatch_preview():
     return jsonify({'ok': True, 'counts': counts, 'total': sum(v['count'] for v in counts.values())})
 
 
+# In-memory store for mark-rtd job status
+_mark_rtd_status = {'running': False, 'result': None}
+
+@app.route('/api/mark-rtd/status', methods=['GET'])
+def mark_rtd_status():
+    return jsonify(_mark_rtd_status)
+
 @app.route('/api/mark-rtd', methods=['POST'])
 def mark_rtd_trigger():
     """
-    Fetch all PACKED/READY_TO_DISPATCH shipments for selected accounts and mark them RTD.
-    These are shipments that are already packed and labels printed (Pending RTD state).
-    The FF_DOCUMENT_NOT_PRINTED check is already satisfied for these.
+    Fetch all PACKED shipments for selected accounts and mark them RTD.
+    Runs in a background thread — returns immediately.
+    Poll /api/mark-rtd/status for the result.
     """
-    import requests as _req
+    import requests as _req, threading as _threading
     data = request.get_json() or {}
     if data.get('pin') != '848424':
         return jsonify({'error': 'Invalid PIN'}), 403
+    if _mark_rtd_status.get('running'):
+        return jsonify({'error': 'Mark RTD already in progress'}), 409
 
     requested = data.get('accounts', list(FK_ACCOUNT_LOCATIONS.keys()))
-    results   = {}
 
-    for account in requested:
-        location = FK_ACCOUNT_LOCATIONS.get(account, '')
-        if not location:
-            results[account] = {'ok': False, 'error': 'No location ID configured'}
-            continue
-        try:
-            token = fk_get_token(account)
-        except RuntimeError as e:
-            results[account] = {'ok': False, 'error': str(e)}
-            continue
+    def _bg():
+        import requests as _r
+        _mark_rtd_status['running'] = True
+        _mark_rtd_status['result']  = None
+        results = {}
 
-        headers      = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-        base         = FK_API_BASE + '/sellers'
-        packed_ids   = []
+        for account in requested:
+            location = FK_ACCOUNT_LOCATIONS.get(account, '')
+            if not location:
+                results[account] = {'ok': False, 'error': 'No location ID configured'}
+                continue
+            try:
+                token = fk_get_token(account)
+            except RuntimeError as e:
+                results[account] = {'ok': False, 'error': str(e)}
+                continue
 
-        # Fetch all PACKED shipments (Pending RTD state)
-        next_url = f'{base}/v3/shipments/filter/'
-        payload  = {
-            'filter': {
-                'type':       'preDispatch',
-                'states':     ['PACKED'],
-                'locationId': location,
-            },
-            'pagination': {'pageSize': 20},
-        }
-        try:
-            while next_url and len(packed_ids) < 2000:
-                r = (_req.post(next_url, json=payload, headers=headers, timeout=30)
-                     if next_url.endswith('/filter/')
-                     else _req.get(next_url, headers=headers, timeout=30))
-                if r.status_code != 200:
-                    break
-                resp_data = r.json()
-                for s in resp_data.get('shipments', []):
-                    sid = s.get('shipmentId', '')
-                    if sid:
-                        packed_ids.append(sid)
-                if not resp_data.get('hasMore') or not resp_data.get('nextPageUrl'):
-                    break
-                raw_next = resp_data['nextPageUrl']
-                if raw_next.startswith('/'):
-                    next_url = f'{FK_API_BASE}/sellers{raw_next}' if not raw_next.startswith('/sellers') else f'{FK_API_BASE}{raw_next}'
-                elif not raw_next.startswith('http'):
-                    next_url = f'{FK_API_BASE}/sellers/{raw_next}'
-                else:
-                    next_url = raw_next
-                payload = None
-        except Exception as e:
-            results[account] = {'ok': False, 'error': f'Filter error: {e}'}
-            continue
+            headers    = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+            base       = FK_API_BASE + '/sellers'
+            packed_ids = []
 
-        if not packed_ids:
-            results[account] = {'ok': True, 'rtd': 0, 'message': 'No PACKED shipments found'}
-            continue
-
-        print(f'[MarkRTD] {account}: found {len(packed_ids)} PACKED shipments')
-
-        # Mark RTD in batches of 25
-        dispatch_url = f'{base}/v3/shipments/dispatch'
-        rtd_count    = 0
-        rtd_errors   = []
-        pending      = list(packed_ids)
-
-        for attempt in range(1, 4):
-            if not pending:
-                break
-            if attempt > 1:
-                import time as _t; _t.sleep(10)
-            still_failed = []
-            for i in range(0, len(pending), 25):
-                batch = pending[i:i+25]
-                try:
-                    r = _req.post(dispatch_url,
-                                  json={'shipmentIds': batch, 'locationId': location},
-                                  headers=headers, timeout=30)
-                    print(f'[MarkRTD] {account} attempt {attempt} [{r.status_code}]: {r.text[:300]}')
-                    if r.status_code == 200:
-                        resp = r.json()
-                        if not resp.get('shipments'):
-                            rtd_count += len(batch)
-                        for s in resp.get('shipments', []):
-                            if s.get('status', '').upper() in ('SUCCESS', 'READY_TO_DISPATCH'):
-                                rtd_count += 1
-                            elif s.get('errorCode') == 'FF_DOCUMENT_NOT_PRINTED':
-                                still_failed.append(s.get('shipmentId'))
-                            else:
-                                rtd_errors.append(f"{s.get('shipmentId')}: {s.get('errorMessage','')}")
+            # Fetch all PACKED shipments (= Pending RTD on portal)
+            next_url = f'{base}/v3/shipments/filter/'
+            payload  = {
+                'filter': {
+                    'type':       'preDispatch',
+                    'states':     ['PACKED'],
+                    'locationId': location,
+                },
+                'pagination': {'pageSize': 20},
+            }
+            try:
+                while next_url and len(packed_ids) < 2000:
+                    r = (_r.post(next_url, json=payload, headers=headers, timeout=30)
+                         if next_url.endswith('/filter/')
+                         else _r.get(next_url, headers=headers, timeout=30))
+                    if r.status_code != 200:
+                        break
+                    resp_data = r.json()
+                    for s in resp_data.get('shipments', []):
+                        sid = s.get('shipmentId', '')
+                        if sid:
+                            packed_ids.append(sid)
+                    if not resp_data.get('hasMore') or not resp_data.get('nextPageUrl'):
+                        break
+                    raw_next = resp_data['nextPageUrl']
+                    if raw_next.startswith('/'):
+                        next_url = f'{FK_API_BASE}/sellers{raw_next}' if not raw_next.startswith('/sellers') else f'{FK_API_BASE}{raw_next}'
+                    elif not raw_next.startswith('http'):
+                        next_url = f'{FK_API_BASE}/sellers/{raw_next}'
                     else:
-                        rtd_errors.append(f'HTTP {r.status_code}: {r.text[:100]}')
-                except Exception as e:
-                    rtd_errors.append(str(e))
-            pending = still_failed
+                        next_url = raw_next
+                    payload = None
+            except Exception as e:
+                results[account] = {'ok': False, 'error': f'Filter error: {e}'}
+                continue
 
-        for sid in pending:
-            rtd_errors.append(f'{sid}: FF_DOCUMENT_NOT_PRINTED — manual RTD needed')
+            if not packed_ids:
+                results[account] = {'ok': True, 'rtd': 0, 'found': 0, 'message': 'No PACKED shipments found'}
+                print(f'[MarkRTD] {account}: no PACKED shipments')
+                continue
 
-        results[account] = {
-            'ok':         True,
-            'found':      len(packed_ids),
-            'rtd':        rtd_count,
-            'errors':     rtd_errors[:10],
-            'error_count': len(rtd_errors),
-        }
-        print(f'[MarkRTD] {account}: {rtd_count}/{len(packed_ids)} marked RTD, {len(rtd_errors)} errors')
+            print(f'[MarkRTD] {account}: found {len(packed_ids)} PACKED shipments, marking RTD...')
 
-    total_rtd = sum(r.get('rtd', 0) for r in results.values())
-    return jsonify({'ok': True, 'accounts': results, 'total_rtd': total_rtd})
+            dispatch_url = f'{base}/v3/shipments/dispatch'
+            rtd_count    = 0
+            rtd_errors   = []
+            pending      = list(packed_ids)
+
+            for attempt in range(1, 4):
+                if not pending:
+                    break
+                if attempt > 1:
+                    import time as _t; _t.sleep(10)
+                still_failed = []
+                for i in range(0, len(pending), 25):
+                    batch = pending[i:i+25]
+                    try:
+                        r = _r.post(dispatch_url,
+                                    json={'shipmentIds': batch, 'locationId': location},
+                                    headers=headers, timeout=30)
+                        print(f'[MarkRTD] {account} attempt {attempt} [{r.status_code}]: {r.text[:300]}')
+                        if r.status_code == 200:
+                            resp = r.json()
+                            if not resp.get('shipments'):
+                                rtd_count += len(batch)
+                            for s in resp.get('shipments', []):
+                                status = s.get('status', '').upper()
+                                if status in ('SUCCESS', 'READY_TO_DISPATCH'):
+                                    rtd_count += 1
+                                elif s.get('errorCode') == 'FF_DOCUMENT_NOT_PRINTED':
+                                    still_failed.append(s.get('shipmentId'))
+                                else:
+                                    rtd_errors.append(f"{s.get('shipmentId')}: {s.get('errorMessage','')}")
+                        else:
+                            rtd_errors.append(f'HTTP {r.status_code}: {r.text[:100]}')
+                    except Exception as e:
+                        rtd_errors.append(str(e))
+                pending = still_failed
+
+            for sid in pending:
+                rtd_errors.append(f'{sid}: FF_DOCUMENT_NOT_PRINTED — manual RTD needed')
+
+            results[account] = {
+                'ok':          True,
+                'found':       len(packed_ids),
+                'rtd':         rtd_count,
+                'errors':      rtd_errors[:10],
+                'error_count': len(rtd_errors),
+            }
+            print(f'[MarkRTD] {account}: {rtd_count}/{len(packed_ids)} marked RTD, {len(rtd_errors)} errors')
+
+        total_rtd = sum(r.get('rtd', 0) for r in results.values())
+        _mark_rtd_status['running'] = False
+        _mark_rtd_status['result']  = {'ok': True, 'accounts': results, 'total_rtd': total_rtd}
+        print(f'[MarkRTD] Complete: {total_rtd} total marked RTD')
+
+    _threading.Thread(target=_bg, daemon=True).start()
+    return jsonify({'ok': True, 'message': 'Mark RTD started — poll /api/mark-rtd/status for result'})
 
 @app.route('/api/auto-dispatch', methods=['POST'])
 def auto_dispatch_trigger():
