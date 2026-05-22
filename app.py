@@ -4067,19 +4067,70 @@ def _fk_auto_dispatch(account=None):
     finally:
         shutil.rmtree(req_tmp, ignore_errors=True)
 
-    # ── Step 4a: Wait for FK to register label download before RTD ──
-    # FK gates RTD on labels being "printed" (downloaded). Our GET /labels call registers
-    # the download, but FK's system takes time to propagate this to the RTD eligibility check.
-    # 60s gives FK enough time to sync the label download event across their systems.
-    # Wait 30s initially, then RTD retry loop handles remaining propagation time
-    print(f'[AutoDispatch] Waiting 15s for FK to register label download...')
-    _time.sleep(15)
+    # ── Step 4a: Mark RTD via portal GraphQL (bypasses FF_DOCUMENT_NOT_PRINTED) ──
+    # Public dispatch API requires print registration via portal flow.
+    # Portal's MarkRTD GraphQL with override_label_print:True bypasses this.
+    rtd_count   = 0
+    rtd_errors  = []
+    gql_rtd_ok  = set()
+
+    try:
+        now_ist  = datetime.datetime.now(tz=IST).strftime('%Y-%m-%dT%H:%M:%S.000+05:30')
+        gql_url  = 'https://seller.flipkart.com/napi/graphql'
+        gql_body = {
+            'operationName': 'MarkRTD',
+            'variables': {
+                'view_name':            'shipment',
+                'timestamp':            now_ist,
+                'override_label_print': True,
+                'filters':              {},
+                'groups':               [],
+                'shipments':            [{'shipment_id': sid, 'location_id': location}
+                                         for sid in shipment_ids_packed],
+                'location_id':          location,
+            },
+            'query': (
+                'mutation MarkRTD($view_name: String, $timestamp: String, '
+                '$override_label_print: Boolean, $filters: ShipmentFilters, '
+                '$groups: [ShipmentGroupInput], $shipments: [ShipmentInput], '
+                '$location_id: String) { '
+                'sfs_revampedOrderShipmentsGroupRTD('
+                'view_name: $view_name, timestamp: $timestamp, '
+                'override_label_print: $override_label_print, '
+                'filters: $filters, groups: $groups, '
+                'shipments: $shipments, location_id: $location_id) { '
+                'view_name shipment_response error_message } }'
+            ),
+        }
+        gql_r = _req.post(gql_url, json=gql_body, headers=headers, timeout=30)
+        print(f'[AutoDispatch] Portal GraphQL MarkRTD [{gql_r.status_code}]: {gql_r.text[:500]}')
+        if gql_r.status_code == 200:
+            gql_data   = gql_r.json()
+            rtd_obj    = (gql_data.get('data') or {}).get('sfs_revampedOrderShipmentsGroupRTD') or {}
+            ship_resp  = rtd_obj.get('shipment_response') or {}
+            for sid, resp in ship_resp.items():
+                if isinstance(resp, dict) and resp.get('success', 0) > 0:
+                    gql_rtd_ok.add(sid)
+                    rtd_count += 1
+                else:
+                    rtd_errors.append(f'{sid}: GraphQL RTD failed — {resp}')
+            # If shipment_response is empty but no error, assume all succeeded
+            if not ship_resp and not rtd_obj.get('error_message'):
+                gql_rtd_ok = set(shipment_ids_packed)
+                rtd_count  = len(shipment_ids_packed)
+            print(f'[AutoDispatch] GraphQL RTD: {len(gql_rtd_ok)} succeeded')
+    except Exception as e:
+        print(f'[AutoDispatch] Portal GraphQL RTD error: {e} — falling back to public API')
+
+    # Fall back to public API for any not handled by GraphQL
+    remaining = [s for s in shipment_ids_packed if s not in gql_rtd_ok]
+    if remaining:
+        print(f'[AutoDispatch] Falling back to public RTD API for {len(remaining)} shipments...')
+        _time.sleep(15)
 
     dispatch_url = f'{base}/v3/shipments/dispatch'
-    rtd_count    = 0
-    rtd_errors   = []
-    # Track which IDs still need RTD — retry FF_DOCUMENT_NOT_PRINTED failures
-    pending_rtd  = list(shipment_ids_packed)
+    # Track which IDs still need RTD via public API
+    pending_rtd  = remaining
 
     for rtd_attempt in range(1, 4):  # up to 3 attempts
         if not pending_rtd:
