@@ -4145,7 +4145,8 @@ def _fk_auto_dispatch(account=None):
                 gql_rtd_ok = set(shipment_ids_packed)  # assume all handled
             print(f'[AutoDispatch] GraphQL RTD: {rtd_count} succeeded, groups: {list(grp_resp.keys())}')
     except Exception as e:
-        print(f'[AutoDispatch] Portal GraphQL RTD error: {e} — falling back to public API')
+        import traceback as _tb
+        print(f'[AutoDispatch] Portal GraphQL RTD error: {e}\n{_tb.format_exc()}')
 
     # Fall back to public API for any not handled by GraphQL
     remaining = [s for s in shipment_ids_packed if s not in gql_rtd_ok]
