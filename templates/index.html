@@ -8160,6 +8160,8 @@ function _executeAutoDispatch(accounts) {
 
 
 // ── Mark Pending RTD ──────────────────────────────────────────────────────────
+let _markRtdPollTimer = null;
+
 function triggerMarkRTD() {
   const pin = prompt('Enter PIN to mark Pending RTD shipments:');
   if (!pin) return;
@@ -8170,7 +8172,7 @@ function triggerMarkRTD() {
 
   btn.disabled = true;
   btn.textContent = 'Marking RTD…';
-  status.textContent = '';
+  status.textContent = 'Fetching PACKED shipments and marking RTD…';
 
   fetch('/api/mark-rtd', {
     method: 'POST',
@@ -8179,38 +8181,58 @@ function triggerMarkRTD() {
   })
   .then(r => r.json())
   .then(data => {
-    btn.disabled = false;
-    btn.textContent = '📦 Mark Pending RTD';
-
-    result.style.display = 'block';
-    if (!data.ok && data.error) {
-      result.style.background = 'rgba(255,80,80,.08)';
-      result.style.borderColor = 'rgba(255,80,80,.3)';
-      result.style.color = '#ff6b6b';
-      result.innerHTML = `✗ ${data.error}`;
+    if (!data.ok) {
+      btn.disabled = false;
+      btn.textContent = '📦 Mark Pending RTD';
+      status.textContent = '✗ ' + (data.error || 'Failed');
       return;
     }
-
-    result.style.background = 'rgba(0,212,255,.07)';
-    result.style.borderColor = 'rgba(0,212,255,.2)';
-    result.style.color = 'var(--accent)';
-
-    const accounts = data.accounts || {};
-    const lines = Object.entries(accounts).map(([acct, r]) => {
-      if (!r.ok) return `<b>${acct}</b>: ✗ ${r.error}`;
-      if (r.rtd === 0 && r.found === 0) return `<b>${acct}</b>: no pending RTD shipments`;
-      const errNote = r.error_count > 0 ? ` ⚠ ${r.error_count} still need manual RTD` : ' ✓';
-      return `<b>${acct}</b>: ${r.rtd}/${r.found} marked RTD${errNote}`;
-    }).join('<br>');
-
-    result.innerHTML = `✅ <b>Mark RTD complete.</b> ${data.total_rtd} total marked<br><br>${lines}`;
-    status.textContent = '';
+    // Poll for result
+    _markRtdPollTimer = setInterval(_pollMarkRtdStatus, 4000);
   })
   .catch(e => {
     btn.disabled = false;
     btn.textContent = '📦 Mark Pending RTD';
     status.textContent = '⚠ ' + e.message;
   });
+}
+
+function _pollMarkRtdStatus() {
+  fetch('/api/mark-rtd/status')
+  .then(r => r.json())
+  .then(data => {
+    if (data.running) return; // still going, keep polling
+
+    // Done — clear poll
+    clearInterval(_markRtdPollTimer);
+    _markRtdPollTimer = null;
+
+    const btn    = document.getElementById('markRtdBtn');
+    const status = document.getElementById('autoDispatchStatus');
+    const result = document.getElementById('autoDispatchResult');
+    btn.disabled = false;
+    btn.textContent = '📦 Mark Pending RTD';
+    status.textContent = '';
+
+    const res = data.result;
+    if (!res) { status.textContent = 'Completed (no result)'; return; }
+
+    result.style.display = 'block';
+    result.style.background = 'rgba(0,212,255,.07)';
+    result.style.borderColor = 'rgba(0,212,255,.2)';
+    result.style.color = 'var(--accent)';
+
+    const accounts = res.accounts || {};
+    const lines = Object.entries(accounts).map(([acct, r]) => {
+      if (!r.ok) return `<b>${acct}</b>: ✗ ${r.error}`;
+      if (r.found === 0) return `<b>${acct}</b>: no pending RTD shipments`;
+      const errNote = r.error_count > 0 ? ` ⚠ ${r.error_count} need manual RTD` : ' ✓';
+      return `<b>${acct}</b>: ${r.rtd}/${r.found} marked RTD${errNote}`;
+    }).join('<br>');
+
+    result.innerHTML = `✅ <b>Mark RTD complete.</b> ${res.total_rtd} total marked<br><br>${lines}`;
+  })
+  .catch(() => {}); // silently ignore poll errors
 }
 
 // ── Cron Config ──────────────────────────────────────────────────────────────
