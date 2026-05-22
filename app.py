@@ -4077,16 +4077,39 @@ def _fk_auto_dispatch(account=None):
     try:
         now_ist  = datetime.datetime.now(tz=IST).strftime('%Y-%m-%dT%H:%M:%S.000+05:30')
         gql_url  = 'https://seller.flipkart.com/napi/graphql'
+
+        # Build listing groups from approved shipments (matching portal's group_id format)
+        groups_map = {}
+        for s in approved_shipments:
+            sid = s.get('shipmentId', '')
+            if sid not in shipment_ids_packed:
+                continue
+            items = s.get('orderItems', [])
+            listing_id = items[0].get('listingId', '') if items else ''
+            if not listing_id:
+                continue
+            group_id = f'3_{listing_id}'
+            dbd = s.get('dispatchByDate', '')
+            if group_id not in groups_map:
+                groups_map[group_id] = {
+                    'group_id':         group_id,
+                    'sub_group_index':  0,
+                    'dispatch_by_date': dbd,
+                    'channel_of_sale':  'FLIPKART',
+                    'packaging_policy': s.get('packagingPolicy', 'DEFAULT'),
+                    'size':             0,
+                }
+            groups_map[group_id]['size'] += 1
+
         gql_body = {
             'operationName': 'MarkRTD',
             'variables': {
-                'view_name':            'shipment',
+                'view_name':            'group_shipment',
                 'timestamp':            now_ist,
                 'override_label_print': True,
                 'filters':              {},
-                'groups':               [],
-                'shipments':            [{'shipment_id': sid, 'location_id': location}
-                                         for sid in shipment_ids_packed],
+                'groups':               list(groups_map.values()),
+                'shipments':            [],
                 'location_id':          location,
             },
             'query': (
@@ -4099,26 +4122,28 @@ def _fk_auto_dispatch(account=None):
                 'override_label_print: $override_label_print, '
                 'filters: $filters, groups: $groups, '
                 'shipments: $shipments, location_id: $location_id) { '
-                'view_name shipment_response error_message } }'
+                'view_name groups_response error_message } }'
             ),
         }
         gql_r = _req.post(gql_url, json=gql_body, headers=headers, timeout=30)
-        print(f'[AutoDispatch] Portal GraphQL MarkRTD [{gql_r.status_code}]: {gql_r.text[:500]}')
+        print(f'[AutoDispatch] Portal GraphQL MarkRTD [{gql_r.status_code}]: {gql_r.text[:600]}')
         if gql_r.status_code == 200:
             gql_data   = gql_r.json()
             rtd_obj    = (gql_data.get('data') or {}).get('sfs_revampedOrderShipmentsGroupRTD') or {}
-            ship_resp  = rtd_obj.get('shipment_response') or {}
-            for sid, resp in ship_resp.items():
-                if isinstance(resp, dict) and resp.get('success', 0) > 0:
-                    gql_rtd_ok.add(sid)
-                    rtd_count += 1
-                else:
-                    rtd_errors.append(f'{sid}: GraphQL RTD failed — {resp}')
-            # If shipment_response is empty but no error, assume all succeeded
-            if not ship_resp and not rtd_obj.get('error_message'):
+            grp_resp   = rtd_obj.get('groups_response') or {}
+            for grp_id, resp in grp_resp.items():
+                success = resp.get('success', 0)
+                failed  = resp.get('failed', 0)
+                rtd_count += success
+                if failed > 0:
+                    rtd_errors.append(f'Group {grp_id}: {failed} failed')
+            # If groups_response empty but no error_message, assume all succeeded
+            if not grp_resp and not rtd_obj.get('error_message'):
                 gql_rtd_ok = set(shipment_ids_packed)
                 rtd_count  = len(shipment_ids_packed)
-            print(f'[AutoDispatch] GraphQL RTD: {len(gql_rtd_ok)} succeeded')
+            else:
+                gql_rtd_ok = set(shipment_ids_packed)  # assume all handled
+            print(f'[AutoDispatch] GraphQL RTD: {rtd_count} succeeded, groups: {list(grp_resp.keys())}')
     except Exception as e:
         print(f'[AutoDispatch] Portal GraphQL RTD error: {e} — falling back to public API')
 
