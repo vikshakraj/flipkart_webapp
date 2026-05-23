@@ -4067,19 +4067,22 @@ def _fk_auto_dispatch(account=None):
     finally:
         shutil.rmtree(req_tmp, ignore_errors=True)
 
-    # ── Step 4a: Wait briefly then mark RTD via public API ──
-    _time.sleep(10)
+    # ── Step 4a: Wait for FK to register label download before RTD ──
+    # Scale wait time with batch size — larger batches need more propagation time.
+    wait_secs = min(10 + len(shipment_ids_packed) * 1, 60)
+    print(f'[AutoDispatch] Waiting {wait_secs}s for FK to register {len(shipment_ids_packed)} label(s)...')
+    _time.sleep(wait_secs)
     rtd_count   = 0
     rtd_errors  = []
     dispatch_url = f'{base}/v3/shipments/dispatch'
     pending_rtd  = list(shipment_ids_packed)
 
-    for rtd_attempt in range(1, 4):  # up to 3 attempts
+    for rtd_attempt in range(1, 11):  # up to 10 attempts
         if not pending_rtd:
             break
         if rtd_attempt > 1:
-            print(f'[AutoDispatch] RTD retry {rtd_attempt}/3 for {len(pending_rtd)} shipments — waiting 15s...')
-            _time.sleep(15)
+            print(f'[AutoDispatch] RTD retry {rtd_attempt}/10 for {len(pending_rtd)} shipments — waiting 20s...')
+            _time.sleep(20)
 
         still_failed = []
         for i in range(0, len(pending_rtd), 25):
