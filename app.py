@@ -4068,8 +4068,9 @@ def _fk_auto_dispatch(account=None):
         shutil.rmtree(req_tmp, ignore_errors=True)
 
     # ── Step 4a: Wait for FK to register label download before RTD ──
-    # Scale wait time with batch size — larger batches need more propagation time.
-    wait_secs = min(10 + len(shipment_ids_packed) * 1, 60)
+    # FK needs at least 45s to propagate label download to RTD eligibility check.
+    # Add 1s per shipment beyond 10 to handle larger batches.
+    wait_secs = max(45, 10 + len(shipment_ids_packed) * 1)
     print(f'[AutoDispatch] Waiting {wait_secs}s for FK to register {len(shipment_ids_packed)} label(s)...')
     _time.sleep(wait_secs)
     rtd_count   = 0
