@@ -4070,7 +4070,7 @@ def _fk_auto_dispatch(account=None):
     # ── Step 4a: Wait for FK to register label download before RTD ──
     # FK needs at least 45s to propagate label download to RTD eligibility check.
     # Add 1s per shipment beyond 10 to handle larger batches.
-    wait_secs = max(45, 10 + len(shipment_ids_packed) * 1)
+    wait_secs = max(60, 10 + len(shipment_ids_packed) * 1)
     print(f'[AutoDispatch] Waiting {wait_secs}s for FK to register {len(shipment_ids_packed)} label(s)...')
     _time.sleep(wait_secs)
     rtd_count   = 0
@@ -4407,14 +4407,26 @@ def sales_sync_cron():
             results[account] = 'skipped (no credentials)'
             continue
         sync_key = f'__syncing_{account}__'
-        if _load_sales_store(account).get(sync_key):
-            results[account] = 'skipped (already running)'
-            continue
+        store_now = _load_sales_store(account)
+        if store_now.get(sync_key):
+            # Clear stale flag if stuck for >30 mins
+            flag_time = store_now.get(f'__syncing_{account}_at__', 0)
+            import time as _t
+            if _t.time() - flag_time < 1800:
+                results[account] = 'skipped (already running)'
+                continue
+            else:
+                store_now.pop(sync_key, None)
+                store_now.pop(f'__syncing_{account}_at__', None)
+                _save_sales_store(account, store_now)
+                print(f'[SalesCron] Cleared stale sync flag for {account}')
 
         def _bg(acct=account):
             try:
                 s = _load_sales_store(acct)
+                import time as _t2
                 s[f'__syncing_{acct}__'] = True
+                s[f'__syncing_{acct}_at__'] = _t2.time()
                 _save_sales_store(acct, s)
                 _fk_sync_sales(acct)
                 print(f'[SalesCron] {acct} completed')
