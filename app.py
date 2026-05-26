@@ -4115,16 +4115,29 @@ def _fk_auto_dispatch(account=None):
 
         pending_rtd = still_failed
 
-    # Anything still in pending_rtd after all retries — log shipment IDs for manual action
+    # Anything still in pending_rtd after all retries — log full diagnostics
     if pending_rtd:
-        print(f'[AutoDispatch] {len(pending_rtd)} shipments need manual RTD on seller portal (FF_DOCUMENT_NOT_PRINTED — package not approved for auto-dispatch):')
+        print(f'[AutoDispatch] {len(pending_rtd)} shipments need manual RTD (FF_DOCUMENT_NOT_PRINTED):')
     for sid in pending_rtd:
-        # Find matching order ID for easier lookup
-        order_id = next((s.get('invoices',[{}])[0].get('orderId','') 
-                        for s in [ps for ps in approved_shipments if ps.get('shipmentId') == sid]), '')
-        err = f'{sid} ({order_id}): needs manual RTD'
+        # Find full shipment data for diagnostics
+        shipment_data = next((s for s in approved_shipments if s.get('shipmentId') == sid), {})
+        order_id  = shipment_data.get('invoices', [{}])[0].get('orderId', '') if shipment_data.get('invoices') else ''
+        items     = shipment_data.get('orderItems', [])
+        sku       = items[0].get('skuId', '') if items else ''
+        title     = items[0].get('title', '')[:50] if items else ''
+        pkg_data  = shipment_data.get('subShipments', [{}])[0].get('packages', [{}])[0] if shipment_data.get('subShipments') else {}
+        pkg_id    = pkg_data.get('packageId', 'NONE')
+        dims      = pkg_data.get('dimensions', {})
+        pkg_type  = shipment_data.get('packagingPolicy', '')
+        loc_id    = shipment_data.get('locationId', '')
+        dbd       = shipment_data.get('dispatchByDate', '')
+        print(
+            f'[AutoDispatch] FAILED RTD | shipmentId={sid} orderId={order_id} '
+            f'sku={sku} title={title!r} packageId={pkg_id} dims={dims} '
+            f'packagingPolicy={pkg_type} locationId={loc_id} dispatchByDate={dbd}'
+        )
+        err = f'{sid} ({order_id}) sku={sku}: FF_DOCUMENT_NOT_PRINTED — manual RTD needed'
         rtd_errors.append(err)
-        print(f'[AutoDispatch] Manual RTD needed: shipmentId={sid} orderId={order_id}')
 
     print(f'[AutoDispatch] RTD: {rtd_count} marked, {len(rtd_errors)} errors')
 
