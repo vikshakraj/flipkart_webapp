@@ -3395,55 +3395,74 @@ def fetch_active_skus(account):
                 return jsonify({'error': f'No SKUs found for product "{product}" in Master SKU file'}), 404
             target_sku_ids = set(acct_map.keys())
 
-        # Paginate through FK listings API to get all active SKUs
+        # Paginate through FK listings API using same pattern as listings_get route
+        search_url = f'{base}/listings/v3/search'
+        details_url = f'{base}/listings/v3/details'
         all_skus   = []
-        page_token = None
+        page_id    = None
         page_num   = 0
+
         while True:
             page_num += 1
-            payload = {'filter': {'status': 'ACTIVE'}, 'pagination': {'limit': 500}}
-            if page_token:
-                payload['pagination']['pageToken'] = page_token
-            r = _req.post(f'{base}/listings/v3/search', json=payload, headers=headers, timeout=30)
+            payload = {'filters': {'listing_status': 'ACTIVE'}, 'page_id': page_id}
+            r = _req.post(search_url, json=payload, headers=headers, timeout=30)
             if r.status_code != 200:
                 return jsonify({'error': f'FK listings API error [{r.status_code}]: {r.text[:200]}'}), 502
             data = r.json()
-            listings = data.get('listings', data.get('skus', []))
-            for item in listings:
-                sku_id = (item.get('sku_id') or item.get('skuId') or '').strip()
-                if not sku_id:
-                    continue
-                # Filter by product if specified
-                if target_sku_ids and sku_id.strip().lower() not in target_sku_ids:
-                    continue
-                pid = item.get('product_id') or item.get('productId') or item.get('fsn', '')
-                locs = item.get('locations', [])
-                all_skus.append({'sku_id': sku_id, 'product_id': pid, 'locations': locs})
+            raw = data.get('listings', [])
+            sku_entries = []
+            if isinstance(raw, list):
+                for item in raw:
+                    sid = (item.get('sku_id') or item.get('skuId') or '').strip()
+                    if not sid:
+                        continue
+                    if target_sku_ids and sid.lower() not in target_sku_ids:
+                        continue
+                    pid = item.get('product_id') or item.get('productId') or ''
+                    sku_entries.append({'sku_id': sid, 'product_id': pid})
+            elif isinstance(raw, dict):
+                for sid, item in raw.items():
+                    if target_sku_ids and sid.lower() not in target_sku_ids:
+                        continue
+                    sku_entries.append({'sku_id': sid, 'product_id': item.get('product_id') or ''})
 
-            page_token = data.get('nextPageToken') or data.get('pagination', {}).get('nextPageToken')
-            if not page_token or not listings:
-                break
-            if page_num > 50:  # safety cap
-                break
+            # Fetch details (locations, product_id) in batches of 10
+            for i in range(0, len(sku_entries), 10):
+                batch_ids = [e['sku_id'] for e in sku_entries[i:i+10]]
+                det_r = _req.post(details_url, json={'sku_ids': batch_ids}, headers=headers, timeout=30)
+                if det_r.status_code == 200:
+                    det_data = det_r.json()
+                    det_listings = det_data.get('listings', [])
+                    if isinstance(det_listings, list):
+                        det_map = {}
+                        for d in det_listings:
+                            sid = d.get('sku_id') or d.get('skuId') or ''
+                            if sid:
+                                det_map[sid] = d
+                        for e in sku_entries[i:i+10]:
+                            d = det_map.get(e['sku_id'], {})
+                            all_skus.append({
+                                'sku_id':     e['sku_id'],
+                                'product_id': d.get('product_id') or d.get('productId') or d.get('fsn') or e['product_id'],
+                                'locations':  d.get('locations', []),
+                            })
+                    elif isinstance(det_listings, dict):
+                        for e in sku_entries[i:i+10]:
+                            d = det_listings.get(e['sku_id'], {})
+                            all_skus.append({
+                                'sku_id':     e['sku_id'],
+                                'product_id': d.get('product_id') or d.get('productId') or d.get('fsn') or e['product_id'],
+                                'locations':  d.get('locations', []),
+                            })
+                else:
+                    # Details failed — add with no locations, inventory update may still work
+                    for e in sku_entries[i:i+10]:
+                        all_skus.append({'sku_id': e['sku_id'], 'product_id': e['product_id'], 'locations': []})
 
-        # If no locations from search, fetch details for first batch to get locations
-        # FK search API sometimes omits locations
-        if all_skus and not all_skus[0].get('locations'):
-            sku_id_list = [s['sku_id'] for s in all_skus[:100]]
-            detail_r = _req.post(
-                f'{base}/listings/v3',
-                json={'skuIds': sku_id_list},
-                headers=headers, timeout=30
-            )
-            if detail_r.status_code == 200:
-                detail_map = {}
-                for item in detail_r.json().get('listings', []):
-                    sid = item.get('skuId') or item.get('sku_id', '')
-                    if sid:
-                        detail_map[sid] = item.get('locations', [])
-                for s in all_skus:
-                    if s['sku_id'] in detail_map:
-                        s['locations'] = detail_map[s['sku_id']]
+            page_id  = data.get('next_page_id') or None
+            has_more = bool(data.get('has_more')) and bool(page_id)
+            if not has_more or page_num > 50:
+                break
 
         print(f'[FetchActiveSKUs] {account} product={product!r}: found {len(all_skus)} active SKUs')
         return jsonify({'ok': True, 'skus': all_skus, 'count': len(all_skus)})
