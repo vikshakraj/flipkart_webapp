@@ -2067,7 +2067,7 @@
 
   <!-- ── Bulk Action Modal ── -->
   <div id="lstBulkModal" class="lst-modal-overlay" style="display:none;" onclick="if(event.target===this)lstCloseBulkModal()">
-    <div class="lst-modal">
+    <div class="lst-modal" style="position:relative;overflow:visible;">
       <h3>⚡ Bulk Action</h3>
       <p class="lst-modal-sub" id="lstBulkSub">Update stock count for all SKUs under a product in one shot.</p>
       <div class="lst-modal-tabs">
@@ -7926,12 +7926,12 @@ function lstHandleInlineResult(data, skuId, field, val, rowIdx) {
 let _lstBulkFetchedSKUs = null;  // cached SKUs from last Find
 
 // ── Multi-select helpers ──
-function lstGetSelectedProducts(tab) {
+window.lstGetSelectedProducts = function(tab) {
   const opts = document.querySelectorAll(`#lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Options input[type=checkbox]`);
   return Array.from(opts).filter(cb => cb.checked).map(cb => cb.value);
 }
 
-function lstUpdateMultiLabel(tab) {
+window.lstUpdateMultiLabel = function(tab) {
   const selected = lstGetSelectedProducts(tab);
   const labelEl = document.getElementById(`lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Label`);
   if (!selected.length) {
@@ -7947,7 +7947,7 @@ function lstUpdateMultiLabel(tab) {
   lstBulkResetConfirm();
 }
 
-function lstToggleMultiSelect(tab) {
+window.lstToggleMultiSelect = function(tab) {
   const dd = document.getElementById(`lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Dropdown`);
   const tr = document.getElementById(`lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Trigger`);
   const isOpen = dd.classList.contains('open');
@@ -7957,19 +7957,19 @@ function lstToggleMultiSelect(tab) {
   if (!isOpen) { dd.classList.add('open'); tr.classList.add('open'); }
 }
 
-function lstMultiSelectAll(tab) {
+window.lstMultiSelectAll = function(tab) {
   document.querySelectorAll(`#lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Options input[type=checkbox]`)
     .forEach(cb => cb.checked = true);
   lstUpdateMultiLabel(tab);
 }
 
-function lstMultiSelectNone(tab) {
+window.lstMultiSelectNone = function(tab) {
   document.querySelectorAll(`#lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Options input[type=checkbox]`)
     .forEach(cb => cb.checked = false);
   lstUpdateMultiLabel(tab);
 }
 
-function lstPopulateMultiSelect(products) {
+window.lstPopulateMultiSelect = function(products) {
   ['stock', 'price'].forEach(tab => {
     const container = document.getElementById(`lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Options`);
     if (!container) return;
