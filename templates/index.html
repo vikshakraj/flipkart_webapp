@@ -8060,32 +8060,31 @@ window.lstOpenBulkModal = function() {
   });
   // Close any open dropdowns
   document.querySelectorAll('.multi-select-dropdown').forEach(d => d.classList.remove('open'));
-  // Populate products — from loaded listings, filter dropdown, or master SKU API
-  if (_lstProducts && _lstProducts.length) {
-    lstPopulateMultiSelect(_lstProducts);
-  } else {
-    const filterEl = document.getElementById('lstProductFilter');
-    const prods = filterEl
-      ? Array.from(filterEl.options).map(o => o.value).filter(v => v && v !== '__all__')
-      : [];
-    if (prods.length) {
-      lstPopulateMultiSelect(prods);
-    } else {
-      // Last resort: fetch from master SKU API
-      const stockList = document.getElementById('lstBulkStockList');
-      if (stockList) { stockList.innerHTML = '<option disabled>Loading products…</option>'; }
-      fetch('/api/sku-data').then(r => r.json()).then(data => {
-        const prods = (data.products || []).filter(Boolean).sort();
-        if (prods.length) {
-          lstPopulateMultiSelect(prods);
-        } else {
-          if (stockList) stockList.innerHTML = '<option disabled>No products found — upload Master SKU file</option>';
-        }
-      }).catch(e => {
-        if (stockList) stockList.innerHTML = '<option disabled>Error: ' + e.message + '</option>';
-      });
-    }
-  }
+  // Populate products — always fetch fresh from API for reliability
+  const _bulkStockList = document.getElementById('lstBulkStockList');
+  const _bulkPriceList = document.getElementById('lstBulkPriceList');
+  if (_bulkStockList) _bulkStockList.innerHTML = '<option disabled>Loading…</option>';
+  if (_bulkPriceList) _bulkPriceList.innerHTML = '<option disabled>Loading…</option>';
+  fetch('/api/sku-data')
+    .then(r => r.json())
+    .then(data => {
+      const prods = (data.products || []).filter(Boolean).sort();
+      if (prods.length) {
+        ['lstBulkStockList','lstBulkPriceList'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.innerHTML = prods.map(p => `<option value="${p}">${p}</option>`).join('');
+        });
+      } else {
+        const msg = '<option disabled>No products — upload Master SKU file first</option>';
+        if (_bulkStockList) _bulkStockList.innerHTML = msg;
+        if (_bulkPriceList) _bulkPriceList.innerHTML = msg;
+      }
+    })
+    .catch(e => {
+      const msg = `<option disabled>Load error: ${e.message}</option>`;
+      if (_bulkStockList) _bulkStockList.innerHTML = msg;
+      if (_bulkPriceList) _bulkPriceList.innerHTML = msg;
+    });
   document.getElementById('lstBulkModal').style.display = 'flex';
 };
 
