@@ -7909,7 +7909,7 @@ window.lstOpenBulkModal = function() {
   document.getElementById('lstBulkPriceConfirm').style.display = 'none';
   document.getElementById('lstBulkFindBtn').style.display = '';
   document.getElementById('lstBulkSubmitBtn').style.display = 'none';
-  document.getElementById('lstBulkAllBtn').style.display = 'none';
+  document.getElementById('lstBulkAllBtn').style.display = '';
   document.getElementById('lstBulkModal').style.display = 'flex';
 };
 
@@ -7923,7 +7923,7 @@ window.lstBulkResetConfirm = function() {
   document.getElementById('lstBulkPriceConfirm').style.display = 'none';
   document.getElementById('lstBulkFindBtn').style.display = '';
   document.getElementById('lstBulkSubmitBtn').style.display = 'none';
-  document.getElementById('lstBulkAllBtn').style.display = 'none';
+  document.getElementById('lstBulkAllBtn').style.display = '';
   document.getElementById('lstBulkResult').style.display = 'none';
 };
 
@@ -7938,7 +7938,7 @@ window.lstSwitchBulkTab = function(tab) {
   document.getElementById('lstBulkPriceConfirm').style.display = 'none';
   document.getElementById('lstBulkFindBtn').style.display = '';
   document.getElementById('lstBulkSubmitBtn').style.display = 'none';
-  document.getElementById('lstBulkAllBtn').style.display = 'none';
+  document.getElementById('lstBulkAllBtn').style.display = '';
   document.getElementById('lstBulkResult').style.display = 'none';
   const sub = document.getElementById('lstBulkSub');
   if(sub) sub.textContent = tab === 'price'
