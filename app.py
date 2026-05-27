@@ -3646,6 +3646,7 @@ def _fk_auto_dispatch(account=None):
         },
         'pagination': {'pageSize': 20},
     }
+    now_ist = datetime.datetime.now(tz=IST)
     fetched = 0
     while next_url and fetched < 2000:
         try:
@@ -3656,6 +3657,17 @@ def _fk_auto_dispatch(account=None):
                 return {'ok': False, 'error': f'Shipment filter failed [{r.status_code}]: {r.text[:200]}'}
             data = r.json()
             for s in data.get('shipments', []):
+                # Client-side filter: skip upcoming orders whose dispatch window hasn't opened
+                dbd = s.get('dispatchByDate', '')
+                if dbd:
+                    try:
+                        dbd_dt = datetime.datetime.fromisoformat(dbd.replace('Z', '+00:00'))
+                        # dispatchByDate is the deadline — subtract 1 day to get the open date
+                        # Skip if the order isn't due until tomorrow or later
+                        if dbd_dt.date() > now_ist.date():
+                            continue
+                    except Exception:
+                        pass
                 approved_shipments.append(s)
                 fetched += 1
             if not data.get('hasMore') or not data.get('nextPageUrl'):
