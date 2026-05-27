@@ -3522,16 +3522,24 @@ def listings_update_inventory(account):
                     'product_id': s.get('product_id', ''),
                     'locations':  locations,
                 }
-            print(f'[UpdateInventory] payload sample (first SKU): {list(payload.items())[:1]}')
-            r = _req.post(url, json=payload, headers=headers, timeout=30)
-            print(f'[UpdateInventory] FK response [{r.status_code}]: {r.text[:500]}')
-            if r.status_code == 200:
-                results.update(r.json())
-            else:
+            print(f'[UpdateInventory] calling {url} with {len(batch)} SKUs, payload keys: {list(payload.keys())}')
+            try:
+                r = _req.post(url, json=payload, headers=headers, timeout=60)
+                print(f'[UpdateInventory] FK response [{r.status_code}]: {r.text[:500]}')
+                if r.status_code == 200:
+                    results.update(r.json())
+                else:
+                    for s in batch:
+                        results[s['sku_id']] = {
+                            'status': 'failure',
+                            'errors': [{'severity': 'ERROR', 'description': f'HTTP {r.status_code}: {r.text[:200]}'}]
+                        }
+            except Exception as batch_err:
+                print(f'[UpdateInventory] batch error: {batch_err}')
                 for s in batch:
                     results[s['sku_id']] = {
                         'status': 'failure',
-                        'errors': [{'severity': 'ERROR', 'description': f'HTTP {r.status_code}: {r.text[:200]}'}]
+                        'errors': [{'severity': 'ERROR', 'description': str(batch_err)}]
                     }
         return jsonify({'ok': True, 'results': results})
     except RuntimeError as e:
