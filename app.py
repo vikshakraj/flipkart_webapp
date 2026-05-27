@@ -5422,7 +5422,10 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
                 ws.cell(row=row, column=col_map[col_name]).value = value
 
     # ── Write rows starting at row 5 ────────────────────────
-    search_kw_str = '::'.join(top_keywords)
+    # Search Keywords: FK allows max 5 — pick random 5 from top_keywords
+    import random as _random
+    search_kw_sample = _random.sample(top_keywords, min(5, len(top_keywords)))
+    search_kw_str = '::'.join(search_kw_sample)
 
     for i, pack_size in enumerate(sku_rows):
         row      = 5 + i
@@ -5485,9 +5488,7 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
         set_cell(row, 'Key Features',        ai['key_features'])
         set_cell(row, 'Search Keywords',     search_kw_str)
 
-        # Model Number if present
-        if 'Model Number' in col_map and top_keywords:
-            set_cell(row, 'Model Number', random.choice(top_keywords))
+        # Model Number — intentionally left blank (optional field, not required)
 
     # ── Change 7: Write dynamic (category-specific) fields ──────
     dynamic_fields_data = fd.get('dynamic_fields', {})
