@@ -2076,8 +2076,20 @@
       </div>
 
       <div id="lstBulkStockPane">
-        <div class="lst-modal-field"><label class="lst-modal-label">PRODUCT</label>
-          <select class="lst-modal-input" id="lstBulkStockProduct" style="font-family:inherit;" onchange="lstBulkResetConfirm()"></select>
+        <div class="lst-modal-field"><label class="lst-modal-label">PRODUCTS</label>
+          <div class="multi-select-wrap" id="lstBulkStockMultiWrap">
+            <button type="button" class="multi-select-trigger" id="lstBulkStockTrigger" onclick="lstToggleMultiSelect('stock')">
+              <span id="lstBulkStockLabel" class="placeholder">Select products…</span>
+              <span>▾</span>
+            </button>
+            <div class="multi-select-dropdown" id="lstBulkStockDropdown">
+              <div class="multi-select-all">
+                <span onclick="lstMultiSelectAll('stock')">Select all</span>
+                <span onclick="lstMultiSelectNone('stock')">Clear</span>
+              </div>
+              <div id="lstBulkStockOptions"></div>
+            </div>
+          </div>
         </div>
         <div class="lst-modal-field"><label class="lst-modal-label">NEW STOCK COUNT</label>
           <input type="number" min="0" step="1" class="lst-modal-input" id="lstBulkStockValue" placeholder="e.g. 50" oninput="lstBulkResetConfirm()">
@@ -2088,8 +2100,20 @@
       </div>
 
       <div id="lstBulkPricePane" style="display:none;">
-        <div class="lst-modal-field"><label class="lst-modal-label">PRODUCT</label>
-          <select class="lst-modal-input" id="lstBulkPriceProduct" style="font-family:inherit;" onchange="lstBulkResetConfirm()"></select>
+        <div class="lst-modal-field"><label class="lst-modal-label">PRODUCTS</label>
+          <div class="multi-select-wrap" id="lstBulkPriceMultiWrap">
+            <button type="button" class="multi-select-trigger" id="lstBulkPriceTrigger" onclick="lstToggleMultiSelect('price')">
+              <span id="lstBulkPriceLabel" class="placeholder">Select products…</span>
+              <span>▾</span>
+            </button>
+            <div class="multi-select-dropdown" id="lstBulkPriceDropdown">
+              <div class="multi-select-all">
+                <span onclick="lstMultiSelectAll('price')">Select all</span>
+                <span onclick="lstMultiSelectNone('price')">Clear</span>
+              </div>
+              <div id="lstBulkPriceOptions"></div>
+            </div>
+          </div>
         </div>
         <div class="lst-modal-field"><label class="lst-modal-label">NEW SELLING PRICE (₹)</label>
           <input type="number" min="1" step="1" class="lst-modal-input" id="lstBulkPriceValue" placeholder="e.g. 299" oninput="lstBulkResetConfirm()">
@@ -6754,7 +6778,7 @@ function lstPopulateProductDropdowns() {
   const opts = ['<option value="__all__">All Products</option>',
     ..._lstProducts.map(p => `<option value="${p}">${p}</option>`)
   ].join('');
-  ['lstProductFilter','lstBulkStockProduct','lstBulkPriceProduct'].forEach(id => {
+  ['lstProductFilter'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = opts;
   });
@@ -7901,6 +7925,70 @@ function lstHandleInlineResult(data, skuId, field, val, rowIdx) {
 // ── Bulk Action Modal ──
 let _lstBulkFetchedSKUs = null;  // cached SKUs from last Find
 
+// ── Multi-select helpers ──
+function lstGetSelectedProducts(tab) {
+  const opts = document.querySelectorAll(`#lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Options input[type=checkbox]`);
+  return Array.from(opts).filter(cb => cb.checked).map(cb => cb.value);
+}
+
+function lstUpdateMultiLabel(tab) {
+  const selected = lstGetSelectedProducts(tab);
+  const labelEl = document.getElementById(`lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Label`);
+  if (!selected.length) {
+    labelEl.className = 'placeholder';
+    labelEl.textContent = 'Select products…';
+  } else if (selected.length === 1) {
+    labelEl.className = '';
+    labelEl.textContent = selected[0];
+  } else {
+    labelEl.className = '';
+    labelEl.textContent = `${selected.length} products selected`;
+  }
+  lstBulkResetConfirm();
+}
+
+function lstToggleMultiSelect(tab) {
+  const dd = document.getElementById(`lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Dropdown`);
+  const tr = document.getElementById(`lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Trigger`);
+  const isOpen = dd.classList.contains('open');
+  // Close all dropdowns first
+  document.querySelectorAll('.multi-select-dropdown').forEach(d => d.classList.remove('open'));
+  document.querySelectorAll('.multi-select-trigger').forEach(t => t.classList.remove('open'));
+  if (!isOpen) { dd.classList.add('open'); tr.classList.add('open'); }
+}
+
+function lstMultiSelectAll(tab) {
+  document.querySelectorAll(`#lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Options input[type=checkbox]`)
+    .forEach(cb => cb.checked = true);
+  lstUpdateMultiLabel(tab);
+}
+
+function lstMultiSelectNone(tab) {
+  document.querySelectorAll(`#lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Options input[type=checkbox]`)
+    .forEach(cb => cb.checked = false);
+  lstUpdateMultiLabel(tab);
+}
+
+function lstPopulateMultiSelect(products) {
+  ['stock', 'price'].forEach(tab => {
+    const container = document.getElementById(`lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Options`);
+    if (!container) return;
+    container.innerHTML = products.map(p => `
+      <label class="multi-select-option">
+        <input type="checkbox" value="${p}" onchange="lstUpdateMultiLabel('${tab}')">
+        <span>${p}</span>
+      </label>`).join('');
+  });
+}
+
+// Close multi-select when clicking outside
+document.addEventListener('click', e => {
+  if (!e.target.closest('.multi-select-wrap')) {
+    document.querySelectorAll('.multi-select-dropdown').forEach(d => d.classList.remove('open'));
+    document.querySelectorAll('.multi-select-trigger').forEach(t => t.classList.remove('open'));
+  }
+});
+
 window.lstOpenBulkModal = function() {
   _lstBulkFetchedSKUs = null;
   document.getElementById('lstBulkStockValue').value = '';
@@ -7910,6 +7998,8 @@ window.lstOpenBulkModal = function() {
   document.getElementById('lstBulkFindBtn').style.display = '';
   document.getElementById('lstBulkSubmitBtn').style.display = 'none';
   document.getElementById('lstBulkAllBtn').style.display = '';
+  // Close any open dropdowns
+  document.querySelectorAll('.multi-select-dropdown').forEach(d => d.classList.remove('open'));
   document.getElementById('lstBulkModal').style.display = 'flex';
 };
 
@@ -7948,18 +8038,16 @@ window.lstSwitchBulkTab = function(tab) {
 
 // Step 1: Fetch SKUs from FK API and show count for confirmation
 window.lstBulkFindSKUs = async function() {
-  const isPrice = _lstBulkTab === 'price';
-  const prod    = isPrice
-    ? document.getElementById('lstBulkPriceProduct').value
-    : document.getElementById('lstBulkStockProduct').value;
-  const val     = parseInt(isPrice
+  const isPrice  = _lstBulkTab === 'price';
+  const selectedProds = lstGetSelectedProducts(isPrice ? 'price' : 'stock');
+  const val      = parseInt(isPrice
     ? document.getElementById('lstBulkPriceValue').value
     : document.getElementById('lstBulkStockValue').value, 10);
 
-  if (!prod) {
+  if (!selectedProds.length) {
     const r = document.getElementById('lstBulkResult');
     r.className = 'lst-modal-result err'; r.style.display = 'block';
-    r.textContent = 'Please select a product.'; return;
+    r.textContent = 'Please select at least one product.'; return;
   }
   if (isNaN(val) || val < (isPrice ? 1 : 0)) {
     const r = document.getElementById('lstBulkResult');
@@ -7974,25 +8062,37 @@ window.lstBulkFindSKUs = async function() {
   result.style.display = 'none';
 
   try {
-    const r = await fetch(`/api/listings/${_lstAccount}/fetch-active-skus`, {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ product: prod })
-    });
-    const data = await r.json();
+    // Fetch SKUs for all selected products in parallel
+    let allSkus = [];
+    let fetchErrors = [];
+    await Promise.all(selectedProds.map(async prod => {
+      try {
+        const r = await fetch(`/api/listings/${_lstAccount}/fetch-active-skus`, {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ product: prod })
+        });
+        const data = await r.json();
+        if (data.ok && data.skus) allSkus = allSkus.concat(data.skus);
+        else fetchErrors.push(`${prod}: ${data.error || 'failed'}`);
+      } catch(e) { fetchErrors.push(`${prod}: ${e.message}`); }
+    }));
+
     findBtn.disabled = false;
     findBtn.textContent = '🔍 Find SKUs';
 
-    if (!data.ok || data.error) {
+    if (!allSkus.length && fetchErrors.length) {
       result.className = 'lst-modal-result err'; result.style.display = 'block';
-      result.textContent = '✕ ' + (data.error || 'Failed to fetch SKUs'); return;
+      result.textContent = '✕ ' + fetchErrors.join('; '); return;
     }
 
-    _lstBulkFetchedSKUs = data.skus;
-    const count = data.count;
+    _lstBulkFetchedSKUs = allSkus;
+    const count = allSkus.length;
     const label = isPrice ? `₹${val}` : `${val} units`;
+    const prodsSummary = selectedProds.length === 1 ? `"${selectedProds[0]}"` : `${selectedProds.length} products`;
     const confirmEl  = document.getElementById(isPrice ? 'lstBulkPriceConfirm' : 'lstBulkStockConfirm');
     const confirmMsg = document.getElementById(isPrice ? 'lstBulkPriceConfirmMsg' : 'lstBulkStockConfirmMsg');
-    confirmMsg.textContent = `Found ${count} active SKU${count !== 1 ? 's' : ''} for "${prod}" — will update all to ${label}`;
+    confirmMsg.textContent = `Found ${count} active SKU${count !== 1 ? 's' : ''} across ${prodsSummary} — will update all to ${label}`;
+    if (fetchErrors.length) confirmMsg.textContent += ` (${fetchErrors.length} product(s) failed to fetch)`;
     confirmEl.style.display = 'block';
 
     // Show confirm button and all-SKUs button, hide find button
