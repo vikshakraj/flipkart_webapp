@@ -8072,10 +8072,18 @@ window.lstOpenBulkModal = function() {
       lstPopulateMultiSelect(prods);
     } else {
       // Last resort: fetch from master SKU API
+      const stockList = document.getElementById('lstBulkStockList');
+      if (stockList) { stockList.innerHTML = '<option disabled>Loading products…</option>'; }
       fetch('/api/sku-data').then(r => r.json()).then(data => {
         const prods = (data.products || []).filter(Boolean).sort();
-        if (prods.length) lstPopulateMultiSelect(prods);
-      }).catch(() => {});
+        if (prods.length) {
+          lstPopulateMultiSelect(prods);
+        } else {
+          if (stockList) stockList.innerHTML = '<option disabled>No products found — upload Master SKU file</option>';
+        }
+      }).catch(e => {
+        if (stockList) stockList.innerHTML = '<option disabled>Error: ' + e.message + '</option>';
+      });
     }
   }
   document.getElementById('lstBulkModal').style.display = 'flex';
