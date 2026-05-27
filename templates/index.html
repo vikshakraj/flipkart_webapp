@@ -7910,10 +7910,38 @@ function lstHandleInlineResult(data, skuId, field, val, rowIdx) {
   if (ok) { ok.textContent = '✓ Updated'; setTimeout(() => { if (ok) ok.textContent = ''; }, 3000); }
 }
 
+// ── Multi-select helpers (native <select multiple>) ──
+function _msKey(tab) { return tab === 'stock' ? 'Stock' : 'Price'; }
+
+window.lstGetSelectedProducts = function(tab) {
+  const allChk = document.getElementById(`lstBulk${_msKey(tab)}AllChk`);
+  const list   = document.getElementById(`lstBulk${_msKey(tab)}List`);
+  if (!list) return [];
+  if (allChk && allChk.checked)
+    return Array.from(list.options).map(o => o.value);
+  return Array.from(list.selectedOptions).map(o => o.value);
+}
+
+window.lstToggleSelectAllProducts = function(tab) {
+  const allChk = document.getElementById(`lstBulk${_msKey(tab)}AllChk`);
+  const list   = document.getElementById(`lstBulk${_msKey(tab)}List`);
+  const search = document.getElementById(`lstBulk${_msKey(tab)}Search`);
+  if (!list) return;
+  if (allChk.checked) {
+    list.disabled = true;
+    if (search) search.disabled = true;
+    Array.from(list.options).forEach(o => o.selected = true);
+  } else {
+    list.disabled = false;
+    if (search) search.disabled = false;
+    Array.from(list.options).forEach(o => o.selected = false);
+  }
+  lstBulkResetConfirm();
+}
+
 // ── Bulk Action Modal ──
 let _lstBulkFetchedSKUs = null;  // cached SKUs from last Find
 
-// ── Multi-select helpers ──
 window.lstGetSelectedProducts = function(tab) {
   const opts = document.querySelectorAll(`#lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Options input[type=checkbox]`);
   return Array.from(opts).filter(cb => cb.checked).map(cb => cb.value);
@@ -7957,6 +7985,15 @@ window.lstMultiSelectNone = function(tab) {
   lstUpdateMultiLabel(tab);
 }
 
+window.lstFilterMultiOptions = function(tab, query) {
+  const q    = query.toLowerCase();
+  const list = document.getElementById(`lstBulk${_msKey(tab)}List`);
+  if (!list) return;
+  Array.from(list.options).forEach(o => {
+    o.style.display = o.value.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
 window.lstPopulateMultiSelect = function(products) {
   ['stock', 'price'].forEach(tab => {
     const container = document.getElementById(`lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Options`);
@@ -7992,7 +8029,7 @@ window.lstOpenBulkModal = function() {
     const l = document.getElementById(`lstBulk${k}List`);
     if (l) { l.disabled = false; Array.from(l.options).forEach(o => o.selected = false); }
     const s = document.getElementById(`lstBulk${k}Search`);
-    if (s) { s.disabled = false; s.value = ''; lstFilterMultiOptions(k.toLowerCase(), ''); }
+    if (s) { s.disabled = false; s.value = ''; if(typeof lstFilterMultiOptions !== 'undefined') lstFilterMultiOptions(k.toLowerCase(), ''); }
   });
   // Close any open dropdowns
   document.querySelectorAll('.multi-select-dropdown').forEach(d => d.classList.remove('open'));
