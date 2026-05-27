@@ -6782,6 +6782,8 @@ function lstPopulateProductDropdowns() {
     const el = document.getElementById(id);
     if (el) el.innerHTML = opts;
   });
+  // Populate multi-select for bulk actions
+  lstPopulateMultiSelect(_lstProducts);
 }
 
 // ── Account switch ──
@@ -8000,6 +8002,19 @@ window.lstOpenBulkModal = function() {
   document.getElementById('lstBulkAllBtn').style.display = '';
   // Close any open dropdowns
   document.querySelectorAll('.multi-select-dropdown').forEach(d => d.classList.remove('open'));
+  // Populate products from loaded listings or master SKU data
+  if (_lstProducts && _lstProducts.length) {
+    lstPopulateMultiSelect(_lstProducts);
+  } else {
+    // Fallback: get products from master SKU filter dropdown
+    const filterEl = document.getElementById('lstProductFilter');
+    if (filterEl) {
+      const prods = Array.from(filterEl.options)
+        .map(o => o.value)
+        .filter(v => v && v !== '__all__');
+      if (prods.length) lstPopulateMultiSelect(prods);
+    }
+  }
   document.getElementById('lstBulkModal').style.display = 'flex';
 };
 
