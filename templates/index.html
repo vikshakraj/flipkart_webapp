@@ -2079,16 +2079,21 @@
         <div class="lst-modal-field"><label class="lst-modal-label">PRODUCTS</label>
           <div class="multi-select-wrap" id="lstBulkStockMultiWrap">
             <button type="button" class="multi-select-trigger" id="lstBulkStockTrigger" onclick="lstToggleMultiSelect('stock')">
-              <span id="lstBulkStockLabel" class="placeholder">Select products…</span>
-              <span>▾</span>
+              <span id="lstBulkStockLabel" class="ms-placeholder">Select products…</span>
+              <span class="multi-select-chevron">▼</span>
             </button>
             <div class="multi-select-dropdown" id="lstBulkStockDropdown">
-              <div class="multi-select-all">
-                <span onclick="lstMultiSelectAll('stock')">Select all</span>
-                <span onclick="lstMultiSelectNone('stock')">Clear</span>
+              <div class="multi-select-search"><input type="text" placeholder="Search products…" oninput="lstFilterMultiOptions('stock', this.value)"></div>
+              <div class="ms-select-all-row" onclick="lstToggleSelectAllInDropdown('stock')">
+                <input type="checkbox" id="lstBulkStockDropdownAll">
+                <span>Select all</span>
               </div>
               <div id="lstBulkStockOptions"></div>
             </div>
+          </div>
+          <div class="bulk-select-all-wrap" id="lstBulkStockAllWrap">
+            <input type="checkbox" id="lstBulkStockAllChk" onchange="lstToggleSelectAllProducts('stock')">
+            <label for="lstBulkStockAllChk">Select all products</label>
           </div>
         </div>
         <div class="lst-modal-field"><label class="lst-modal-label">NEW STOCK COUNT</label>
@@ -2103,16 +2108,21 @@
         <div class="lst-modal-field"><label class="lst-modal-label">PRODUCTS</label>
           <div class="multi-select-wrap" id="lstBulkPriceMultiWrap">
             <button type="button" class="multi-select-trigger" id="lstBulkPriceTrigger" onclick="lstToggleMultiSelect('price')">
-              <span id="lstBulkPriceLabel" class="placeholder">Select products…</span>
-              <span>▾</span>
+              <span id="lstBulkPriceLabel" class="ms-placeholder">Select products…</span>
+              <span class="multi-select-chevron">▼</span>
             </button>
             <div class="multi-select-dropdown" id="lstBulkPriceDropdown">
-              <div class="multi-select-all">
-                <span onclick="lstMultiSelectAll('price')">Select all</span>
-                <span onclick="lstMultiSelectNone('price')">Clear</span>
+              <div class="multi-select-search"><input type="text" placeholder="Search products…" oninput="lstFilterMultiOptions('price', this.value)"></div>
+              <div class="ms-select-all-row" onclick="lstToggleSelectAllInDropdown('price')">
+                <input type="checkbox" id="lstBulkPriceDropdownAll">
+                <span>Select all</span>
               </div>
               <div id="lstBulkPriceOptions"></div>
             </div>
+          </div>
+          <div class="bulk-select-all-wrap" id="lstBulkPriceAllWrap">
+            <input type="checkbox" id="lstBulkPriceAllChk" onchange="lstToggleSelectAllProducts('price')">
+            <label for="lstBulkPriceAllChk">Select all products</label>
           </div>
         </div>
         <div class="lst-modal-field"><label class="lst-modal-label">NEW SELLING PRICE (₹)</label>
@@ -2128,12 +2138,10 @@
       <div class="lst-modal-footer" style="flex-direction:column;gap:8px;align-items:stretch;">
         <div style="display:flex;gap:8px;">
           <button class="lst-btn" onclick="lstCloseBulkModal()" style="flex:1;">Cancel</button>
-          <button class="lst-btn lst-btn-primary" id="lstBulkFindBtn" onclick="lstBulkFindSKUs()" style="flex:2;">🔍 Find SKUs</button>
+          <button class="lst-btn lst-btn-primary" id="lstBulkFindBtn" onclick="lstBulkFindSKUs()" style="flex:2;">Update</button>
           <button class="lst-btn lst-btn-primary" id="lstBulkSubmitBtn" onclick="lstSubmitBulk()" style="flex:2;display:none;">✓ Confirm Update</button>
         </div>
-        <button class="lst-btn" id="lstBulkAllBtn" onclick="lstSubmitBulkAll()" style="background:rgba(108,110,255,.15);border:1px solid var(--accent2);color:var(--accent2);display:none;">
-          🌐 Update on all active SKUs
-        </button>
+
       </div>
     </div>
   </div>
@@ -7999,7 +8007,13 @@ window.lstOpenBulkModal = function() {
   document.getElementById('lstBulkPriceConfirm').style.display = 'none';
   document.getElementById('lstBulkFindBtn').style.display = '';
   document.getElementById('lstBulkSubmitBtn').style.display = 'none';
-  document.getElementById('lstBulkAllBtn').style.display = '';
+  // Reset select-all checkboxes
+  ['Stock','Price'].forEach(k => {
+    const c = document.getElementById(`lstBulk${k}AllChk`);
+    if (c) { c.checked = false; }
+    const t = document.getElementById(`lstBulk${k}Trigger`);
+    if (t) t.classList.remove('disabled');
+  });
   // Close any open dropdowns
   document.querySelectorAll('.multi-select-dropdown').forEach(d => d.classList.remove('open'));
   // Populate products from loaded listings or master SKU data
@@ -8028,7 +8042,6 @@ window.lstBulkResetConfirm = function() {
   document.getElementById('lstBulkPriceConfirm').style.display = 'none';
   document.getElementById('lstBulkFindBtn').style.display = '';
   document.getElementById('lstBulkSubmitBtn').style.display = 'none';
-  document.getElementById('lstBulkAllBtn').style.display = '';
   document.getElementById('lstBulkResult').style.display = 'none';
 };
 
@@ -8043,7 +8056,6 @@ window.lstSwitchBulkTab = function(tab) {
   document.getElementById('lstBulkPriceConfirm').style.display = 'none';
   document.getElementById('lstBulkFindBtn').style.display = '';
   document.getElementById('lstBulkSubmitBtn').style.display = 'none';
-  document.getElementById('lstBulkAllBtn').style.display = '';
   document.getElementById('lstBulkResult').style.display = 'none';
   const sub = document.getElementById('lstBulkSub');
   if(sub) sub.textContent = tab === 'price'
@@ -8054,7 +8066,10 @@ window.lstSwitchBulkTab = function(tab) {
 // Step 1: Fetch SKUs from FK API and show count for confirmation
 window.lstBulkFindSKUs = async function() {
   const isPrice  = _lstBulkTab === 'price';
-  const selectedProds = lstGetSelectedProducts(isPrice ? 'price' : 'stock');
+  const tab = isPrice ? 'price' : 'stock';
+  const allChk = document.getElementById(`lstBulk${tab === 'stock' ? 'Stock' : 'Price'}AllChk`);
+  const selectAll = allChk && allChk.checked;
+  const selectedProds = selectAll ? ['__all__'] : lstGetSelectedProducts(tab);
   const val      = parseInt(isPrice
     ? document.getElementById('lstBulkPriceValue').value
     : document.getElementById('lstBulkStockValue').value, 10);
@@ -8073,14 +8088,15 @@ window.lstBulkFindSKUs = async function() {
   const findBtn = document.getElementById('lstBulkFindBtn');
   const result  = document.getElementById('lstBulkResult');
   findBtn.disabled = true;
-  findBtn.textContent = 'Fetching SKUs…';
+  findBtn.textContent = 'Fetching…';
   result.style.display = 'none';
 
   try {
     // Fetch SKUs for all selected products in parallel
     let allSkus = [];
     let fetchErrors = [];
-    await Promise.all(selectedProds.map(async prod => {
+    const prodsToFetch = selectAll ? ['__all__'] : selectedProds;
+    await Promise.all(prodsToFetch.map(async prod => {
       try {
         const r = await fetch(`/api/listings/${_lstAccount}/fetch-active-skus`, {
           method: 'POST', headers: {'Content-Type':'application/json'},
@@ -8093,7 +8109,7 @@ window.lstBulkFindSKUs = async function() {
     }));
 
     findBtn.disabled = false;
-    findBtn.textContent = '🔍 Find SKUs';
+    findBtn.textContent = 'Update';
 
     if (!allSkus.length && fetchErrors.length) {
       result.className = 'lst-modal-result err'; result.style.display = 'block';
@@ -8103,7 +8119,7 @@ window.lstBulkFindSKUs = async function() {
     _lstBulkFetchedSKUs = allSkus;
     const count = allSkus.length;
     const label = isPrice ? `₹${val}` : `${val} units`;
-    const prodsSummary = selectedProds.length === 1 ? `"${selectedProds[0]}"` : `${selectedProds.length} products`;
+    const prodsSummary = selectAll ? 'all products' : (selectedProds.length === 1 ? `"${selectedProds[0]}"` : `${selectedProds.length} products`);
     const confirmEl  = document.getElementById(isPrice ? 'lstBulkPriceConfirm' : 'lstBulkStockConfirm');
     const confirmMsg = document.getElementById(isPrice ? 'lstBulkPriceConfirmMsg' : 'lstBulkStockConfirmMsg');
     confirmMsg.textContent = `Found ${count} active SKU${count !== 1 ? 's' : ''} across ${prodsSummary} — will update all to ${label}`;
@@ -8113,11 +8129,10 @@ window.lstBulkFindSKUs = async function() {
     // Show confirm button and all-SKUs button, hide find button
     findBtn.style.display = 'none';
     document.getElementById('lstBulkSubmitBtn').style.display = '';
-    document.getElementById('lstBulkAllBtn').style.display = '';
-
+  
   } catch(e) {
     findBtn.disabled = false;
-    findBtn.textContent = '🔍 Find SKUs';
+    findBtn.textContent = 'Update';
     result.className = 'lst-modal-result err'; result.style.display = 'block';
     result.textContent = '✕ Network error: ' + e.message;
   }
