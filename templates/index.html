@@ -390,6 +390,42 @@
   .bulk-select-all-wrap input[type=checkbox] { width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer; }
   .bulk-select-all-wrap label { cursor: pointer; }
 
+
+  .ms-selected-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    min-height: 0;
+  }
+  .ms-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(79,255,176,.12);
+    border: 1px solid rgba(79,255,176,.3);
+    color: var(--accent);
+    border-radius: 20px;
+    padding: 3px 10px 3px 12px;
+    font-size: .75rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .ms-tag-x {
+    cursor: pointer;
+    font-size: .8rem;
+    opacity: .7;
+    line-height: 1;
+    padding: 1px 2px;
+    border-radius: 50%;
+  }
+  .ms-tag-x:hover { opacity: 1; color: var(--err); }
+  .ms-selected-label {
+    font-size: .72rem;
+    color: var(--muted);
+    margin-top: 6px;
+    display: none;
+  }
 </style>
 <style>
 .app {
@@ -2105,8 +2141,9 @@
       <div id="lstBulkStockPane">
         <div class="lst-modal-field"><label class="lst-modal-label">PRODUCTS</label>
           <input class="ms-search-inp" id="lstBulkStockSearch" type="text" placeholder="Search products…" oninput="lstFilterMultiOptions('stock', this.value)">
-          <select class="ms-list" id="lstBulkStockList" multiple onchange="lstBulkResetConfirm()"></select>
+          <select class="ms-list" id="lstBulkStockList" multiple onchange="lstRenderTags('stock');lstBulkResetConfirm()"></select>
           <div class="ms-hint">Hold Cmd/Ctrl to select multiple</div>
+          <div class="ms-selected-tags" id="lstBulkStockTags"></div>
           <div class="bulk-select-all-wrap">
             <input type="checkbox" id="lstBulkStockAllChk" onchange="lstToggleSelectAllProducts('stock')">
             <label for="lstBulkStockAllChk">Select all products</label>
@@ -2123,8 +2160,9 @@
       <div id="lstBulkPricePane" style="display:none;">
         <div class="lst-modal-field"><label class="lst-modal-label">PRODUCTS</label>
           <input class="ms-search-inp" id="lstBulkPriceSearch" type="text" placeholder="Search products…" oninput="lstFilterMultiOptions('price', this.value)">
-          <select class="ms-list" id="lstBulkPriceList" multiple onchange="lstBulkResetConfirm()"></select>
+          <select class="ms-list" id="lstBulkPriceList" multiple onchange="lstRenderTags('price');lstBulkResetConfirm()"></select>
           <div class="ms-hint">Hold Cmd/Ctrl to select multiple</div>
+          <div class="ms-selected-tags" id="lstBulkPriceTags"></div>
           <div class="bulk-select-all-wrap">
             <input type="checkbox" id="lstBulkPriceAllChk" onchange="lstToggleSelectAllProducts('price')">
             <label for="lstBulkPriceAllChk">Select all products</label>
@@ -7954,14 +7992,17 @@ window.lstToggleSelectAllProducts = function(tab) {
   const list   = document.getElementById(`lstBulk${_msKey(tab)}List`);
   const search = document.getElementById(`lstBulk${_msKey(tab)}Search`);
   if (!list) return;
+  const tagsEl = document.getElementById(`lstBulk${_msKey(tab)}Tags`);
   if (allChk.checked) {
     list.disabled = true;
     if (search) search.disabled = true;
     Array.from(list.options).forEach(o => o.selected = true);
+    if (tagsEl) tagsEl.innerHTML = `<span class="ms-tag">All ${list.options.length} products selected</span>`;
   } else {
     list.disabled = false;
     if (search) search.disabled = false;
     Array.from(list.options).forEach(o => o.selected = false);
+    if (tagsEl) tagsEl.innerHTML = '';
   }
   lstBulkResetConfirm();
 }
@@ -8021,6 +8062,25 @@ window.lstFilterMultiOptions = function(tab, query) {
   });
 }
 
+window.lstRenderTags = function(tab) {
+  const list = document.getElementById(`lstBulk${_msKey(tab)}List`);
+  const tags = document.getElementById(`lstBulk${_msKey(tab)}Tags`);
+  if (!list || !tags) return;
+  const selected = Array.from(list.selectedOptions).map(o => o.value);
+  if (!selected.length) { tags.innerHTML = ''; return; }
+  tags.innerHTML = selected.map(p =>
+    `<span class="ms-tag">${p}<span class="ms-tag-x" onclick="lstRemoveTag('${tab}','${p.replace(/'/g,"\'")}')">✕</span></span>`
+  ).join('');
+}
+
+window.lstRemoveTag = function(tab, product) {
+  const list = document.getElementById(`lstBulk${_msKey(tab)}List`);
+  if (!list) return;
+  Array.from(list.options).forEach(o => { if (o.value === product) o.selected = false; });
+  lstRenderTags(tab);
+  lstBulkResetConfirm();
+}
+
 window.lstPopulateMultiSelect = function(products) {
   ['stock', 'price'].forEach(tab => {
     const container = document.getElementById(`lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Options`);
@@ -8055,6 +8115,8 @@ window.lstOpenBulkModal = function() {
     if (c) c.checked = false;
     const l = document.getElementById(`lstBulk${k}List`);
     if (l) { l.disabled = false; Array.from(l.options).forEach(o => o.selected = false); }
+    const tg = document.getElementById(`lstBulk${k}Tags`);
+    if (tg) tg.innerHTML = '';
     const s = document.getElementById(`lstBulk${k}Search`);
     if (s) { s.disabled = false; s.value = ''; if(typeof lstFilterMultiOptions !== 'undefined') lstFilterMultiOptions(k.toLowerCase(), ''); }
   });
