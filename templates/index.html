@@ -274,7 +274,7 @@
   @keyframes lst-spin{to{transform:rotate(360deg);}}
   /* Bulk action modal */
   .lst-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
-  .lst-modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 32px;width:480px;max-width:94%;max-height:86vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5);}
+  .lst-modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 32px;width:480px;max-width:94%;max-height:86vh;overflow:visible;box-shadow:0 20px 60px rgba(0,0,0,.5);}
   .lst-modal h3{font-size:1.1rem;font-weight:700;color:var(--text);margin-bottom:4px;}
   .lst-modal-sub{font-size:.8rem;color:var(--muted);margin-bottom:20px;}
   .lst-modal-tabs{display:flex;gap:4px;background:var(--surface2);border-radius:9px;padding:4px;margin-bottom:22px;}
@@ -2067,7 +2067,7 @@
 
   <!-- ── Bulk Action Modal ── -->
   <div id="lstBulkModal" class="lst-modal-overlay" style="display:none;" onclick="if(event.target===this)lstCloseBulkModal()">
-    <div class="lst-modal" style="position:relative;overflow:visible;">
+    <div class="lst-modal">
       <h3>⚡ Bulk Action</h3>
       <p class="lst-modal-sub" id="lstBulkSub">Update stock count for all SKUs under a product in one shot.</p>
       <div class="lst-modal-tabs">
