@@ -3396,11 +3396,12 @@ def fetch_active_skus(account):
             target_sku_ids = set(acct_map.keys())
 
         # Paginate through FK listings API using same pattern as listings_get route
-        search_url = f'{base}/listings/v3/search'
+        search_url  = f'{base}/listings/v3/search'
         details_url = f'{base}/listings/v3/details'
-        all_skus   = []
-        page_id    = None
-        page_num   = 0
+        all_skus    = []
+        page_id     = None
+        page_num    = 0
+        known_loc   = FK_ACCOUNT_LOCATIONS.get(account, '')  # fallback location ID
 
         while True:
             page_num += 1
@@ -3433,6 +3434,11 @@ def fetch_active_skus(account):
                 if det_r.status_code == 200:
                     det_data = det_r.json()
                     det_listings = det_data.get('listings', [])
+                    # Log first item to understand structure
+                    if det_listings and page_num == 1 and i == 0:
+                        first = det_listings[0] if isinstance(det_listings, list) else next(iter(det_listings.values()), {})
+                        print(f'[FetchActiveSKUs] details sample keys: {list(first.keys()) if isinstance(first, dict) else type(first)}')
+                        print(f'[FetchActiveSKUs] locations in first item: {first.get("locations") if isinstance(first, dict) else "n/a"}')
                     if isinstance(det_listings, list):
                         det_map = {}
                         for d in det_listings:
@@ -3441,23 +3447,30 @@ def fetch_active_skus(account):
                                 det_map[sid] = d
                         for e in sku_entries[i:i+10]:
                             d = det_map.get(e['sku_id'], {})
+                            locs = d.get('locations', [])
+                            if not locs and known_loc:
+                                locs = [{'id': known_loc}]
                             all_skus.append({
                                 'sku_id':     e['sku_id'],
                                 'product_id': d.get('product_id') or d.get('productId') or d.get('fsn') or e['product_id'],
-                                'locations':  d.get('locations', []),
+                                'locations':  locs,
                             })
                     elif isinstance(det_listings, dict):
                         for e in sku_entries[i:i+10]:
                             d = det_listings.get(e['sku_id'], {})
+                            locs = d.get('locations', [])
+                            if not locs and known_loc:
+                                locs = [{'id': known_loc}]
                             all_skus.append({
                                 'sku_id':     e['sku_id'],
                                 'product_id': d.get('product_id') or d.get('productId') or d.get('fsn') or e['product_id'],
-                                'locations':  d.get('locations', []),
+                                'locations':  locs,
                             })
                 else:
-                    # Details failed — add with no locations, inventory update may still work
+                    # Details failed — use known location ID as fallback
                     for e in sku_entries[i:i+10]:
-                        all_skus.append({'sku_id': e['sku_id'], 'product_id': e['product_id'], 'locations': []})
+                        locs = [{'id': known_loc}] if known_loc else []
+                        all_skus.append({'sku_id': e['sku_id'], 'product_id': e['product_id'], 'locations': locs})
 
             page_id  = data.get('next_page_id') or None
             has_more = bool(data.get('has_more')) and bool(page_id)
@@ -3502,6 +3515,8 @@ def listings_update_inventory(account):
                 loc_list = s.get('locations') or []
                 if loc_list:
                     locations = [{'id': loc['id'], 'inventory': int(s['stock_count'])} for loc in loc_list]
+                elif s.get('account_location'):
+                    locations = [{'id': s['account_location'], 'inventory': int(s['stock_count'])}]
                 else:
                     locations = [{'id': 'default', 'inventory': int(s['stock_count'])}]
                 payload[s['sku_id']] = {
