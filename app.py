@@ -3382,7 +3382,10 @@ def fetch_active_skus(account):
         # Load master SKU map to filter by product if needed
         target_sku_ids = None
         if product != '__all__':
-            master = _load_master_sku()
+            if not os.path.exists(MASTER_SKU_PATH):
+                return jsonify({'error': 'Master SKU file not found — please upload it in the Master SKU tab'}), 404
+            with open(MASTER_SKU_PATH, 'rb') as _mf:
+                master = load_sku_master(_mf.read())
             acct_map = {}
             for sheet_name, sheet_data in master.items():
                 for sku_name, info in sheet_data.items():
