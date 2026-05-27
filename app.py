@@ -3357,6 +3357,100 @@ def listings_update_price(account):
         return jsonify({'error': str(e)}), 500
 
 
+
+@app.route('/api/listings/<account>/fetch-active-skus', methods=['POST'])
+def fetch_active_skus(account):
+    """
+    Fetch all active SKUs for an account from FK API.
+    Returns list of {sku_id, product_id, locations} for inventory update.
+    Optionally filter by product name using master SKU map.
+    Body: { product: "Product Name" | "__all__" }
+    """
+    import requests as _req
+    account = account.upper().replace('-', ' ')
+    if account not in KNOWN_ACCOUNTS:
+        return jsonify({'error': f'Unknown account: {account}'}), 400
+
+    body    = request.get_json() or {}
+    product = body.get('product', '__all__')
+
+    try:
+        token   = fk_get_token(account)
+        headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+        base    = f'{FK_API_BASE}/sellers'
+
+        # Load master SKU map to filter by product if needed
+        target_sku_ids = None
+        if product != '__all__':
+            master = _load_master_sku()
+            acct_map = {}
+            for sheet_name, sheet_data in master.items():
+                for sku_name, info in sheet_data.items():
+                    if info.get('product', '').strip().lower() == product.strip().lower():
+                        acct_map[sku_name.strip().lower()] = True
+            if not acct_map:
+                return jsonify({'error': f'No SKUs found for product "{product}" in Master SKU file'}), 404
+            target_sku_ids = set(acct_map.keys())
+
+        # Paginate through FK listings API to get all active SKUs
+        all_skus   = []
+        page_token = None
+        page_num   = 0
+        while True:
+            page_num += 1
+            payload = {'filter': {'status': 'ACTIVE'}, 'pagination': {'limit': 500}}
+            if page_token:
+                payload['pagination']['pageToken'] = page_token
+            r = _req.post(f'{base}/listings/v3/search', json=payload, headers=headers, timeout=30)
+            if r.status_code != 200:
+                return jsonify({'error': f'FK listings API error [{r.status_code}]: {r.text[:200]}'}), 502
+            data = r.json()
+            listings = data.get('listings', data.get('skus', []))
+            for item in listings:
+                sku_id = (item.get('sku_id') or item.get('skuId') or '').strip()
+                if not sku_id:
+                    continue
+                # Filter by product if specified
+                if target_sku_ids and sku_id.strip().lower() not in target_sku_ids:
+                    continue
+                pid = item.get('product_id') or item.get('productId') or item.get('fsn', '')
+                locs = item.get('locations', [])
+                all_skus.append({'sku_id': sku_id, 'product_id': pid, 'locations': locs})
+
+            page_token = data.get('nextPageToken') or data.get('pagination', {}).get('nextPageToken')
+            if not page_token or not listings:
+                break
+            if page_num > 50:  # safety cap
+                break
+
+        # If no locations from search, fetch details for first batch to get locations
+        # FK search API sometimes omits locations
+        if all_skus and not all_skus[0].get('locations'):
+            sku_id_list = [s['sku_id'] for s in all_skus[:100]]
+            detail_r = _req.post(
+                f'{base}/listings/v3',
+                json={'skuIds': sku_id_list},
+                headers=headers, timeout=30
+            )
+            if detail_r.status_code == 200:
+                detail_map = {}
+                for item in detail_r.json().get('listings', []):
+                    sid = item.get('skuId') or item.get('sku_id', '')
+                    if sid:
+                        detail_map[sid] = item.get('locations', [])
+                for s in all_skus:
+                    if s['sku_id'] in detail_map:
+                        s['locations'] = detail_map[s['sku_id']]
+
+        print(f'[FetchActiveSKUs] {account} product={product!r}: found {len(all_skus)} active SKUs')
+        return jsonify({'ok': True, 'skus': all_skus, 'count': len(all_skus)})
+
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/listings/<account>/update-inventory', methods=['POST'])
 def listings_update_inventory(account):
     """
