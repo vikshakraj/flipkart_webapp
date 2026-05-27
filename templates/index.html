@@ -6984,12 +6984,15 @@ function lstResolveProduct(skuId) {
   function lgenRenderQtyUnitField() {
     const wrap = document.getElementById('lgenQtyUnitWrap');
     if(!wrap) return;
-    if(!_lgenQtyUnitOptions.length) { wrap.style.display = 'none'; return; }
+    // Always show the quantity fields — fall back to common units if template doesn't provide them
     wrap.style.display = '';
     const saved = _lgenCurrentProduct ? (_lgenProfiles[_lgenCurrentProduct] || {}) : {};
-    const savedUnit = saved['qty_unit'] || _lgenQtyUnitOptions[0] || 'g';
+    const units = _lgenQtyUnitOptions.length
+      ? _lgenQtyUnitOptions
+      : ['g', 'ml', 'pcs', 'kg', 'l', 'mg', 'unit'];
+    const savedUnit = saved['qty_unit'] || units[0] || 'g';
     document.getElementById('lgenQtyUnit').innerHTML =
-      _lgenQtyUnitOptions.map(o => `<option value="${o}"${o===savedUnit?' selected':''}>${o}</option>`).join('');
+      units.map(o => `<option value="${o}"${o===savedUnit?' selected':''}>${o}</option>`).join('');
   }
 
   // ── Change 1+2: Product selection handler ──
