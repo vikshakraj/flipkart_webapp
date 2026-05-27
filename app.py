@@ -3341,6 +3341,7 @@ def listings_update_price(account):
                     }
                 }
             r = _req.post(url, json=payload, headers=headers, timeout=30)
+            print(f'[UpdateInventory] FK response [{r.status_code}]: {r.text[:500]}')
             if r.status_code == 200:
                 results.update(r.json())
             else:
@@ -3510,8 +3511,6 @@ def listings_update_inventory(account):
             batch   = skus[i:i+10]
             payload = {}
             for s in batch:
-                # Use stored location IDs if available, otherwise fall back to a single
-                # default location entry. The API requires locations[].id + status + inventory.
                 loc_list = s.get('locations') or []
                 if loc_list:
                     locations = [{'id': loc['id'], 'inventory': int(s['stock_count'])} for loc in loc_list]
@@ -3523,7 +3522,9 @@ def listings_update_inventory(account):
                     'product_id': s.get('product_id', ''),
                     'locations':  locations,
                 }
+            print(f'[UpdateInventory] payload sample (first SKU): {list(payload.items())[:1]}')
             r = _req.post(url, json=payload, headers=headers, timeout=30)
+            print(f'[UpdateInventory] FK response [{r.status_code}]: {r.text[:500]}')
             if r.status_code == 200:
                 results.update(r.json())
             else:
