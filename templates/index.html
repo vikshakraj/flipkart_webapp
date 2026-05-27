@@ -285,7 +285,7 @@
   .lst-modal-input{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-size:.9rem;font-family:'JetBrains Mono',monospace;box-sizing:border-box;}
   .lst-modal-input:focus{outline:none;border-color:var(--accent);}
   .lst-modal-result{margin-top:14px;padding:12px 14px;border-radius:8px;font-size:.82rem;background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:var(--accent);display:none;}
-  .lst-modal-result.err{background:rgba(255,68,102,.07);border-color:rgba(255,68,102,.25);color:#ff6688;}
+  .lst-modal-result.err{background:rgba(255,68,102,.07);border-color:rgba(255,68,102,.25);color:#ff6688;}.lst-modal-result.ok{background:rgba(79,255,176,.07);border-color:rgba(79,255,176,.25);color:var(--accent);}
   .lst-modal-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;}
 
   /* ══ Listing Generator (Add New Listing flow) ══ */
@@ -2070,46 +2070,46 @@
     <div class="lst-modal">
       <h3>⚡ Bulk Action</h3>
       <p class="lst-modal-sub" id="lstBulkSub">Update stock count for all SKUs under a product in one shot.</p>
-
       <div class="lst-modal-tabs">
         <button class="lst-modal-tab active" id="lstBulkTabStock" onclick="lstSwitchBulkTab('stock')">📦 Stock Count</button>
         <button class="lst-modal-tab" id="lstBulkTabPrice" onclick="lstSwitchBulkTab('price')">💰 Selling Price</button>
       </div>
 
-      <!-- Stock tab -->
       <div id="lstBulkStockPane">
-        <div class="lst-modal-field">
-          <label class="lst-modal-label">Product</label>
-          <select class="lst-modal-input" id="lstBulkStockProduct" style="font-family:inherit;">
-            <option value="__all__">All Products</option>
-          </select>
+        <div class="lst-modal-field"><label class="lst-modal-label">PRODUCT</label>
+          <select class="lst-modal-input" id="lstBulkStockProduct" style="font-family:inherit;" onchange="lstBulkResetConfirm()"></select>
         </div>
-        <div class="lst-modal-field">
-          <label class="lst-modal-label">New Stock Count</label>
-          <input type="number" min="0" step="1" class="lst-modal-input" id="lstBulkStockValue" placeholder="e.g. 50">
+        <div class="lst-modal-field"><label class="lst-modal-label">NEW STOCK COUNT</label>
+          <input type="number" min="0" step="1" class="lst-modal-input" id="lstBulkStockValue" placeholder="e.g. 50" oninput="lstBulkResetConfirm()">
+        </div>
+        <div id="lstBulkStockConfirm" style="display:none;margin-bottom:10px;padding:10px 14px;border-radius:8px;background:rgba(79,255,176,.07);border:1px solid rgba(79,255,176,.2);font-size:.82rem;color:var(--accent);">
+          <span id="lstBulkStockConfirmMsg"></span>
         </div>
       </div>
 
-      <!-- Price tab -->
       <div id="lstBulkPricePane" style="display:none;">
-        <div class="lst-modal-field">
-          <label class="lst-modal-label">Product</label>
-          <select class="lst-modal-input" id="lstBulkPriceProduct" style="font-family:inherit;">
-            <option value="__all__">All Products</option>
-          </select>
+        <div class="lst-modal-field"><label class="lst-modal-label">PRODUCT</label>
+          <select class="lst-modal-input" id="lstBulkPriceProduct" style="font-family:inherit;" onchange="lstBulkResetConfirm()"></select>
         </div>
-        <div class="lst-modal-field">
-          <label class="lst-modal-label">New Selling Price (₹)</label>
-          <input type="number" min="1" step="1" class="lst-modal-input" id="lstBulkPriceValue" placeholder="e.g. 299">
-          <small style="color:var(--muted);font-size:.72rem;margin-top:4px;display:block;">MRP will be kept unchanged. Only selling price will be updated.</small>
+        <div class="lst-modal-field"><label class="lst-modal-label">NEW SELLING PRICE (₹)</label>
+          <input type="number" min="1" step="1" class="lst-modal-input" id="lstBulkPriceValue" placeholder="e.g. 299" oninput="lstBulkResetConfirm()">
+        </div>
+        <div id="lstBulkPriceConfirm" style="display:none;margin-bottom:10px;padding:10px 14px;border-radius:8px;background:rgba(79,255,176,.07);border:1px solid rgba(79,255,176,.2);font-size:.82rem;color:var(--accent);">
+          <span id="lstBulkPriceConfirmMsg"></span>
         </div>
       </div>
 
       <div class="lst-modal-result" id="lstBulkResult"></div>
 
-      <div class="lst-modal-footer">
-        <button class="lst-btn" onclick="lstCloseBulkModal()">Cancel</button>
-        <button class="lst-btn lst-btn-primary" id="lstBulkSubmitBtn" onclick="lstSubmitBulk()">Submit</button>
+      <div class="lst-modal-footer" style="flex-direction:column;gap:8px;align-items:stretch;">
+        <div style="display:flex;gap:8px;">
+          <button class="lst-btn" onclick="lstCloseBulkModal()" style="flex:1;">Cancel</button>
+          <button class="lst-btn lst-btn-primary" id="lstBulkFindBtn" onclick="lstBulkFindSKUs()" style="flex:2;">🔍 Find SKUs</button>
+          <button class="lst-btn lst-btn-primary" id="lstBulkSubmitBtn" onclick="lstSubmitBulk()" style="flex:2;display:none;">✓ Confirm Update</button>
+        </div>
+        <button class="lst-btn" id="lstBulkAllBtn" onclick="lstSubmitBulkAll()" style="background:rgba(108,110,255,.15);border:1px solid var(--accent2);color:var(--accent2);display:none;">
+          🌐 Update on all active SKUs
+        </button>
       </div>
     </div>
   </div>
@@ -7899,10 +7899,17 @@ function lstHandleInlineResult(data, skuId, field, val, rowIdx) {
 }
 
 // ── Bulk Action Modal ──
+let _lstBulkFetchedSKUs = null;  // cached SKUs from last Find
+
 window.lstOpenBulkModal = function() {
-  if (_lstAllRows.length === 0) { alert('Load listings first by clicking Refresh.'); return; }
+  _lstBulkFetchedSKUs = null;
   document.getElementById('lstBulkStockValue').value = '';
   document.getElementById('lstBulkResult').style.display = 'none';
+  document.getElementById('lstBulkStockConfirm').style.display = 'none';
+  document.getElementById('lstBulkPriceConfirm').style.display = 'none';
+  document.getElementById('lstBulkFindBtn').style.display = '';
+  document.getElementById('lstBulkSubmitBtn').style.display = 'none';
+  document.getElementById('lstBulkAllBtn').style.display = 'none';
   document.getElementById('lstBulkModal').style.display = 'flex';
 };
 
@@ -7910,119 +7917,191 @@ window.lstCloseBulkModal = function() {
   document.getElementById('lstBulkModal').style.display = 'none';
 };
 
+window.lstBulkResetConfirm = function() {
+  _lstBulkFetchedSKUs = null;
+  document.getElementById('lstBulkStockConfirm').style.display = 'none';
+  document.getElementById('lstBulkPriceConfirm').style.display = 'none';
+  document.getElementById('lstBulkFindBtn').style.display = '';
+  document.getElementById('lstBulkSubmitBtn').style.display = 'none';
+  document.getElementById('lstBulkAllBtn').style.display = 'none';
+  document.getElementById('lstBulkResult').style.display = 'none';
+};
+
 window.lstSwitchBulkTab = function(tab) {
   _lstBulkTab = tab;
+  _lstBulkFetchedSKUs = null;
   document.getElementById('lstBulkTabPrice').classList.toggle('active', tab === 'price');
   document.getElementById('lstBulkTabStock').classList.toggle('active', tab === 'stock');
   document.getElementById('lstBulkStockPane').style.display = tab === 'stock' ? '' : 'none';
   document.getElementById('lstBulkPricePane').style.display = tab === 'price' ? '' : 'none';
+  document.getElementById('lstBulkStockConfirm').style.display = 'none';
+  document.getElementById('lstBulkPriceConfirm').style.display = 'none';
+  document.getElementById('lstBulkFindBtn').style.display = '';
+  document.getElementById('lstBulkSubmitBtn').style.display = 'none';
+  document.getElementById('lstBulkAllBtn').style.display = 'none';
+  document.getElementById('lstBulkResult').style.display = 'none';
   const sub = document.getElementById('lstBulkSub');
   if(sub) sub.textContent = tab === 'price'
     ? 'Update selling price for all SKUs under a product in one shot.'
     : 'Update stock count for all SKUs under a product in one shot.';
-  document.getElementById('lstBulkStockPane').style.display = tab === 'stock' ? '' : 'none';
-  document.getElementById('lstBulkResult').style.display = 'none';
 };
 
-window.lstSubmitBulk = function() {
-  const result    = document.getElementById('lstBulkResult');
-  const submitBtn = document.getElementById('lstBulkSubmitBtn');
-  const isPrice   = _lstBulkTab === 'price';
-  const prod      = isPrice
+// Step 1: Fetch SKUs from FK API and show count for confirmation
+window.lstBulkFindSKUs = async function() {
+  const isPrice = _lstBulkTab === 'price';
+  const prod    = isPrice
     ? document.getElementById('lstBulkPriceProduct').value
     : document.getElementById('lstBulkStockProduct').value;
+  const val     = parseInt(isPrice
+    ? document.getElementById('lstBulkPriceValue').value
+    : document.getElementById('lstBulkStockValue').value, 10);
+
+  if (!prod) {
+    const r = document.getElementById('lstBulkResult');
+    r.className = 'lst-modal-result err'; r.style.display = 'block';
+    r.textContent = 'Please select a product.'; return;
+  }
+  if (isNaN(val) || val < (isPrice ? 1 : 0)) {
+    const r = document.getElementById('lstBulkResult');
+    r.className = 'lst-modal-result err'; r.style.display = 'block';
+    r.textContent = isPrice ? 'Enter a valid price (min ₹1).' : 'Enter a valid stock count (min 0).'; return;
+  }
+
+  const findBtn = document.getElementById('lstBulkFindBtn');
+  const result  = document.getElementById('lstBulkResult');
+  findBtn.disabled = true;
+  findBtn.textContent = 'Fetching SKUs…';
+  result.style.display = 'none';
+
+  try {
+    const r = await fetch(`/api/listings/${_lstAccount}/fetch-active-skus`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ product: prod })
+    });
+    const data = await r.json();
+    findBtn.disabled = false;
+    findBtn.textContent = '🔍 Find SKUs';
+
+    if (!data.ok || data.error) {
+      result.className = 'lst-modal-result err'; result.style.display = 'block';
+      result.textContent = '✕ ' + (data.error || 'Failed to fetch SKUs'); return;
+    }
+
+    _lstBulkFetchedSKUs = data.skus;
+    const count = data.count;
+    const label = isPrice ? `₹${val}` : `${val} units`;
+    const confirmEl  = document.getElementById(isPrice ? 'lstBulkPriceConfirm' : 'lstBulkStockConfirm');
+    const confirmMsg = document.getElementById(isPrice ? 'lstBulkPriceConfirmMsg' : 'lstBulkStockConfirmMsg');
+    confirmMsg.textContent = `Found ${count} active SKU${count !== 1 ? 's' : ''} for "${prod}" — will update all to ${label}`;
+    confirmEl.style.display = 'block';
+
+    // Show confirm button and all-SKUs button, hide find button
+    findBtn.style.display = 'none';
+    document.getElementById('lstBulkSubmitBtn').style.display = '';
+    document.getElementById('lstBulkAllBtn').style.display = '';
+
+  } catch(e) {
+    findBtn.disabled = false;
+    findBtn.textContent = '🔍 Find SKUs';
+    result.className = 'lst-modal-result err'; result.style.display = 'block';
+    result.textContent = '✕ Network error: ' + e.message;
+  }
+};
+
+// Step 2: Confirm — update the fetched SKUs
+window.lstSubmitBulk = async function() {
+  if (!_lstBulkFetchedSKUs) return;
+  const isPrice   = _lstBulkTab === 'price';
   const val       = parseInt(isPrice
+    ? document.getElementById('lstBulkPriceValue').value
+    : document.getElementById('lstBulkStockValue').value, 10);
+  const submitBtn = document.getElementById('lstBulkSubmitBtn');
+  const result    = document.getElementById('lstBulkResult');
+
+  submitBtn.disabled = true;
+  result.className = 'lst-modal-result'; result.style.display = 'block';
+  result.textContent = `⏳ Updating ${_lstBulkFetchedSKUs.length} SKUs…`;
+
+  await _lstDoUpdate(_lstBulkFetchedSKUs, isPrice, val, submitBtn, result);
+};
+
+// "Update on all active SKUs" — fetch ALL active regardless of product, then update
+window.lstSubmitBulkAll = async function() {
+  const isPrice = _lstBulkTab === 'price';
+  const val     = parseInt(isPrice
     ? document.getElementById('lstBulkPriceValue').value
     : document.getElementById('lstBulkStockValue').value, 10);
 
   if (isNaN(val) || val < (isPrice ? 1 : 0)) {
-    result.className = 'lst-modal-result err'; result.style.display = 'block';
-    result.textContent = isPrice ? 'Enter a valid selling price (min ₹1).' : 'Enter a valid stock count (min 0).'; return;
+    const r = document.getElementById('lstBulkResult');
+    r.className = 'lst-modal-result err'; r.style.display = 'block';
+    r.textContent = isPrice ? 'Enter a valid price (min ₹1).' : 'Enter a valid stock count (min 0).'; return;
   }
 
-  submitBtn.disabled = true;
+  const allBtn = document.getElementById('lstBulkAllBtn');
+  const result = document.getElementById('lstBulkResult');
+  allBtn.disabled = true;
+  allBtn.textContent = 'Fetching all active SKUs…';
   result.className = 'lst-modal-result'; result.style.display = 'block';
+  result.textContent = '⏳ Fetching all active SKUs from Flipkart…';
 
-  // Build target SKU list:
-  // - "All Products" → use all loaded rows as before
-  // - Specific product → read SKU IDs directly from Master SKU map (no extra API pages needed)
-  //   then enrich with any price/location data already loaded, falling back to minimal payload
-  let targets;
-  if (prod === '__all__') {
-    targets = _lstAllRows;
-  } else {
-    // Collect every SKU mapped to this product from the master file
-    const masterSkuIds = Object.entries(_lstSkuMap)
-      .filter(([, p]) => p === prod)
-      .map(([sku]) => sku);
-    if (masterSkuIds.length === 0) {
-      result.className = 'lst-modal-result err'; result.style.display = 'block';
-      result.textContent = 'No SKUs found for this product in the Master SKU file.';
-      submitBtn.disabled = false; return;
+  try {
+    const r = await fetch(`/api/listings/${_lstAccount}/fetch-active-skus`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ product: '__all__' })
+    });
+    const data = await r.json();
+    if (!data.ok || data.error) {
+      result.className = 'lst-modal-result err';
+      result.textContent = '✕ ' + (data.error || 'Failed to fetch SKUs');
+      allBtn.disabled = false; allBtn.textContent = '🌐 Update on all active SKUs'; return;
     }
-    // For each master SKU, use the already-loaded row if available (has product_id, locations),
-    // otherwise build a minimal row — the API will error on unknown SKUs which we display inline
-    const loadedMap = Object.fromEntries(_lstAllRows.map(r => [r.sku_id, r]));
-    targets = masterSkuIds.map(skuId => loadedMap[skuId] || { sku_id: skuId, product_id: '', locations: [] });
+
+    result.textContent = `⏳ Updating ${data.count} active SKUs…`;
+    await _lstDoUpdate(data.skus, isPrice, val, allBtn, result);
+    allBtn.textContent = '🌐 Update on all active SKUs';
+  } catch(e) {
+    result.className = 'lst-modal-result err';
+    result.textContent = '✕ Network error: ' + e.message;
+    allBtn.disabled = false; allBtn.textContent = '🌐 Update on all active SKUs';
   }
-
-  if (targets.length === 0) {
-    result.className = 'lst-modal-result err'; result.style.display = 'block';
-    result.textContent = 'No listings found for the selected product.';
-    submitBtn.disabled = false; return;
-  }
-
-  result.textContent = `⏳ Updating ${targets.length} SKU${targets.length > 1 ? 's' : ''}…`;
-
-  const endpoint = isPrice ? 'update-price' : 'update-inventory';
-  const skus     = isPrice
-    ? targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id || r.fsn || '', mrp: r.mrp || val, selling_price: val }))
-    : targets.map(r => ({ sku_id: r.sku_id, product_id: r.product_id, locations: r.locations || [], stock_count: val }));
-
-  fetch(`/api/listings/${_lstAccount}/${endpoint}`, {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ skus })
-  })
-  .then(r => r.json())
-  .then(data => lstHandleBulkResult(data, targets.length, isPrice ? 'price' : 'stock', val))
-  .catch(e => {
-    result.className = 'lst-modal-result err'; result.style.display = 'block';
-    result.textContent = 'Network error: ' + e.message;
-    submitBtn.disabled = false;
-  });
 };
 
-function lstHandleBulkResult(data, total, field, val) {
-  const result    = document.getElementById('lstBulkResult');
-  const submitBtn = document.getElementById('lstBulkSubmitBtn');
-  submitBtn.disabled = false;
-  if (data.error) {
-    result.className = 'lst-modal-result err'; result.style.display = 'block';
-    result.textContent = data.error; return;
-  }
-  const results   = data.results || {};
-  const succeeded = Object.values(results).filter(r => (r.status||'').toUpperCase() === 'SUCCESS').length;
-  const failed    = Object.values(results).filter(r => (r.status||'').toUpperCase() === 'FAILURE').length;
-
-  // Update local state for successes
-  Object.entries(results).forEach(([skuId, res]) => {
-    if ((res.status||'').toUpperCase() === 'SUCCESS') {
-      [_lstAllRows, _lstFiltered].forEach(arr => {
-        const r = arr.find(r => r.sku_id === skuId);
-        if (r) { if (field === 'price') r.selling_price = val; else r.stock_count = val; }
-      });
+// Shared update executor
+async function _lstDoUpdate(skus, isPrice, val, btn, result) {
+  const endpoint = isPrice ? 'update-price' : 'update-inventory';
+  const body = isPrice
+    ? { skus: skus.map(r => ({ sku_id: r.sku_id, product_id: r.product_id || '', mrp: r.mrp || val, selling_price: val })) }
+    : { skus: skus.map(r => ({ sku_id: r.sku_id, product_id: r.product_id || '', locations: r.locations || [], stock_count: val })) };
+  try {
+    const r    = await fetch(`/api/listings/${_lstAccount}/${endpoint}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await r.json();
+    btn.disabled = false;
+    if (data.error) {
+      result.className = 'lst-modal-result err';
+      result.textContent = '✕ ' + data.error; return;
     }
-  });
-  lstRenderTable();
-
-  if (failed === 0) {
-    result.className = 'lst-modal-result'; result.style.display = 'block';
-    result.textContent = `✓ ${succeeded} SKU${succeeded > 1 ? 's' : ''} updated successfully.`;
-  } else {
-    const errMsgs = Object.entries(results)
-      .filter(([, r]) => r.status === 'failure').slice(0, 3)
-      .map(([sku, r]) => `${sku}: ${(r.errors || []).map(e => e.description).join(', ')}`).join(' | ');
-    result.className = 'lst-modal-result err'; result.style.display = 'block';
+    const results   = data.results || {};
+    let succeeded = 0, failed = 0, errMsgs = '';
+    for (const [skuId, res] of Object.entries(results)) {
+      const st = (res.status || '').toUpperCase();
+      if (st === 'SUCCESS' || st === 'UPDATED') succeeded++;
+      else {
+        failed++;
+        const errs = [...(res.errors||[]),...(res.attribute_errors||[])];
+        if (errs.length && failed <= 3) errMsgs += `${skuId}: ${errs[0].description||errs[0].code}. `;
+      }
+    }
+    if (succeeded === 0 && failed === 0) succeeded = skus.length;
+    result.className = failed > 0 ? 'lst-modal-result err' : 'lst-modal-result ok';
+    result.style.display = 'block';
     result.textContent = `${succeeded} updated, ${failed} failed. ${errMsgs}`;
+  } catch(e) {
+    btn.disabled = false;
+    result.className = 'lst-modal-result err';
+    result.textContent = '✕ Network error: ' + e.message;
   }
 }
 
