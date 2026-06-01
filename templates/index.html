@@ -8010,10 +8010,13 @@ window.lstToggleSelectAllProducts = function(tab) {
 // ── Bulk Action Modal ──
 let _lstBulkFetchedSKUs = null;  // cached SKUs from last Find
 
-window.lstGetSelectedProducts = function(tab) {
-  const opts = document.querySelectorAll(`#lstBulk${tab === 'stock' ? 'Stock' : 'Price'}Options input[type=checkbox]`);
-  return Array.from(opts).filter(cb => cb.checked).map(cb => cb.value);
-}
+// NOTE: lstGetSelectedProducts is defined above (reads the native <select multiple>).
+// A second, stale definition used to live here that queried a removed custom
+// checkbox dropdown (#lstBulk*Options) and always returned []. Because it was
+// defined later it shadowed the correct one, so bulk update wrongly reported
+// "select at least one product". It has been removed. The functions below
+// (lstUpdateMultiLabel/lstToggleMultiSelect/lstMultiSelectAll/None/PopulateMultiSelect)
+// are leftovers from that old dropdown and are no longer wired to any DOM.
 
 window.lstUpdateMultiLabel = function(tab) {
   const selected = lstGetSelectedProducts(tab);
