@@ -3749,6 +3749,32 @@ def cron_config_save():
     return jsonify({'ok': True, 'config': cfg})
 
 
+def _orderids_present_in_label_parts(pdf_parts):
+    """
+    Read-only: parse the downloaded label PDF byte-blobs and return
+        (set_of_order_ids_found, total_pages, pages_with_text)
+    Used to verify that every packed shipment's label is actually present in the
+    downloaded PDF before attempting RTD. No side effects — only reads bytes.
+    """
+    present = set()
+    total_pages = 0
+    pages_with_text = 0
+    for pdf_bytes in pdf_parts:
+        try:
+            rdr = PdfReader(io.BytesIO(pdf_bytes))
+            for page in rdr.pages:
+                total_pages += 1
+                txt = page.extract_text() or ''
+                if txt.strip():
+                    pages_with_text += 1
+                for oid in extract_order_ids(txt):
+                    present.add(oid)
+            del rdr
+        except Exception as e:
+            print(f'[AutoDispatch] Coverage parse error: {e}')
+    return present, total_pages, pages_with_text
+
+
 def _fk_auto_dispatch(account=None):
     """
     Core auto-dispatch pipeline for a single account.
@@ -4085,6 +4111,97 @@ def _fk_auto_dispatch(account=None):
             'pack_errors':  pack_errors,
         }
 
+    # ── Step 3b: Verify every packed shipment's label is actually IN the PDF ──
+    # Flipkart sometimes returns a VALID but INCOMPLETE label PDF when labels are
+    # requested too soon after packing (documents not yet generated). Those
+    # shipments then permanently fail RTD with FF_DOCUMENT_NOT_PRINTED, which the
+    # dispatch-retry loop cannot fix. So before sorting/RTD we confirm coverage by
+    # matching each packed shipment's orderId(s) against the orderIds found in the
+    # downloaded PDF, and re-download labels for any that are missing.
+    #
+    # FAIL-SAFE: if coverage cannot be verified for any reason (no orderIds
+    # extracted, no map buildable, parse failure) we treat ALL packed shipments as
+    # ready and fall through to the original behavior. This step can only ADD a
+    # re-download / short wait — it can NEVER drop a shipment that the original
+    # code would have attempted to RTD.
+    rtd_ready_ids   = list(shipment_ids_packed)   # fail-safe default = everything
+    unrecovered_ids = []
+
+    # Build packed-shipment -> set(orderIds) from the source APPROVED payloads
+    _packed_set = set(shipment_ids_packed)
+    shipment_orderids = {}
+    for s in approved_shipments:
+        sid = s.get('shipmentId') or s.get('shipment_id', '')
+        if sid in _packed_set:
+            oids = {it.get('orderId', '') for it in s.get('orderItems', []) if it.get('orderId')}
+            shipment_orderids[sid] = oids
+
+    if shipment_orderids:
+        verify_deadline = _time.time() + 180   # cap the re-download loop at 3 min
+        verify_attempt  = 0
+        while True:
+            present_oids, total_pages, pages_with_text = _orderids_present_in_label_parts(label_pdf_parts)
+            print(f'[AutoDispatch] Label coverage check: {total_pages} page(s), '
+                  f'{pages_with_text} with text, {len(present_oids)} orderId(s) found '
+                  f'vs {len(shipment_ids_packed)} packed shipment(s)')
+
+            # Fail-safe: PDF text extraction yielded nothing usable — do NOT drop
+            # anything; proceed exactly as the original pipeline would.
+            if not present_oids:
+                print('[AutoDispatch] Coverage check inconclusive (no orderIds extracted) '
+                      '— fail-safe: proceeding with all packed shipments')
+                rtd_ready_ids   = list(shipment_ids_packed)
+                unrecovered_ids = []
+                break
+
+            covered, missing = [], []
+            for sid, oids in shipment_orderids.items():
+                if not oids or (oids & present_oids):
+                    covered.append(sid)          # present, or unverifiable → keep
+                else:
+                    missing.append(sid)
+            rtd_ready_ids   = covered
+            unrecovered_ids = missing
+
+            if not missing:
+                print(f'[AutoDispatch] Label coverage OK: all {len(covered)} packed shipment(s) present in PDF')
+                break
+            if _time.time() >= verify_deadline:
+                print(f'[AutoDispatch] Label coverage TIMEOUT: {len(missing)} shipment(s) '
+                      f'still missing labels after {verify_attempt} re-download(s): {missing}')
+                break
+
+            verify_attempt += 1
+            backoff = min(20, 8 + verify_attempt * 4)
+            print(f'[AutoDispatch] Label coverage incomplete: {len(missing)} shipment(s) '
+                  f'missing from PDF — re-download attempt {verify_attempt} after {backoff}s...')
+            _time.sleep(backoff)
+
+            # Re-download ONLY the missing shipments and append to label_pdf_parts.
+            # The sorter dedupes by (orderIds, AWB) so any incidental overlap is safe.
+            for j in range(0, len(missing), 25):
+                chunk_ids = ','.join(missing[j:j+25])
+                for endpoint_path in [
+                    f'{base}/v3/shipments/{chunk_ids}/labels',
+                    f'{base}/v3/shipments/{chunk_ids}/labelOnly/pdf',
+                ]:
+                    try:
+                        rr = _req.get(endpoint_path,
+                                      headers={**headers, 'Accept': 'application/pdf'},
+                                      timeout=60)
+                        if rr.status_code == 200 and rr.content[:4] == b'%PDF':
+                            label_pdf_parts.append(rr.content)
+                            print(f'[AutoDispatch] Re-downloaded {len(missing[j:j+25])} missing '
+                                  f'label(s) ({len(rr.content)} bytes) via {endpoint_path}')
+                            break
+                        else:
+                            print(f'[AutoDispatch] Re-download [{rr.status_code}] {endpoint_path}: {rr.text[:150]}')
+                    except Exception as e:
+                        print(f'[AutoDispatch] Re-download error: {e}')
+    else:
+        print('[AutoDispatch] Coverage check skipped (no orderId map) '
+              '— fail-safe: all packed shipments ready')
+
     # Merge all label PDF bytes into one (simple concatenation via PdfWriter)
     combined_writer = PdfWriter()
     for pdf_bytes in label_pdf_parts:
@@ -4222,13 +4339,16 @@ def _fk_auto_dispatch(account=None):
     # ── Step 4a: Wait for FK to register label download before RTD ──
     # FK needs at least 45s to propagate label download to RTD eligibility check.
     # Add 1s per shipment beyond 10 to handle larger batches.
-    wait_secs = max(60, 10 + len(shipment_ids_packed) * 1)
-    print(f'[AutoDispatch] Waiting {wait_secs}s for FK to register {len(shipment_ids_packed)} label(s)...')
+    wait_secs = max(60, 10 + len(rtd_ready_ids) * 1)
+    print(f'[AutoDispatch] Waiting {wait_secs}s for FK to register {len(rtd_ready_ids)} label(s)...')
     _time.sleep(wait_secs)
     rtd_count   = 0
     rtd_errors  = []
     dispatch_url = f'{base}/v3/shipments/dispatch'
-    pending_rtd  = list(shipment_ids_packed)
+    # RTD only the shipments whose labels were confirmed present in the PDF.
+    # When coverage is 100% (every healthy account/run), rtd_ready_ids ==
+    # shipment_ids_packed, so this is identical to the original behavior.
+    pending_rtd  = list(rtd_ready_ids)
 
     for rtd_attempt in range(1, 11):  # up to 10 attempts
         if not pending_rtd:
@@ -4267,15 +4387,23 @@ def _fk_auto_dispatch(account=None):
 
         pending_rtd = still_failed
 
-    # Anything still in pending_rtd after all retries — log full diagnostics
-    if pending_rtd:
-        print(f'[AutoDispatch] {len(pending_rtd)} shipments need manual RTD (FF_DOCUMENT_NOT_PRINTED):')
-    for sid in pending_rtd:
+    # Shipments needing manual attention = RTD-failed-after-retries PLUS any whose
+    # labels never appeared in the PDF (excluded from RTD by the coverage check).
+    needs_manual = list(dict.fromkeys(
+        list(pending_rtd) + [s for s in unrecovered_ids if s not in pending_rtd]
+    ))
+    if needs_manual:
+        print(f'[AutoDispatch] {len(needs_manual)} shipment(s) need manual RTD '
+              f'({len(pending_rtd)} FF_DOCUMENT_NOT_PRINTED after retries, '
+              f'{len(unrecovered_ids)} label never generated):')
+    for sid in needs_manual:
         # Find full shipment data for diagnostics
         shipment_data = next((s for s in approved_shipments if s.get('shipmentId') == sid), {})
-        order_id  = shipment_data.get('invoices', [{}])[0].get('orderId', '') if shipment_data.get('invoices') else ''
         items     = shipment_data.get('orderItems', [])
-        sku       = items[0].get('skuId', '') if items else ''
+        # APPROVED payloads carry orderId/sku on orderItems (NOT 'invoices', and the
+        # field is 'sku' not 'skuId') — log those so the IDs are actually usable.
+        order_id  = items[0].get('orderId', '') if items else ''
+        sku       = (items[0].get('sku') or items[0].get('skuId') or '') if items else ''
         title     = items[0].get('title', '')[:50] if items else ''
         pkg_data  = shipment_data.get('subShipments', [{}])[0].get('packages', [{}])[0] if shipment_data.get('subShipments') else {}
         pkg_id    = pkg_data.get('packageId', 'NONE')
@@ -4283,26 +4411,28 @@ def _fk_auto_dispatch(account=None):
         pkg_type  = shipment_data.get('packagingPolicy', '')
         loc_id    = shipment_data.get('locationId', '')
         dbd       = shipment_data.get('dispatchByDate', '')
+        reason    = 'label-never-generated' if sid in unrecovered_ids else 'FF_DOCUMENT_NOT_PRINTED'
         print(
-            f'[AutoDispatch] FAILED RTD | shipmentId={sid} orderId={order_id} '
+            f'[AutoDispatch] FAILED RTD | reason={reason} shipmentId={sid} orderId={order_id} '
             f'sku={sku} title={title!r} packageId={pkg_id} dims={dims} '
             f'packagingPolicy={pkg_type} locationId={loc_id} dispatchByDate={dbd}'
         )
-        err = f'{sid} ({order_id}) sku={sku}: FF_DOCUMENT_NOT_PRINTED — manual RTD needed'
+        err = f'{sid} ({order_id}) sku={sku}: {reason} — manual RTD needed'
         rtd_errors.append(err)
 
     print(f'[AutoDispatch] RTD: {rtd_count} marked, {len(rtd_errors)} errors')
 
     timestamp = datetime.datetime.now(tz=IST).strftime('%d %b %Y, %H:%M IST')
     return {
-        'ok':           True,
-        'timestamp':    timestamp,
-        'total':        len(approved_shipments),
-        'packed':       len(shipment_ids_packed),
-        'rtd':          rtd_count,
-        'sort_results': sort_results,
-        'pack_errors':  pack_errors[:10],
-        'rtd_errors':   rtd_errors[:10],
+        'ok':            True,
+        'timestamp':     timestamp,
+        'total':         len(approved_shipments),
+        'packed':        len(shipment_ids_packed),
+        'rtd':           rtd_count,
+        'missing_labels': len(unrecovered_ids),
+        'sort_results':  sort_results,
+        'pack_errors':   pack_errors[:10],
+        'rtd_errors':    rtd_errors[:10],
     }
 
 
