@@ -3823,17 +3823,15 @@ def _fk_auto_dispatch(account=None):
                 return {'ok': False, 'error': f'Shipment filter failed [{r.status_code}]: {r.text[:200]}'}
             data = r.json()
             for s in data.get('shipments', []):
-                # Client-side filter: skip upcoming orders whose dispatch window hasn't opened
-                dbd = s.get('dispatchByDate', '')
-                if dbd:
-                    try:
-                        dbd_dt = datetime.datetime.fromisoformat(dbd.replace('Z', '+00:00'))
-                        # dispatchByDate is the deadline — subtract 1 day to get the open date
-                        # Skip if the order isn't due until tomorrow or later
-                        if dbd_dt.date() > now_ist.date():
-                            continue
-                    except Exception:
-                        pass
+                # NOTE: a client-side skip used to drop any order whose dispatchByDate
+                # (the dispatch DEADLINE) was tomorrow-or-later. That was removed
+                # intentionally — the team wants to dispatch next-day-due orders early
+                # (e.g. in the afternoon) to lighten the next morning's load.
+                #
+                # This is safe because the server-side filter above already restricts
+                # results to dispatchAfterDate <= now, i.e. only orders whose dispatch
+                # WINDOW has actually opened. The old skip conflated the deadline with
+                # the window-open date and blocked orders that were already dispatchable.
                 approved_shipments.append(s)
                 fetched += 1
             if not data.get('hasMore') or not data.get('nextPageUrl'):
@@ -3858,6 +3856,7 @@ def _fk_auto_dispatch(account=None):
     print(f'[AutoDispatch] Found {len(approved_shipments)} APPROVED shipments for {account}')
 
     # ── Step 2: Pack (trigger label generation) in batches of 25 ─────────────
+    import time as _time   # needed for pack-batch retry backoff
     pack_url   = f'{base}/v3/shipments/labels'
     shipment_ids_packed = []
     pack_errors = []
@@ -4013,35 +4012,68 @@ def _fk_auto_dispatch(account=None):
                 'invoices':     invoices,
                 'taxItems':     tax_items,
             })
-        try:
-            # Log shipment states before packing
-            sids_in_batch = [s.get('shipmentId','') for s in batch]
-            print(f'[AutoDispatch] Packing shipments: {sids_in_batch}')
-            print(f'[AutoDispatch] Their states: {[s.get("orderItems",[{}])[0].get("status","?") if s.get("orderItems") else "?" for s in batch]}')
-            print(f'[AutoDispatch] Pack payload batch {i//25+1}: {json.dumps(pack_payload)}')
-            r = _req.post(pack_url, json=pack_payload, headers=headers, timeout=60)
-            print(f'[AutoDispatch] Pack response {r.status_code}: {r.text[:500]}')
-            if r.status_code == 200:
-                resp_json = r.json()
-                print(f'[AutoDispatch] Pack batch {i//25+1} response: {json.dumps(resp_json)[:300]}')
-                for result in resp_json.get('shipments', []):
-                    status = result.get('status', '').upper()
-                    if status in ('SUCCESS', 'PACKED', ''):
-                        shipment_ids_packed.append(result['shipmentId'])
-                    else:
-                        pack_errors.append(f"{result['shipmentId']}: {result.get('errorMessage','')}")
-                # If API returned empty shipments list, all succeeded — add original IDs
-                if not resp_json.get('shipments'):
-                    for s in batch:
-                        sid = s.get('shipmentId') or s.get('shipment_id', '')
-                        if sid:
-                            shipment_ids_packed.append(sid)
-            else:
-                pack_errors.append(f'Batch {i//25+1} HTTP {r.status_code}: {r.text[:150]}')
-        except Exception as e:
-            import traceback as _tb
-            print(f'[AutoDispatch] Batch {i//25+1} exception: {e}\n{_tb.format_exc()}')
-            pack_errors.append(f'Batch {i//25+1} error: {e}')
+        # Log shipment states before packing
+        sids_in_batch = [s.get('shipmentId','') for s in batch]
+        batch_num = i // 25 + 1
+        print(f'[AutoDispatch] Packing shipments: {sids_in_batch}')
+        print(f'[AutoDispatch] Their states: {[s.get("orderItems",[{}])[0].get("status","?") if s.get("orderItems") else "?" for s in batch]}')
+        print(f'[AutoDispatch] Pack payload batch {batch_num}: {json.dumps(pack_payload)}')
+
+        # Pack with retry on TRANSIENT Flipkart failures (502/503/504/429, or
+        # connection/read timeouts). A single 502 here used to silently drop a
+        # whole batch (~25 orders) for the run; retrying the same batch recovers
+        # them. Non-transient responses (e.g. 4xx other than 429) are NOT retried
+        # because they won't succeed on a repeat. Healthy batches succeed on the
+        # first attempt, so this adds no delay to the normal path.
+        _PACK_RETRY_STATUSES = {429, 500, 502, 503, 504}
+        _PACK_MAX_ATTEMPTS   = 3
+        batch_done = False
+        last_transient = None
+        for pk_attempt in range(1, _PACK_MAX_ATTEMPTS + 1):
+            if pk_attempt > 1:
+                backoff = 5 * (pk_attempt - 1)   # 5s, then 10s
+                print(f'[AutoDispatch] Pack batch {batch_num} retry {pk_attempt}/{_PACK_MAX_ATTEMPTS} '
+                      f'after {backoff}s (last: {last_transient})...')
+                _time.sleep(backoff)
+            try:
+                r = _req.post(pack_url, json=pack_payload, headers=headers, timeout=60)
+                print(f'[AutoDispatch] Pack response {r.status_code}: {r.text[:500]}')
+                if r.status_code == 200:
+                    resp_json = r.json()
+                    print(f'[AutoDispatch] Pack batch {batch_num} response: {json.dumps(resp_json)[:300]}')
+                    for result in resp_json.get('shipments', []):
+                        status = result.get('status', '').upper()
+                        if status in ('SUCCESS', 'PACKED', ''):
+                            shipment_ids_packed.append(result['shipmentId'])
+                        else:
+                            # Per-shipment failure (e.g. already packed/invalid) —
+                            # genuine, not transient; do not retry the batch.
+                            pack_errors.append(f"{result['shipmentId']}: {result.get('errorMessage','')}")
+                    # If API returned empty shipments list, all succeeded — add original IDs
+                    if not resp_json.get('shipments'):
+                        for s in batch:
+                            sid = s.get('shipmentId') or s.get('shipment_id', '')
+                            if sid:
+                                shipment_ids_packed.append(sid)
+                    batch_done = True
+                    break
+                elif r.status_code in _PACK_RETRY_STATUSES:
+                    last_transient = f'HTTP {r.status_code}'
+                    continue   # transient — retry the same batch
+                else:
+                    # Non-transient HTTP error — won't fix on retry
+                    pack_errors.append(f'Batch {batch_num} HTTP {r.status_code}: {r.text[:150]}')
+                    batch_done = True
+                    break
+            except Exception as e:
+                last_transient = str(e)
+                print(f'[AutoDispatch] Pack batch {batch_num} attempt {pk_attempt} exception: {e}')
+                continue   # connection/read timeout — retry the same batch
+        if not batch_done:
+            # Exhausted all retries on a transient failure — these orders are left
+            # APPROVED and will be picked up by the next run.
+            print(f'[AutoDispatch] Pack batch {batch_num} FAILED after {_PACK_MAX_ATTEMPTS} attempts ({last_transient})')
+            pack_errors.append(f'Batch {batch_num} failed after {_PACK_MAX_ATTEMPTS} attempts: {last_transient}')
 
     print(f'[AutoDispatch] Packed {len(shipment_ids_packed)} shipments. Errors: {len(pack_errors)}')
     if pack_errors:
