@@ -7180,24 +7180,39 @@ function lstResolveProduct(skuId) {
     if(f) lgenHandleTemplateFile(f);
   };
 
-  window.lgenHandleTemplateFile = function(f) {
+  window.lgenHandleTemplateFile = async function(f) {
     if(!f || (!f.name.endsWith('.xlsx') && !f.name.endsWith('.xls'))) {
       showErr('lgenTemplateErr', 'Please upload a .xlsx or .xls file');
       return;
     }
-    _lgenTemplate = { file: f, name: f.name };
+    // Snapshot the bytes NOW into an in-memory Blob. The original `f` is a live
+    // handle to the file on disk — if it changes (re-saved, synced, re-downloaded
+    // with the same name) before we re-read it at Generate time (which can be
+    // minutes later, after the image-upload/profile steps), Chrome throws
+    // net::ERR_UPLOAD_FILE_CHANGED on that later read. Caching the bytes here
+    // means Generate always sends what the user actually picked, regardless of
+    // what happens to the file on disk afterward.
+    let snapshotBlob;
+    try {
+      const buf = await f.arrayBuffer();
+      snapshotBlob = new Blob([buf], { type: f.type || 'application/octet-stream' });
+    } catch(e) {
+      showErr('lgenTemplateErr', 'Could not read the file — please try uploading it again');
+      return;
+    }
+    _lgenTemplate = { file: snapshotBlob, name: f.name };
     document.getElementById('lgenTemplateDrop').style.display = 'none';
     document.getElementById('lgenTemplateStatus').style.display = '';
     document.getElementById('lgenTemplateStatusText').textContent = f.name + ' loaded ✓';
     document.getElementById('lgenTemplateErr').style.display = 'none';
-    // Upload template to get dynamic fields
-    _uploadTemplateForMeta(f);
+    // Upload template to get dynamic fields — use the snapshot too, for consistency
+    _uploadTemplateForMeta(snapshotBlob, f.name);
   };
 
-  async function _uploadTemplateForMeta(file) {
+  async function _uploadTemplateForMeta(fileOrBlob, filename) {
     try {
       const fd = new FormData();
-      fd.append('template', file, file.name);
+      fd.append('template', fileOrBlob, filename);
       const resp = await fetch('/api/listing-gen/upload-template', { method: 'POST', body: fd });
       if(resp.ok) {
         const data = await resp.json();
