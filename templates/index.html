@@ -1509,6 +1509,7 @@
           </div>
           <div id="cronStatusBadge" style="margin-top:10px;font-size:.75rem;color:var(--muted);"></div>
           <div id="autoDispatchResult" style="display:none;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:.82rem;background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.2);color:var(--accent);"></div>
+          <div id="lastRunsPanel" style="display:none;margin-top:14px;"></div>
         </div>
       </div>
 
@@ -8477,18 +8478,24 @@ function _executeAutoDispatch(accounts) {
     const acctResults = data.accounts || {};
     let rows = '';
     for (const [acct, r] of Object.entries(acctResults)) {
-      if (!r.ok && r.error) {
+      if (r.skipped) {
+        // Concurrency guard skipped this account — a run was already in progress.
+        // Not an error: the in-flight run is handling it.
+        rows += `<br>• <b>${acct}</b>: <span style="color:#fbbf24;">↻ skipped — a dispatch run was already in progress</span>`;
+      } else if (!r.ok && r.error) {
         rows += `<br><span style="color:#ff6688;">⚠ ${acct}: ${r.error}</span>`;
       } else {
         const errs = (r.pack_errors||[]).length + (r.rtd_errors||[]).length;
+        const recovered = (r.missing_labels||0) > 0;
         rows += `<br>• <b>${acct}</b>: ${r.packed||0} packed, ${r.rtd||0} RTD` +
-          (errs ? ` <span style="color:#fbbf24;">⚠ ${errs} error(s)</span>` : ' ✓');
+          (errs ? ` <span style="color:#fbbf24;">⚠ ${errs} error(s)</span>` : ' ✓') +
+          (recovered ? ` <span style="color:var(--muted);font-size:.75rem;">(labels recovered after Flipkart indexing delay)</span>` : '');
       }
     }
 
     const totalPacked = summary.packed || 0;
     const totalRtd    = summary.rtd    || 0;
-    const hasErrors   = Object.values(acctResults).some(r => (r.pack_errors||[]).length + (r.rtd_errors||[]).length > 0 || !r.ok);
+    const hasErrors   = Object.values(acctResults).some(r => !r.skipped && ((r.pack_errors||[]).length + (r.rtd_errors||[]).length > 0 || !r.ok));
 
     status.textContent = `Done · ${new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'})} IST`;
     result.style.cssText = hasErrors
@@ -8497,6 +8504,7 @@ function _executeAutoDispatch(accounts) {
     result.innerHTML =
       `✓ <b>${totalPacked}</b> labels generated &nbsp;·&nbsp; <b>${totalRtd}</b> marked RTD` + rows;
     loadLatestOutputs();
+    _loadLastRunsPanel();
   })
   .catch(e => {
     btn.disabled    = false;
@@ -8669,6 +8677,78 @@ function _loadCronStatusBadge() {
     .catch(() => {});
 }
 
+// ── Last-run status panel ──────────────────────────────────────────────────
+// Reads the in-memory per-account last-run summary the backend records. Answers
+// the ground team's "did the last run work / when did labels become available"
+// question, and surfaces a live 'running' state (e.g. a cron run in progress)
+// so staff don't panic-refresh thinking something failed. In-memory only —
+// empty after a redeploy until the next run.
+function _loadLastRunsPanel() {
+  fetch('/api/auto-dispatch/last-runs')
+    .then(r => r.json())
+    .then(data => {
+      const panel = document.getElementById('lastRunsPanel');
+      if (!panel) return;
+      const runs = (data && data.runs) || {};
+      const accts = Object.keys(runs);
+      if (!accts.length) { panel.style.display = 'none'; return; }
+
+      let anyRunning = false;
+      let rowsHtml = '';
+      for (const acct of accts) {
+        const r = runs[acct] || {};
+        let dot, label, detail;
+        if (r.status === 'running') {
+          anyRunning = true;
+          dot = '#fbbf24';
+          label = 'Running…';
+          detail = `started ${r.started_ist || ''}`;
+        } else if (r.status === 'skipped') {
+          dot = '#fbbf24';
+          label = 'Skipped';
+          detail = 'a run was already in progress';
+        } else if (r.status === 'error') {
+          dot = '#ff4466';
+          label = 'Error';
+          detail = (r.error || 'failed') + (r.finished_ist ? ` · ${r.finished_ist}` : '');
+        } else { // ok
+          const errs = ((r.pack_errors||[]).length) + ((r.rtd_errors||[]).length);
+          const recovered = (r.missing_labels||0) > 0;
+          dot = errs ? '#fbbf24' : '#22c55e';
+          label = `${r.packed||0} packed · ${r.rtd||0} RTD`;
+          detail = (r.finished_ist ? `labels ready ${r.finished_ist}` : '') +
+                   (recovered ? ' · recovered after FK delay' : '') +
+                   (errs ? ` · ${errs} error(s)` : '');
+        }
+        rowsHtml += `<div style="display:flex;align-items:baseline;gap:8px;padding:3px 0;">
+            <span style="color:${dot};font-size:.7rem;line-height:1;">●</span>
+            <span style="min-width:110px;font-weight:600;">${acct}</span>
+            <span>${label}</span>
+            <span style="color:var(--muted);font-size:.72rem;">${detail}</span>
+          </div>`;
+      }
+
+      panel.style.display = 'block';
+      panel.innerHTML =
+        `<div style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Last dispatch run (per account)</div>
+         <div style="font-size:.82rem;line-height:1.4;">${rowsHtml}</div>
+         <div style="font-size:.68rem;color:var(--muted);margin-top:6px;">Since last restart · refreshes automatically${anyRunning ? ' · a run is in progress' : ''}</div>`;
+
+      // If something is running, poll faster to reflect completion promptly.
+      _scheduleLastRunsRefresh(anyRunning ? 5000 : 30000);
+    })
+    .catch(() => {
+      // On error, just retry on the slow cadence; never spam.
+      _scheduleLastRunsRefresh(30000);
+    });
+}
+
+let _lastRunsTimer = null;
+function _scheduleLastRunsRefresh(ms) {
+  if (_lastRunsTimer) clearTimeout(_lastRunsTimer);
+  _lastRunsTimer = setTimeout(_loadLastRunsPanel, ms);
+}
+
 window.openCronConfig = function() {
   const pin = prompt('Enter PIN to edit cron timings:');
   if (!pin) return;
@@ -8736,6 +8816,7 @@ window.saveCronConfig = function() {
 
 // Load status badge on page load
 document.addEventListener('DOMContentLoaded', _loadCronStatusBadge);
+document.addEventListener('DOMContentLoaded', _loadLastRunsPanel);
 
 
 </script>
