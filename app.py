@@ -3658,6 +3658,103 @@ FK_ACCOUNT_LOCATIONS = {
 # Accounts enabled for auto-dispatch (those with API credentials configured)
 FK_DISPATCH_ACCOUNTS = [a for a in KNOWN_ACCOUNTS if _fk_credentials(a)[0]]
 
+# ── Per-account concurrency guard for auto-dispatch ──────────────────────────
+# A dispatch run for one account must never overlap another run for the SAME
+# account. This has happened in production: the cron (±10 min window, fired
+# every 30 min) and/or a manual "run now" triggered two parallel runs 8s apart,
+# and the second run tried to pack shipments the first had already packed —
+# every one came back INVALID_PACK_REQUEST ("Packed 0, Errors: N"). No orders
+# were lost that time (the first run's RTD succeeded), but overlapping runs can
+# also interfere with label download / RTD, producing the sporadic errors the
+# ground team reports. This lock makes a concurrent run for a busy account skip
+# cleanly with a clear log line instead of running in parallel.
+#
+# In-process threading locks are sufficient because Railway runs this as a
+# single process; all trigger paths (manual endpoint, cron endpoint, background
+# threads) share this module's memory. A wall-clock stamp is kept purely for
+# observability / debugging — the lock itself is the real guard.
+import threading as _ad_threading
+import time as _ad_time
+_AD_LOCKS      = {a: _ad_threading.Lock() for a in KNOWN_ACCOUNTS}
+_AD_RUNNING_AT = {}   # account -> epoch seconds when current run started (debug only)
+
+# In-memory "last run" record per account, for the UI status panel. This is
+# deliberately NOT persisted — it shows only the most recent run per account and
+# is wiped on redeploy/restart (acceptable: the panel answers "did the last run
+# work / when did labels become available", not long-term history). Shape:
+#   { account: {status, started_ist, finished_ist, packed, rtd, total,
+#                missing_labels, skipped, error, pack_errors, rtd_errors} }
+# status ∈ {'running','ok','skipped','error'}.
+_AD_LAST_RUN = {}
+_AD_LAST_RUN_LOCK = _ad_threading.Lock()   # guards dict mutation only (fast)
+
+def _ad_record(account, **fields):
+    """Merge fields into the last-run record for an account (thread-safe)."""
+    with _AD_LAST_RUN_LOCK:
+        rec = _AD_LAST_RUN.setdefault(account, {})
+        rec.update(fields)
+
+def _fk_auto_dispatch_guarded(account=None):
+    """
+    Concurrency-safe wrapper around _fk_auto_dispatch(). Acquires a per-account
+    lock without blocking; if the account is already mid-dispatch, skips this
+    run and returns a clear 'skipped' result rather than running concurrently.
+    The healthy path (no overlap) behaves exactly like calling the core function
+    directly. Also records a lightweight in-memory "last run" summary per account
+    for the UI status panel.
+    """
+    acct = account or 'CUTEST CLUB'
+    lock = _AD_LOCKS.get(acct)
+    if lock is None:
+        # Unknown/unconfigured account — no lock defined; fall through unguarded
+        # (the core function will return its own 'no location configured' error).
+        return _fk_auto_dispatch(account=account)
+
+    # Non-blocking acquire: if we can't get it, another run for this account is
+    # already in progress — skip rather than queue/overlap.
+    if not lock.acquire(blocking=False):
+        started = _AD_RUNNING_AT.get(acct)
+        running_for = (int(_ad_time.time() - started) if started else None)
+        print(f'[AutoDispatch] SKIPPED {acct} — a dispatch run is already in '
+              f'progress'
+              + (f' (running for ~{running_for}s)' if running_for is not None else ''))
+        return {
+            'ok':      True,
+            'skipped': True,
+            'reason':  'dispatch already in progress for this account',
+            'account': acct,
+        }
+    try:
+        _AD_RUNNING_AT[acct] = _ad_time.time()
+        _ad_record(acct, status='running',
+                   started_ist=datetime.datetime.now(tz=IST).strftime('%d %b, %H:%M:%S IST'),
+                   finished_ist=None, skipped=False, error=None)
+        result = _fk_auto_dispatch(account=account)
+        # Record the outcome from the core function's return dict.
+        if isinstance(result, dict) and result.get('ok'):
+            _ad_record(acct, status='ok',
+                       finished_ist=datetime.datetime.now(tz=IST).strftime('%d %b, %H:%M:%S IST'),
+                       total=result.get('total'),
+                       packed=result.get('packed'),
+                       rtd=result.get('rtd'),
+                       missing_labels=result.get('missing_labels'),
+                       pack_errors=result.get('pack_errors', []),
+                       rtd_errors=result.get('rtd_errors', []),
+                       error=None)
+        else:
+            _ad_record(acct, status='error',
+                       finished_ist=datetime.datetime.now(tz=IST).strftime('%d %b, %H:%M:%S IST'),
+                       error=(result.get('error') if isinstance(result, dict) else str(result)))
+        return result
+    except Exception as e:
+        _ad_record(acct, status='error',
+                   finished_ist=datetime.datetime.now(tz=IST).strftime('%d %b, %H:%M:%S IST'),
+                   error=f'{type(e).__name__}: {e}')
+        raise
+    finally:
+        _AD_RUNNING_AT.pop(acct, None)
+        lock.release()
+
 # Default package dimensions for orders with no pre-existing dimensions
 FK_DEFAULT_DIMS   = {'length': 10, 'breadth': 5, 'height': 5, 'weight': 0.2}  # weight in kg, L/B/H in cm
 FK_SKU_DIMS_PATH  = os.path.join(_data_dir, 'sku_dimensions.json')
@@ -4683,6 +4780,24 @@ def mark_rtd_trigger():
     _threading.Thread(target=_bg, daemon=True).start()
     return jsonify({'ok': True, 'message': 'Mark RTD started — poll /api/mark-rtd/status for result'})
 
+@app.route('/api/auto-dispatch/last-runs', methods=['GET'])
+def auto_dispatch_last_runs():
+    """
+    Return the in-memory 'last run' summary per account for the UI status panel.
+    Not persisted — reflects only runs since the last restart/redeploy. Answers
+    the ground team's question: did the last run work, and when did labels
+    become available (finished_ist). No PIN required (read-only, non-sensitive).
+    """
+    with _AD_LAST_RUN_LOCK:
+        # shallow copy so we don't hand out the live dict
+        snapshot = {acct: dict(rec) for acct, rec in _AD_LAST_RUN.items()}
+    return jsonify({
+        'ok': True,
+        'runs': snapshot,
+        'server_time_ist': datetime.datetime.now(tz=IST).strftime('%d %b, %H:%M:%S IST'),
+    })
+
+
 @app.route('/api/auto-dispatch', methods=['POST'])
 def auto_dispatch_trigger():
     """
@@ -4706,7 +4821,7 @@ def auto_dispatch_trigger():
     results = {}
     for account in accounts_to_run:
         print(f'[AutoDispatch] Starting dispatch for {account}')
-        results[account] = _fk_auto_dispatch(account=account)
+        results[account] = _fk_auto_dispatch_guarded(account=account)
 
     # Combined summary
     total_packed = sum(r.get('packed', 0) for r in results.values())
@@ -4790,7 +4905,7 @@ def auto_dispatch_cron():
         print(f'[AutoDispatch Cron] {now_str} — skipped (not a scheduled time; schedule: {cfg["times"]})')
         return jsonify({'ok': True, 'skipped': True, 'reason': 'not a scheduled time'})
     print(f'[AutoDispatch Cron] {now_str} — FIRING (matched schedule: {cfg["times"]})')
-    result = _fk_auto_dispatch()
+    result = _fk_auto_dispatch_guarded()
     print(f'[AutoDispatch Cron] Result: {json.dumps(result)}')
     return jsonify(result)
 
