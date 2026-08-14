@@ -5471,6 +5471,111 @@ def listing_gen_generate():
         _tb.print_exc()
         return jsonify({'error': f'Server error: {_e}'}), 500
 
+def _gen_pronounceable_names(n, api_key, timeout=45):
+    """Return `n` unique pronounceable pseudowords, 4-6 letters each.
+
+    Names are coined fresh by the model on every run — there is deliberately
+    no stored word list, so the pool is effectively unbounded and names stay
+    unpredictable. Any language / invented word is fine as long as it can be
+    said out loud, which is the point: the team refers to SKUs verbally.
+
+    A naming failure must never block listing generation, so if the API call
+    fails or returns unusable output we top up with syllable-built words.
+    That fallback is generated, not drawn from a list.
+    """
+    import requests as _req, json as _json, random as _rand
+
+    wanted = max(int(n or 0), 0)
+    if wanted <= 0:
+        return []
+
+    names, seen = [], set()
+
+    def _accept(word):
+        w = str(word or '').strip()
+        if not w.isalpha() or not (4 <= len(w) <= 6):
+            return False
+        if w.lower() in seen:
+            return False
+        seen.add(w.lower())
+        names.append(w.capitalize())
+        return True
+
+    if api_key:
+        # Over-request: some come back the wrong length or duplicated.
+        ask = min(wanted + 8, 60)
+        prompt = (
+            f"Invent {ask} short pronounceable names for product SKUs.\n\n"
+            "Rules:\n"
+            "- 4 to 6 letters each, English alphabet only (a-z), no spaces, "
+            "no digits, no punctuation, no accents.\n"
+            "- Must be easy to say out loud and easy to remember. Words from "
+            "any language are fine, and so are invented words, as long as "
+            "they are pronounceable.\n"
+            "- Make them distinctive from each other — not near-identical "
+            "variations of one root.\n"
+            "- Avoid well-known brand names and real trademarks.\n"
+            "- Be inventive: do not return the same predictable set every "
+            "time you are asked.\n\n"
+            'Reply with ONLY a JSON array of strings, e.g. ["Kavro","Tilen"]. '
+            "No commentary, no markdown fences."
+        )
+        try:
+            resp = _req.post(
+                'https://api.anthropic.com/v1/messages',
+                headers={
+                    'x-api-key': api_key,
+                    'anthropic-version': '2023-06-01',
+                    'content-type': 'application/json',
+                },
+                json={
+                    'model': 'claude-sonnet-4-5',
+                    'max_tokens': 1024,
+                    # High temperature: we want a different set each run.
+                    'temperature': 1.0,
+                    'messages': [{'role': 'user', 'content': prompt}],
+                },
+                timeout=timeout,
+            )
+            if resp.status_code == 200:
+                text = resp.json()['content'][0]['text'].strip()
+                if text.startswith('```'):
+                    text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
+                for word in (_json.loads(text) or []):
+                    if len(names) >= wanted:
+                        break
+                    _accept(word)
+        except Exception as _e:
+            print(f'[listing-gen] name generation fell back: {_e}')
+
+    # Top-up / fallback — consonant-vowel syllables, always pronounceable.
+    _CONS = 'bcdfghjklmnprstvwz'
+    _VOWS = 'aeiou'
+
+    def _syllabic(length):
+        out, use_vowel = [], False
+        while len(out) < length:
+            out.append(_rand.choice(_VOWS if use_vowel else _CONS))
+            use_vowel = not use_vowel
+        return ''.join(out)
+
+    attempts = 0
+    while len(names) < wanted and attempts < wanted * 200 + 200:
+        attempts += 1
+        _accept(_syllabic(_rand.choice([4, 5, 6])))
+
+    # Deterministic last resort so this can never return short — the caller
+    # indexes the result positionally. 729k combinations, so it always fills.
+    if len(names) < wanted:
+        from itertools import product as _product
+        for combo in _product(_CONS, _VOWS, _CONS, _VOWS, _CONS, _VOWS):
+            if len(names) >= wanted:
+                break
+            _accept(''.join(combo))
+
+    return names[:wanted]
+
+
 def _listing_gen_generate_inner():
     import requests as _req, random, string, io as _io, json as _json
     import openpyxl
@@ -5540,14 +5645,13 @@ def _listing_gen_generate_inner():
 
     # ── Generate unique SKU IDs ──────────────────────────────
     sku_ids = []
-    used_prefixes = set()
     product_name  = fd.get('product_name', sku_identifier)  # change 1/6
-    for pack in sku_rows:
-        while True:
-            prefix = ''.join(random.choices(string.ascii_uppercase, k=3))  # change 9: exactly 3 caps
-            if prefix not in used_prefixes:
-                used_prefixes.add(prefix)
-                break
+    # Pronounceable 4-6 letter names, coined fresh each run, so the team can
+    # say them out loud when discussing which SKU is performing.
+    _name_pool = _gen_pronounceable_names(
+        len(sku_rows), os.environ.get('ANTHROPIC_API_KEY', ''))
+    for _i, pack in enumerate(sku_rows):
+        prefix = _name_pool[_i]
         sku_ids.append(f'{prefix} {sku_identifier} {pack} Pack')
 
     # ── Distribute images evenly ─────────────────────────────
