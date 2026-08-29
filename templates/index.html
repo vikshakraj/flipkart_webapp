@@ -1957,8 +1957,8 @@
             </div>
             <div class="lgen-field">
               <label class="lgen-label">Number of SKUs <span>*</span></label>
-              <input type="number" class="lgen-input" id="lgenNumSkus" min="2" max="20" placeholder="2–20" oninput="lgenUpdateQtySum()" style="max-width:160px;">
-              <span class="lgen-hint">Total new listing rows to generate (2–20)</span>
+              <input type="number" class="lgen-input" id="lgenNumSkus" min="2" max="50" placeholder="2–50" oninput="lgenUpdateQtySum()" style="max-width:160px;">
+              <span class="lgen-hint">Total new listing rows to generate (2–50)</span>
               <span class="lgen-err" id="lgenNumSkusErr" style="display:none;"></span>
             </div>
             <div class="lgen-field">
@@ -2065,7 +2065,7 @@
           <!-- Pack-specific main image slots — rendered dynamically by lgenRenderPackImageSlots() -->
           <div id="lgenPackImageSlots"></div>
           <div class="lgen-card">
-            <div class="lgen-card-title">🗂️ Gallery Images <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· 5–20 images · Distributed across Other Image slots</span></div>
+            <div class="lgen-card-title">🗂️ Gallery Images <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· 5–30 images · Distributed across Other Image slots</span></div>
             <div class="lgen-drop" onclick="document.getElementById('lgenGalleryImgInput').click()" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="lgenHandleImgDrop(event,'gallery')">
               <div class="lgen-drop-icon">🗂️</div>
               <div class="lgen-drop-text">Drop gallery images here</div>
@@ -7391,7 +7391,7 @@ function lstResolveProduct(skuId) {
     container.innerHTML = _lgenActivePacks.map(pack => `
       <div class="lgen-card">
         <div class="lgen-card-title">📸 Main Image${_lgenActivePacks.length > 1 ? ` — Pack of ${pack}` : ''}
-          <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· 3–5 images · Distributed as primary image for Pack of ${pack} SKUs</span>
+          <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· 3–30 images · Distributed as primary image for Pack of ${pack} SKUs</span>
         </div>
         <div class="lgen-drop" onclick="document.getElementById('lgenMainImgInput_${pack}').click()"
           ondragover="event.preventDefault();this.classList.add('over')"
@@ -7399,7 +7399,7 @@ function lstResolveProduct(skuId) {
           ondrop="lgenHandlePackImgDrop(event,${pack})">
           <div class="lgen-drop-icon">📸</div>
           <div class="lgen-drop-text">Drop main images for Pack of ${pack} here</div>
-          <div class="lgen-drop-hint">JPEG or PNG · 3–5 images</div>
+          <div class="lgen-drop-hint">JPEG or PNG · 3–30 images</div>
         </div>
         <input type="file" id="lgenMainImgInput_${pack}" accept="image/jpeg,image/jpg,image/png"
           multiple style="display:none" onchange="lgenAddPackImages(this.files,${pack})">
@@ -7407,7 +7407,7 @@ function lstResolveProduct(skuId) {
         <div class="lgen-err" id="lgenMainImgErr_${pack}" style="display:none;"></div>
       </div>`).join('') +
       `<div class="lgen-card">
-        <div class="lgen-card-title">🗂️ Gallery Images <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· 5–20 images · Same pool used across all pack sizes</span></div>
+        <div class="lgen-card-title">🗂️ Gallery Images <span style="color:var(--muted);font-size:.75rem;font-weight:400;">· 5–30 images · Same pool used across all pack sizes</span></div>
         <div class="lgen-drop" onclick="document.getElementById('lgenGalleryImgInput').click()"
           ondragover="event.preventDefault();this.classList.add('over')"
           ondragleave="this.classList.remove('over')"
@@ -7469,7 +7469,7 @@ function lstResolveProduct(skuId) {
     const arr   = _lgenMainImgsByPack[pack];
     const errId = `lgenMainImgErr_${pack}`;
     Array.from(files).forEach(f => {
-      if(arr.length >= 5) { showErr(errId, 'Maximum 5 images per pack size'); return; }
+      if(arr.length >= 30) { showErr(errId, 'Maximum 30 images per pack size'); return; }
       if(!f.type.startsWith('image/')) { showErr(errId, `${f.name} is not an image`); return; }
       arr.push({ file: f, previewUrl: URL.createObjectURL(f) });
     });
@@ -7502,7 +7502,7 @@ function lstResolveProduct(skuId) {
 
   window.lgenAddImages = function(files, type) {
     const arr   = _lgenGalleryImgs;
-    const maxN  = 20;
+    const maxN  = 30;
     const errId = 'lgenGalleryImgErr';
     Array.from(files).forEach(f => {
       if(arr.length >= maxN) { showErr(errId, `Maximum ${maxN} images allowed`); return; }
@@ -7552,8 +7552,8 @@ function lstResolveProduct(skuId) {
       showErr('lgenTemplateErr', 'Please upload a template file'); ok = false;
     }
     const n = parseInt(document.getElementById('lgenNumSkus').value);
-    if(!n || n < 2 || n > 20) {
-      showErr('lgenNumSkusErr', 'Number of SKUs must be between 2 and 20'); ok = false;
+    if(!n || n < 2 || n > 50) {
+      showErr('lgenNumSkusErr', 'Number of SKUs must be between 2 and 50'); ok = false;
     } else {
       let sum = 0;
       [1,2,3,4,5].forEach(i => { sum += parseInt(document.getElementById('lgenQty'+i).value)||0; });
@@ -7612,19 +7612,19 @@ function lstResolveProduct(skuId) {
   }
 
   function lgenValidateStep3() {
-    // Validate each active pack has 3-5 main images
+    // Validate each active pack has 3-30 main images
     for(const pack of _lgenActivePacks) {
       const imgs = _lgenMainImgsByPack[pack] || [];
-      if(imgs.length < 3 || imgs.length > 5) {
-        showErr(`lgenMainImgErr_${pack}`, `Upload 3–5 main images for Pack of ${pack}`);
+      if(imgs.length < 3 || imgs.length > 30) {
+        showErr(`lgenMainImgErr_${pack}`, `Upload 3–30 main images for Pack of ${pack}`);
         return false;
       }
     }
     const galCount = _lgenGalleryImgs.length;
-    if(galCount < 5 || galCount > 20) {
+    if(galCount < 5 || galCount > 30) {
       const errMsg = galCount === 0
         ? 'Please upload at least 5 gallery images'
-        : `Upload 5–20 gallery images (currently ${galCount})`;
+        : `Upload 5–30 gallery images (currently ${galCount})`;
       showErr('lgenGalleryImgErr', errMsg);
       // Scroll to gallery error so user sees it
       const errEl = document.getElementById('lgenGalleryImgErr');
