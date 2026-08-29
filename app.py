@@ -5663,10 +5663,39 @@ def _listing_gen_generate_inner():
             result.append(pool[i % len(pool)])
         return result
 
+    def shuffled_rounds(pool, n):
+        """n picks from `pool`, exhausting every image before any repeats.
+
+        Each round is a full pass over the pool in a fresh random order, so
+        with 8 images and 24 rows you get 3 rounds of all 8, each shuffled
+        differently. Flipkart QC rejects files that repeat the same image
+        across many rows, so maximum spread matters more than randomness.
+        """
+        if not pool:
+            return [''] * n
+        out = []
+        while len(out) < n:
+            this_round = list(pool)
+            random.shuffle(this_round)
+            out.extend(this_round)
+        return out[:n]
+
     # Build per-pack main URL distribution
     main_urls_by_pack = {}
     for pack_str, urls in main_img_urls_by_pack.items():
         main_urls_by_pack[int(pack_str)] = urls
+
+    # Hero images are assigned per pack size, counted per pack — sku_rows is
+    # shuffled, so indexing a pack's pool by the global row index skips and
+    # repeats images unevenly.
+    _pack_counts = {}
+    for _p in sku_rows:
+        _pack_counts[_p] = _pack_counts.get(_p, 0) + 1
+    main_urls_seq = {
+        _p: shuffled_rounds(main_urls_by_pack.get(_p, []), _c)
+        for _p, _c in _pack_counts.items()
+    }
+    main_urls_pos = {_p: 0 for _p in _pack_counts}
 
     gallery_slots     = num_skus * 4
     gallery_urls_dist = distribute(gallery_img_urls, gallery_slots)
@@ -5705,12 +5734,31 @@ def _listing_gen_generate_inner():
     if historical_titles:
         hist_titles_str = f"\n\nALREADY USED TITLES (your output must not duplicate ANY of these — even single character difference required):\n" + '\n'.join(f'- {t}' for t in historical_titles[-50:])  # last 50 max
 
-    prompt = f"""You are a Flipkart product listing expert. Generate listing content for {num_skus} SKUs.
+    # ── Generate content in batches ──────────────────────────
+    # One request for 50 SKUs would exceed the output token budget and be
+    # truncated mid-JSON. Batching keeps each response well inside limits
+    # and means a failure loses one batch, not the whole run.
+    AI_BATCH_SIZE = 10
+
+    def _build_prompt(idx_list, avoid_titles):
+        details = []
+        for n_, i_ in enumerate(idx_list):
+            pack_ = sku_rows[i_]
+            label = 'PACK_OF_1' if pack_ == 1 else f'PACK_OF_{pack_}'
+            details.append(f'SKU {n_+1}: {sku_ids[i_]} | {label}')
+        details_str = chr(10).join(details)
+        avoid_str = ''
+        if avoid_titles:
+            avoid_str = (
+                "\n\nALREADY USED TITLES (your output must not duplicate ANY "
+                "of these — even single character difference required):\n"
+                + chr(10).join(f'- {t}' for t in avoid_titles[-120:]))
+        return f"""You are a Flipkart product listing expert. Generate listing content for {len(idx_list)} SKUs.
 
 Product info: {description_raw}
 Top keywords to use: {keywords_str}
 SKUs:
-{sku_details}
+{details_str}
 
 STRICT RULES for model_name:
 1. Length: MUST be between 70-80 characters including spaces. Count carefully. Pad with benefits/features/adjectives if needed to reach 70. Never exceed 80.
@@ -5724,9 +5772,9 @@ For EACH SKU also generate:
 - description: 50-100 words, benefit-focused, slightly different per SKU, use keywords naturally.
 - key_features: Exactly 4 features separated by ::
 
-{hist_titles_str}
+{avoid_str}
 
-Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
+Respond ONLY with a JSON array of {len(idx_list)} objects, no markdown, no preamble:
 [
   {{
     "sku_index": 0,
@@ -5736,32 +5784,51 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
   }}
 ]"""
 
-    try:
-        ai_resp = _req.post(
-            'https://api.anthropic.com/v1/messages',
-            headers={
-                'x-api-key': anthropic_key,
-                'anthropic-version': '2023-06-01',
-                'content-type': 'application/json',
-            },
-            json={
-                'model': 'claude-sonnet-4-5',
-                'max_tokens': 4096,
-                'messages': [{'role': 'user', 'content': prompt}]
-            },
-            timeout=120
-        )
-        if ai_resp.status_code != 200:
-            return jsonify({'error': f'Anthropic API error {ai_resp.status_code}: {ai_resp.text[:200]}'}), 500
+    ai_content = []
+    # Titles already spoken for: historical + everything earlier batches made.
+    _avoid = list(historical_titles)
 
-        ai_text = ai_resp.json()['content'][0]['text'].strip()
-        # Strip any markdown fences if present
-        if ai_text.startswith('```'):
-            ai_text = ai_text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
-        ai_content = _json.loads(ai_text)
+    for _b0 in range(0, num_skus, AI_BATCH_SIZE):
+        _idx = list(range(_b0, min(_b0 + AI_BATCH_SIZE, num_skus)))
+        _prompt = _build_prompt(_idx, _avoid)
+        try:
+            ai_resp = _req.post(
+                'https://api.anthropic.com/v1/messages',
+                headers={
+                    'x-api-key': anthropic_key,
+                    'anthropic-version': '2023-06-01',
+                    'content-type': 'application/json',
+                },
+                json={
+                    'model': 'claude-sonnet-4-5',
+                    'max_tokens': 8000,
+                    'messages': [{'role': 'user', 'content': _prompt}]
+                },
+                timeout=180
+            )
+            if ai_resp.status_code != 200:
+                return jsonify({'error': f'Anthropic API error {ai_resp.status_code} on SKUs {_idx[0]+1}-{_idx[-1]+1}: {ai_resp.text[:200]}'}), 500
 
-    except Exception as e:
-        return jsonify({'error': f'Content generation failed: {e}'}), 500
+            ai_text = ai_resp.json()['content'][0]['text'].strip()
+            if ai_text.startswith('```'):
+                ai_text = ai_text.split(chr(10), 1)[1].rsplit('```', 1)[0].strip()
+            _batch = _json.loads(ai_text)
+            if not isinstance(_batch, list):
+                raise ValueError('expected a JSON array')
+            if len(_batch) < len(_idx):
+                raise ValueError(
+                    f'got {len(_batch)} items, expected {len(_idx)} '
+                    '(response may have been truncated)')
+
+            for _n, _item in enumerate(_batch[:len(_idx)]):
+                _item['sku_index'] = _idx[_n]
+                ai_content.append(_item)
+                _t = (_item.get('model_name') or '').strip()
+                if _t:
+                    _avoid.append(_t)
+
+        except Exception as e:
+            return jsonify({'error': f'Content generation failed on SKUs {_idx[0]+1}-{_idx[-1]+1}: {e}'}), 500
 
     # ── Change 3: Post-generation uniqueness enforcement ─────
     # Deduplicate titles within this batch + against historical
@@ -5994,9 +6061,11 @@ Respond ONLY with a JSON array of {num_skus} objects, no markdown, no preamble:
             set_cell(row, 'Max Shelf Life',       int(shelf_life))
             set_cell(row, 'Max Shelf Life - Measuring Unit', 'Months')
 
-        # Images — use pack-specific main image pool
-        pack_urls = main_urls_by_pack.get(pack_size, [])
-        main_url  = pack_urls[i % len(pack_urls)] if pack_urls else ''
+        # Images — pack-specific hero pool, advanced per pack size
+        _seq      = main_urls_seq.get(pack_size, [])
+        _k        = main_urls_pos.get(pack_size, 0)
+        main_url  = _seq[_k] if _k < len(_seq) else ''
+        main_urls_pos[pack_size] = _k + 1
         set_cell(row, 'Main Image URL',      main_url)
         set_cell(row, 'Other Image URL 1',   gallery_urls_dist[i * 4])
         set_cell(row, 'Other Image URL 2',   gallery_urls_dist[i * 4 + 1])
