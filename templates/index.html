@@ -7666,12 +7666,49 @@ function lstResolveProduct(skuId) {
       });
 
       if(toUpload.length > 0) {
-        const formImg = new FormData();
-        toUpload.forEach(img => formImg.append('images', img.file, img.file.name));
-        const imgResp   = await fetch('/api/listing-gen/upload-images', {method:'POST', body: formImg});
-        const imgResult = await imgResp.json();
-        if(imgResult.error) throw new Error(imgResult.error);
-        (imgResult.urls || []).forEach((u, i) => {
+        // Upload in small batches. One request carrying 60 images exceeds
+        // the server's 80MB request cap and 413s before generation starts.
+        const UPLOAD_BATCH = 6;
+        const allUrls = [];
+        for(let b = 0; b < toUpload.length; b += UPLOAD_BATCH) {
+          const slice = toUpload.slice(b, b + UPLOAD_BATCH);
+          setMsg(`Uploading images to hosting… ${Math.min(b + slice.length, toUpload.length)}/${toUpload.length}`);
+          const formImg = new FormData();
+          slice.forEach(img => formImg.append('images', img.file, img.file.name));
+
+          let imgResp;
+          try {
+            imgResp = await fetch('/api/listing-gen/upload-images',
+                                  {method:'POST', body: formImg});
+          } catch(netErr) {
+            throw new Error(`Image upload failed (network) on images ${b+1}-${b+slice.length}. `
+                          + `Try smaller image files.`);
+          }
+          if(imgResp.status === 413) {
+            throw new Error(`Images ${b+1}-${b+slice.length} are too large to upload. `
+                          + `Please compress them (under ~5MB each) and retry.`);
+          }
+          if(!imgResp.ok) {
+            throw new Error(`Image upload failed (HTTP ${imgResp.status}) on images ${b+1}-${b+slice.length}.`);
+          }
+          let imgResult;
+          try {
+            imgResult = await imgResp.json();
+          } catch(parseErr) {
+            throw new Error(`Image upload returned an unreadable response on images ${b+1}-${b+slice.length}.`);
+          }
+          if(imgResult.error) throw new Error(imgResult.error);
+          if((imgResult.errors || []).length) {
+            const first = imgResult.errors[0];
+            throw new Error(`Image hosting rejected "${first.name}": ${first.error}`);
+          }
+          (imgResult.urls || []).forEach(u => allUrls.push(u));
+        }
+
+        if(allUrls.length !== toUpload.length) {
+          throw new Error(`Only ${allUrls.length} of ${toUpload.length} images uploaded. Please retry.`);
+        }
+        allUrls.forEach((u, i) => {
           const slot = packOrder[i];
           if(slot.type === 'main') {
             if(!_lgenMainUrlsByPack[slot.pack]) _lgenMainUrlsByPack[slot.pack] = [];
