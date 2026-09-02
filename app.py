@@ -5281,21 +5281,29 @@ def _parse_template_meta(wb, is_xls=False):
                    'DropDownValuesForColumn31', 'Listing FAQ Sheet', 'Image GuideLines',
                    'MatchingAttributes', 'VariantAttributes', 'Parent Variant Products',
                    'template_version'}
-    AUTO_FIELDS = {
+    # Columns Flipkart populates itself — never ask the seller for these.
+    FLIPKART_MANAGED = {
         'Flipkart Serial Number', 'Catalog QC Status', 'QC Failed Reason (if any)',
         'Flipkart Product Link', 'Product Data Status', 'Disapproval Reason (if any)',
-        'Seller SKU ID', 'Group ID', 'Parent Variant FSN', 'Listing Status',
+        'Group ID', 'Parent Variant FSN', 'Listing Status',
+    }
+    # Columns the generator writes itself. Anything blue that is NOT in this
+    # set (and not Flipkart-managed) is surfaced in the Step 2 form — that way
+    # a new category with a new mandatory field asks for it instead of
+    # silently producing a file with an empty required column.
+    AUTO_FIELDS = FLIPKART_MANAGED | {
+        'Seller SKU ID',
         'MRP (INR)', 'Your selling price (INR)', 'Fullfilment by',
         'Procurement type', 'Procurement SLA (DAY)', 'Stock', 'Shipping provider',
         'Local handling fee (INR)', 'Zonal handling fee (INR)', 'National handling fee (INR)',
         'Length (CM)', 'Breadth (CM)', 'Height (CM)', 'Weight (KG)', 'HSN',
-        'Luxury Cess', 'Country Of Origin', 'Manufacturer Details', 'Packer Details',
-        'Importer Details', 'Tax Code', 'Minimum Order Quantity (MinOQ)', 'Brand',
+        'Country Of Origin', 'Manufacturer Details', 'Packer Details',
+        'Importer Details', 'Tax Code', 'Brand',
         'Model Name', 'Quantity', 'Quantity - Measuring Unit', 'Pack of',
         'Main Image URL', 'Other Image URL 1', 'Other Image URL 2',
         'Other Image URL 3', 'Other Image URL 4', 'Description', 'Key Features',
-        'Search Keywords', 'Items Included', 'EAN/UPC', 'EAN/UPC - Measuring Unit',
-        'Net Quantity', 'Model Number', 'Supplier Image',
+        'Search Keywords', 'Items Included',
+        'Model Number',          # filled with the SKU identifier (see below)
     }
 
     if is_xls:
@@ -5951,7 +5959,7 @@ Respond ONLY with a JSON array of {len(idx_list)} objects, no markdown, no pream
             'Model Name', 'Quantity', 'Quantity - Measuring Unit', 'Pack of',
             'Main Image URL', 'Other Image URL 1', 'Other Image URL 2',
             'Other Image URL 3', 'Other Image URL 4', 'Description', 'Key Features',
-            'Search Keywords', 'Items Included',
+            'Search Keywords', 'Items Included', 'Model Number',
         }
         dynamic_provided = set(fd.get('dynamic_fields', {}).keys())
         for _c in range(_xls_ws_r.ncols):
@@ -5999,7 +6007,7 @@ Respond ONLY with a JSON array of {len(idx_list)} objects, no markdown, no pream
                 'Model Name', 'Quantity', 'Quantity - Measuring Unit', 'Pack of',
                 'Main Image URL', 'Other Image URL 1', 'Other Image URL 2',
                 'Other Image URL 3', 'Other Image URL 4', 'Description', 'Key Features',
-                'Search Keywords', 'Items Included',
+                'Search Keywords', 'Items Included', 'Model Number',
             }
             dynamic_provided = set(fd.get('dynamic_fields', {}).keys())
             if color == BLUE and hdr not in AUTO_HANDLED and hdr not in dynamic_provided:
@@ -6078,7 +6086,8 @@ Respond ONLY with a JSON array of {len(idx_list)} objects, no markdown, no pream
         set_cell(row, 'Key Features',        ai['key_features'])
         set_cell(row, 'Search Keywords',     search_kw_str)
 
-        # Model Number — intentionally left blank (optional field, not required)
+        # Model Number — the SKU identifier (mandatory in some categories)
+        set_cell(row, 'Model Number',        sku_identifier)
 
     # ── Change 7: Write dynamic (category-specific) fields ──────
     dynamic_fields_data = fd.get('dynamic_fields', {})
