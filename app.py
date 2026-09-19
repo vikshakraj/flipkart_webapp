@@ -2458,6 +2458,32 @@ def _prune_ads_store(store):
 import gc as _gc
 
 
+def _detect_skiprows(data_bytes, fallback=2, scan=12):
+    """Find the real header row.
+
+    Flipkart prepends a variable number of metadata/note lines (Start Time,
+    End Time, and sometimes multi-line notes). The keyword report gained two
+    note lines, which silently shifted its header and made the whole report
+    parse into a single junk column. Detecting the header row makes this
+    self-healing instead of a config value that rots.
+    """
+    try:
+        head = data_bytes[:65536].decode('utf-8', errors='replace').split('\n')
+    except Exception:
+        return fallback
+    best, best_fields = None, 0
+    for i, line in enumerate(head[:scan]):
+        low = line.lower()
+        # The header always carries an id/name column and several commas.
+        fields = line.count(',') + 1
+        looks_header = ('campaign id' in low or 'campaign name' in low
+                        or 'listing id' in low or 'search term' in low
+                        or 'fsn' in low and fields > 3)
+        if looks_header and fields > best_fields:
+            best, best_fields = i, fields
+    return best if best is not None else fallback
+
+
 def _parse_csv_bytes(data_bytes, report_type, max_rows=None, sort_col='Views'):
     """Parse CSV bytes into a list of dicts, applying the correct skip rows.
 
@@ -2470,7 +2496,7 @@ def _parse_csv_bytes(data_bytes, report_type, max_rows=None, sort_col='Views'):
     import pandas as pd
     import math
     from io import BytesIO
-    skip = ADS_SKIP_ROWS.get(report_type, 2)
+    skip = _detect_skiprows(data_bytes, ADS_SKIP_ROWS.get(report_type, 2))
     df   = pd.read_csv(BytesIO(data_bytes), skiprows=skip)
     df.columns = [c.strip() for c in df.columns]
 
