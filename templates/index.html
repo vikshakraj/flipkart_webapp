@@ -2796,23 +2796,27 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                     skipEmptyLines: true,
                     complete: (results) => {
                         const rows = results.data;
-                        
-                        if (rows.length < 4) {
-                            resolve({ data: [], startTime: null, endTime: null });
-                            return;
-                        }
-                        
-                        // Extract date range from first two rows
+
+                        // Read the date range FIRST. Flipkart sometimes returns a
+                        // report with no data rows (e.g. an FSN report for a period
+                        // with no activity) — it still carries valid Start/End Time
+                        // lines, and discarding them makes the file look like a
+                        // date-range mismatch rather than an empty report.
                         let startTime = null;
                         let endTime = null;
-                        
+
                         if (rows[0] && rows[0][0] && rows[0][0].includes('Start Time')) {
                             startTime = rows[0][1] ? rows[0][1].trim() : null;
                         }
                         if (rows[1] && rows[1][0] && rows[1][0].includes('End Time')) {
                             endTime = rows[1][1] ? rows[1][1].trim() : null;
                         }
-                        
+
+                        if (rows.length < 4) {
+                            resolve({ data: [], startTime, endTime, empty: true });
+                            return;
+                        }
+
                         // Determine header row based on report type
                         let headerRowIndex = 2;
                         let dataStartIndex = 3;
@@ -3041,22 +3045,28 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
             };
 
             const validateDateRanges = () => {
-                const ranges = Object.values(dateRanges);
+                // Only compare reports that actually carry a date range. A report
+                // whose header we couldn't read (Flipkart returns data-less reports
+                // for periods with no activity) must not count as a mismatch — it
+                // would block an otherwise-valid upload with a misleading error.
+                const ranges = Object.values(dateRanges).filter(r => r && r.start && r.end);
                 if (ranges.length === 0) return { valid: true, message: '' };
-                
-                const firstRange = ranges[0];
-                const firstStart = firstRange.start;
-                const firstEnd = firstRange.end;
-                
-                for (let i = 1; i < ranges.length; i++) {
-                    if (ranges[i].start !== firstStart || ranges[i].end !== firstEnd) {
-                        return { 
-                            valid: false, 
-                            message: `Date range mismatch detected!\n\nAll reports must have the same date range.\n\nExpected: ${firstStart} to ${firstEnd}\n\nPlease re-download all reports with matching date ranges.`
-                        };
-                    }
+
+                const firstStart = ranges[0].start;
+                const firstEnd   = ranges[0].end;
+
+                const bad = Object.entries(dateRanges)
+                    .filter(([, r]) => r && r.start && r.end
+                            && (r.start !== firstStart || r.end !== firstEnd));
+
+                if (bad.length) {
+                    const detail = bad.map(([k, r]) => `\u2022 ${k}: ${r.start} to ${r.end}`).join('\n');
+                    return {
+                        valid: false,
+                        message: `Date range mismatch detected!\n\nAll reports must have the same date range.\n\nExpected: ${firstStart} to ${firstEnd}\n\nMismatched:\n${detail}\n\nPlease re-download these reports with matching date ranges.`
+                    };
                 }
-                
+
                 return { valid: true, message: '', start: firstStart, end: firstEnd };
             };
 
