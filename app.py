@@ -2455,22 +2455,41 @@ def _prune_ads_store(store):
             pruned[k] = v
     return pruned
 
-def _parse_csv_bytes(data_bytes, report_type):
-    """Parse a CSV bytes object into list-of-dicts, applying correct skip rows."""
+import gc as _gc
+
+
+def _parse_csv_bytes(data_bytes, report_type, max_rows=None, sort_col='Views'):
+    """Parse CSV bytes into a list of dicts, applying the correct skip rows.
+
+    Memory matters here: a search-term export can be 28 MB / 190k rows, and
+    holding the DataFrame plus two full dict copies of that peaks near 700 MB,
+    which OOM-kills the container (Railway then returns a bare 502 with no
+    application log). So we trim inside the DataFrame — before materialising
+    any dicts — and build the cleaned rows in a single pass.
+    """
     import pandas as pd
     import math
     from io import BytesIO
     skip = ADS_SKIP_ROWS.get(report_type, 2)
     df   = pd.read_csv(BytesIO(data_bytes), skiprows=skip)
     df.columns = [c.strip() for c in df.columns]
-    rows = df.to_dict(orient='records')
-    # Replace NaN/Inf with None so json.dumps produces valid JSON
+
+    # Trim while still a DataFrame — the row cap used to be applied only after
+    # every report had been converted to dicts, so peak memory was unbounded.
+    if max_rows and len(df) > max_rows:
+        if sort_col in df.columns:
+            df = df.nlargest(max_rows, sort_col, keep='first')
+        else:
+            df = df.head(max_rows)
+
+    # One pass: to_dict + NaN/Inf cleaning together, so only one copy exists.
     clean = []
-    for row in rows:
+    for row in df.to_dict(orient='records'):
         clean.append({
             k: (None if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v)
             for k, v in row.items()
         })
+    del df
     return clean
 
 def _merge_ads_rows(existing_rows, new_rows):
@@ -2484,6 +2503,7 @@ def ads_upload(account):
     persistent JSON store (60-day TTL, newer upload wins per date bucket).
     """
     account = account.upper().replace('-', ' ')
+    print(f'[AdsUpload] start {account}')
     try:
         import pandas as pd
 
@@ -2496,6 +2516,15 @@ def ads_upload(account):
                      'keyword', 'pla', 'placement', 'searchTerm']
         parsed = {}
         date_from, date_to = None, None
+
+        # Row caps, applied during parse (see _parse_csv_bytes) so a huge
+        # report is never fully materialised as dicts.
+        ROW_CAPS = {
+            'searchTerm':    2000,   # exports run to ~190k rows
+            'campaignOrder': 5000,
+            'keyword':       3000,
+            'placement':     2000,
+        }
 
         for key in file_keys:
             f = request.files.get(key)
@@ -2516,31 +2545,20 @@ def ads_upload(account):
                     date_to = parts[1].strip()[:10]
 
             try:
-                rows = _parse_csv_bytes(raw, key)
-                parsed[key] = rows
+                parsed[key] = _parse_csv_bytes(raw, key, max_rows=ROW_CAPS.get(key))
+                print(f'[AdsUpload] {account}/{key}: {len(raw)/1e6:.1f}MB -> '
+                      f'{len(parsed[key])} rows')
             except Exception as pe:
                 print(f'[AdsUpload] Failed to parse {key}: {pe}')
                 continue
+            finally:
+                # Release the raw bytes before reading the next file.
+                del raw
+                text_lines = None
+                _gc.collect()
 
         if not parsed:
             return jsonify({'error': 'No valid files uploaded'}), 400
-
-        # Cap large reports to keep stored JSON manageable
-        ROW_CAPS = {
-            'searchTerm':    2000,   # 54k rows is too large; top 2000 by views is plenty
-            'campaignOrder': 5000,
-            'keyword':       3000,
-            'placement':     2000,
-        }
-        for key, cap in ROW_CAPS.items():
-            if key in parsed and len(parsed[key]) > cap:
-                # Sort by Views desc if available, else just truncate
-                rows = parsed[key]
-                try:
-                    rows = sorted(rows, key=lambda r: float(r.get('Views', 0) or 0), reverse=True)
-                except Exception:
-                    pass
-                parsed[key] = rows[:cap]
 
         # Auto-correct consolidated/consolidatedFSN swap:
         # The correct 'consolidated' key must have 'Ad Spend' (campaign-level spend data).
