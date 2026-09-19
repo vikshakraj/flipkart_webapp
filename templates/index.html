@@ -3307,6 +3307,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                 { id: 'campaigns', label: 'Campaigns', icon: '🎯' },
                 { id: 'skus', label: 'SKU Analysis', icon: '📦' },
                 { id: 'keywords', label: 'Keywords', icon: '🔑' },
+                { id: 'spend-diag', label: 'Spend Diagnostics', icon: '🚦' },
                 { id: 'placements', label: 'Placements', icon: '📍' },
                 { id: 'search-terms', label: 'Search Terms', icon: '🔍' },
                 { id: 'insights', label: 'AI Insights', icon: '🧠' }
@@ -3459,6 +3460,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
                         {activeTab === 'campaigns' && <CampaignsTab data={data} />}
                         {activeTab === 'skus' && <SKUTab data={data} masterSkuMap={masterSkuMap} account={account} />}
                         {activeTab === 'keywords' && <KeywordsTab data={data} />}
+                        {activeTab === 'spend-diag' && <SpendDiagnosticsTab data={data} />}
                         {activeTab === 'placements' && <PlacementsTab data={data} />}
                         {activeTab === 'search-terms' && <SearchTermsTab data={data} />}
                         {activeTab === 'insights' && <InsightsTab data={data} />}
@@ -4515,6 +4517,363 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
         }
 
         // Keywords Tab
+        // ─────────────────────────────────────────────────────────────
+        // SPEND DIAGNOSTICS — why campaigns/keywords aren't spending
+        // The operational problem isn't "which keywords convert" but "which
+        // can spend at all". A campaign with a 1000/day budget spending 2/day
+        // has a keyword-inventory problem, not a bidding problem, and the two
+        // need opposite fixes — so every row is labelled with its reason.
+        // ─────────────────────────────────────────────────────────────
+        const sdNum = (v) => {
+            const f = parseFloat(v);
+            return (isNaN(f) || !isFinite(f)) ? 0 : f;
+        };
+
+        const sdLine = (name) => {
+            const n = String(name || '').toLowerCase();
+            if (n.includes('jmg') || n.includes('massage')) return 'JMG (Massage Gel)';
+            if (n.includes('nfp') || n.includes('foot') || n.includes('patch')) return 'Foot Pads';
+            if (n.includes('sp 4') || n.includes('sp4') || n.includes('toothpaste')) return 'SP4 Toothpaste';
+            return 'Other';
+        };
+
+        const ACTIVE_STATUS = ['LIVE', 'IN_PROGRESS', 'RUNNING'];
+
+        function buildSpendDiagnostics(data) {
+            const pla   = (data && data.pla) || [];
+            const daily = (data && data.consolidated) || [];
+            const kw    = (data && data.keyword) || [];
+
+            // Budgets + status per campaign
+            const budgets = {};
+            pla.forEach(r => {
+                const cid = String(r['Campaign ID'] || '').trim();
+                if (!cid) return;
+                if (!budgets[cid]) budgets[cid] = {
+                    name: r['Campaign Name'] || '', status: r['Campaign Status'] || '',
+                    btype: r['Budgeting Type'] || '', budget: 0
+                };
+                budgets[cid].budget = Math.max(budgets[cid].budget, sdNum(r['Campaign Budget']));
+            });
+
+            // Actual spend per campaign, and how many days it ran
+            const agg = {};
+            daily.forEach(r => {
+                const cid = String(r['Campaign ID'] || '').trim();
+                if (!cid) return;
+                if (!agg[cid]) agg[cid] = { spend:0, views:0, clicks:0, rev:0, units:0, days:new Set() };
+                const a = agg[cid];
+                a.spend  += sdNum(r['Ad Spend']);
+                a.views  += sdNum(r['Views']);
+                a.clicks += sdNum(r['Clicks']);
+                a.rev    += sdNum(r['Total Revenue (Rs.)']);
+                a.units  += sdNum(r['Total converted units']);
+                if (r['Date']) a.days.add(String(r['Date']));
+            });
+
+            const campaigns = [];
+            Object.entries(agg).forEach(([cid, a]) => {
+                const b = budgets[cid] || {};
+                // Aborted/completed campaigns still carry budgets in the report.
+                // Including them buries the real signal under thousands of rows.
+                if (!ACTIVE_STATUS.includes(String(b.status || '').toUpperCase())) return;
+                const days   = Math.max(a.days.size, 1);
+                const budget = b.budget || 0;
+                const dspend = a.spend / days;
+                // TOTAL_BUDGET campaigns hold a lifetime budget, not a daily one.
+                // Comparing their daily spend against it would understate
+                // utilisation enormously (a Rs20,000 lifetime budget would look
+                // like it is spending 1% a day when it is pacing fine).
+                const isDaily = String(b.btype || '').toUpperCase() !== 'TOTAL_BUDGET';
+                const util = budget > 0
+                    ? (isDaily ? dspend / budget * 100 : a.spend / budget * 100)
+                    : null;
+                const ctr    = a.views ? (a.clicks / a.views * 100) : 0;
+                const cpc    = a.clicks ? (a.spend / a.clicks) : 0;
+                const roas   = a.spend ? (a.rev / a.spend) : 0;
+
+                // Order matters: impressions-but-no-clicks is a relevance
+                // problem even when utilisation is also low, and telling the
+                // user to raise the budget there would be wrong.
+                let status, why;
+                if (a.views >= 200 && a.clicks === 0) {
+                    status = 'BLOCKED';
+                    why = 'Getting impressions but zero clicks — listing or bid, not budget';
+                } else if (util !== null && util >= 80) {
+                    status = 'CAPPED';
+                    why = 'Hitting its daily budget — raise it to buy more volume';
+                } else if (util !== null && util < 10) {
+                    status = 'STARVED';
+                    why = 'Barely spending — not enough keyword inventory at this bid/match type';
+                } else if (util !== null && util < 30) {
+                    status = 'THIN';
+                    why = 'Well under budget — widen match types or raise bids';
+                } else {
+                    status = 'HEALTHY';
+                    why = 'Spending a reasonable share of budget';
+                }
+
+                campaigns.push({
+                    cid, name: b.name || '', line: sdLine(b.name),
+                    budget, days, spend: a.spend, dailySpend: dspend, util,
+                    budgetType: isDaily ? 'DAILY' : 'TOTAL',
+                    // Headroom is expressed per day for daily budgets and as the
+                    // remaining lifetime balance for total-budget campaigns.
+                    unusedDaily: budget
+                        ? Math.max(budget - (isDaily ? dspend : a.spend), 0) : 0,
+                    views: a.views, clicks: a.clicks, ctr, cpc,
+                    revenue: a.rev, roas, status, why
+                });
+            });
+            campaigns.sort((x, y) => y.unusedDaily - x.unusedDaily);
+
+            const liveNames = new Set(campaigns.map(c => c.name).filter(Boolean));
+
+            const keywords = [];
+            kw.forEach(r => {
+                const term = String(r['attributed_keyword'] || '').trim();
+                if (!term) return;
+                const views  = sdNum(r['Views']);
+                const clicks = sdNum(r['Clicks']);
+                const spend  = sdNum(r['SUM(cost)']);
+                const rev    = sdNum(r['Direct Revenue']) + sdNum(r['Indirect Revenue']);
+                let bucket;
+                if (spend > 0)        bucket = 'scale';    // proven: it spends AND converts
+                else if (views >= 100) bucket = 'bid_up';  // shown but never wins a click
+                else                   bucket = 'dead';    // no search volume at this match type
+                keywords.push({
+                    keyword: term, match: r['keyword_match_type'] || '',
+                    campaign: r['Campaign Name'] || '', line: sdLine(r['Campaign Name']),
+                    live: liveNames.has(r['Campaign Name'] || ''),
+                    views, clicks, ctr: views ? clicks / views * 100 : 0,
+                    cpc: sdNum(r['Average CPC']), spend, revenue: rev,
+                    roas: spend ? rev / spend : 0, bucket
+                });
+            });
+            keywords.sort((a, b) => (b.roas - a.roas) || (b.spend - a.spend));
+
+            const lines = {};
+            campaigns.forEach(c => {
+                if (!lines[c.line]) lines[c.line] = {
+                    line: c.line, campaigns: 0, budget: 0, dailySpend: 0,
+                    unusedDaily: 0, spend: 0, views: 0, clicks: 0, revenue: 0
+                };
+                const L = lines[c.line];
+                L.campaigns++; L.budget += c.budget; L.dailySpend += c.dailySpend;
+                L.unusedDaily += c.unusedDaily; L.spend += c.spend;
+                L.views += c.views; L.clicks += c.clicks; L.revenue += c.revenue;
+            });
+            const lineRows = Object.values(lines).map(L => ({
+                ...L,
+                util: L.budget ? L.dailySpend / L.budget * 100 : null,
+                ctr:  L.views ? L.clicks / L.views * 100 : 0,
+                cpc:  L.clicks ? L.spend / L.clicks : 0,
+                roas: L.spend ? L.revenue / L.spend : 0
+            })).sort((a, b) => b.unusedDaily - a.unusedDaily);
+
+            return {
+                lines: lineRows, campaigns, keywords,
+                summary: {
+                    totalBudget: campaigns.reduce((s, c) => s + c.budget, 0),
+                    totalDaily:  campaigns.reduce((s, c) => s + c.dailySpend, 0),
+                    unusedDaily: campaigns.reduce((s, c) => s + c.unusedDaily, 0),
+                    starved: campaigns.filter(c => c.status === 'STARVED').length,
+                    blocked: campaigns.filter(c => c.status === 'BLOCKED').length,
+                    capped:  campaigns.filter(c => c.status === 'CAPPED').length,
+                    kwScale: keywords.filter(k => k.bucket === 'scale').length,
+                    kwBidUp: keywords.filter(k => k.bucket === 'bid_up').length,
+                    kwDead:  keywords.filter(k => k.bucket === 'dead').length
+                }
+            };
+        }
+
+        const SD_BADGE = {
+            STARVED: { bg: 'rgba(255,68,102,.15)',  fg: '#ff4466' },
+            BLOCKED: { bg: 'rgba(255,170,0,.15)',   fg: '#ffaa00' },
+            THIN:    { bg: 'rgba(255,200,0,.12)',   fg: '#ffc800' },
+            CAPPED:  { bg: 'rgba(0,200,120,.15)',   fg: '#00c878' },
+            HEALTHY: { bg: 'rgba(0,200,255,.12)',   fg: '#00c8ff' }
+        };
+
+        function SpendDiagnosticsTab({ data }) {
+            const [lineFilter, setLineFilter] = React.useState('all');
+            const [kwBucket, setKwBucket]     = React.useState('scale');
+
+            const diag = React.useMemo(() => buildSpendDiagnostics(data), [data]);
+
+            if (!diag.campaigns.length && !diag.keywords.length) {
+                return (
+                    <div style={{ padding: 24, color: 'var(--muted)' }}>
+                        Spend diagnostics needs the <strong>PLA</strong> (campaign budgets),
+                        <strong> Consolidated</strong> (daily spend) and <strong>Keyword</strong> reports.
+                        Upload those and this tab will populate.
+                    </div>
+                );
+            }
+
+            const rupee = (n) => '\u20b9' + Math.round(n).toLocaleString('en-IN');
+            const allLines = ['all', ...diag.lines.map(l => l.line)];
+            const camps = diag.campaigns.filter(c => lineFilter === 'all' || c.line === lineFilter);
+            const kws = diag.keywords
+                .filter(k => k.bucket === kwBucket)
+                .filter(k => lineFilter === 'all' || k.line === lineFilter);
+
+            const th = { textAlign: 'left', padding: '8px 10px', fontSize: '.72rem',
+                         color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' };
+            const td = { padding: '8px 10px', fontSize: '.82rem', borderTop: '1px solid var(--border)' };
+
+            return (
+                <div>
+                    {/* headline: how much budget is going unspent every day */}
+                    <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 18 }}>
+                        {[
+                            ['Daily budget', rupee(diag.summary.totalBudget), 'var(--text)'],
+                            ['Actually spending', rupee(diag.summary.totalDaily), '#00c8ff'],
+                            ['Unused every day', rupee(diag.summary.unusedDaily), '#ff4466'],
+                            ['Starved campaigns', diag.summary.starved, '#ff4466'],
+                            ['Blocked (no clicks)', diag.summary.blocked, '#ffaa00']
+                        ].map(([label, val, col]) => (
+                            <div key={label} style={{ flex: '1 1 150px', background: 'var(--surface2)',
+                                border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
+                                <div style={{ fontSize: '.7rem', color: 'var(--muted)',
+                                    textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</div>
+                                <div style={{ fontSize: '1.4rem', fontWeight: 700, color: col }}>{val}</div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* product line rollup */}
+                    <h3 style={{ margin: '16px 0 8px', fontSize: '.95rem' }}>By product line</h3>
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead><tr>
+                                {['Line', 'Campaigns', 'Daily budget', 'Spending', 'Unused', 'Util %', 'CPC', 'CTR %', 'ROAS']
+                                    .map(h => <th key={h} style={th}>{h}</th>)}
+                            </tr></thead>
+                            <tbody>
+                                {diag.lines.map(L => (
+                                    <tr key={L.line}>
+                                        <td style={td}>{L.line}</td>
+                                        <td style={td}>{L.campaigns}</td>
+                                        <td style={td}>{rupee(L.budget)}</td>
+                                        <td style={td}>{rupee(L.dailySpend)}</td>
+                                        <td style={{ ...td, color: '#ff4466' }}>{rupee(L.unusedDaily)}</td>
+                                        <td style={td}>{L.util === null ? '\u2014' : L.util.toFixed(1) + '%'}</td>
+                                        <td style={td}>{'\u20b9' + L.cpc.toFixed(2)}</td>
+                                        <td style={td}>{L.ctr.toFixed(2)}%</td>
+                                        <td style={td}>{L.roas.toFixed(2)}x</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* line filter */}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '18px 0 10px' }}>
+                        {allLines.map(l => (
+                            <button key={l} onClick={() => setLineFilter(l)}
+                                className={`tab ${lineFilter === l ? 'active' : ''}`}
+                                style={{ fontSize: '.78rem', padding: '5px 12px' }}>
+                                {l === 'all' ? 'All lines' : l}
+                            </button>
+                        ))}
+                    </div>
+
+                    <h3 style={{ margin: '10px 0 8px', fontSize: '.95rem' }}>
+                        Live campaigns &mdash; most unused budget first
+                    </h3>
+                    <div style={{ overflowX: 'auto', maxHeight: 460, overflowY: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead><tr>
+                                {['Campaign', 'Status', 'Budget/day', 'Spending/day', 'Util %', 'Unused/day', 'CPC', 'CTR %', 'ROAS', 'What to do']
+                                    .map(h => <th key={h} style={th}>{h}</th>)}
+                            </tr></thead>
+                            <tbody>
+                                {camps.slice(0, 200).map(c => {
+                                    const badge = SD_BADGE[c.status] || SD_BADGE.HEALTHY;
+                                    return (
+                                        <tr key={c.cid}>
+                                            <td style={{ ...td, maxWidth: 260 }}>{c.name || c.cid}</td>
+                                            <td style={td}>
+                                                <span style={{ background: badge.bg, color: badge.fg,
+                                                    padding: '2px 8px', borderRadius: 6, fontSize: '.7rem',
+                                                    fontWeight: 700 }}>{c.status}</span>
+                                            </td>
+                                            <td style={td}>{rupee(c.budget)}
+                                                <span style={{ color: 'var(--muted)', fontSize: '.68rem' }}>
+                                                    {' '}{c.budgetType === 'TOTAL' ? 'total' : '/day'}
+                                                </span></td>
+                                            <td style={td}>{rupee(c.budgetType === 'TOTAL' ? c.spend : c.dailySpend)}</td>
+                                            <td style={td}>{c.util === null ? '\u2014' : c.util.toFixed(1) + '%'}</td>
+                                            <td style={{ ...td, color: '#ff4466' }}>{rupee(c.unusedDaily)}</td>
+                                            <td style={td}>{'\u20b9' + c.cpc.toFixed(2)}</td>
+                                            <td style={td}>{c.ctr.toFixed(2)}%</td>
+                                            <td style={td}>{c.roas.toFixed(2)}x</td>
+                                            <td style={{ ...td, color: 'var(--muted)', fontSize: '.74rem', maxWidth: 280 }}>{c.why}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <h3 style={{ margin: '22px 0 8px', fontSize: '.95rem' }}>Keywords</h3>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                        {[
+                            ['scale',  `Scale (${diag.summary.kwScale})`,  'These already spend and convert \u2014 put budget behind them'],
+                            ['bid_up', `Bid up (${diag.summary.kwBidUp})`, 'Shown often, never clicked \u2014 raise the bid or fix the listing'],
+                            ['dead',   `Dead (${diag.summary.kwDead})`,    'Almost no impressions \u2014 no search volume at this match type']
+                        ].map(([id, label]) => (
+                            <button key={id} onClick={() => setKwBucket(id)}
+                                className={`tab ${kwBucket === id ? 'active' : ''}`}
+                                style={{ fontSize: '.78rem', padding: '5px 12px' }}>{label}</button>
+                        ))}
+                    </div>
+                    <div style={{ fontSize: '.78rem', color: 'var(--muted)', marginBottom: 8 }}>
+                        {kwBucket === 'scale' && 'Proven keywords: they win auctions and return revenue. Widen budgets or move them into a dedicated campaign.'}
+                        {kwBucket === 'bid_up' && 'These get impressions but no clicks. That is a relevance or bid problem, not a budget problem.'}
+                        {kwBucket === 'dead' && 'Almost no impressions. Usually EXACT match on a long-tail phrase nobody searches \u2014 switch to PHRASE or drop.'}
+                    </div>
+                    <div style={{ overflowX: 'auto', maxHeight: 460, overflowY: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead><tr>
+                                {['Keyword', 'Match', 'Line', 'Campaign', 'Views', 'Clicks', 'CTR %', 'Spend', 'Revenue', 'ROAS']
+                                    .map(h => <th key={h} style={th}>{h}</th>)}
+                            </tr></thead>
+                            <tbody>
+                                {kws.slice(0, 300).map((k, i) => (
+                                    <tr key={k.keyword + '|' + k.campaign + '|' + i}
+                                        style={{ opacity: k.live ? 1 : .5 }}>
+                                        <td style={td}>{k.keyword}</td>
+                                        <td style={td}>{k.match}</td>
+                                        <td style={td}>{k.line}</td>
+                                        <td style={{ ...td, maxWidth: 220, color: 'var(--muted)', fontSize: '.74rem' }}>{k.campaign}</td>
+                                        <td style={td}>{k.views.toLocaleString('en-IN')}</td>
+                                        <td style={td}>{k.clicks}</td>
+                                        <td style={td}>{k.ctr.toFixed(2)}%</td>
+                                        <td style={td}>{'\u20b9' + k.spend.toFixed(2)}</td>
+                                        <td style={td}>{'\u20b9' + Math.round(k.revenue).toLocaleString('en-IN')}</td>
+                                        <td style={{ ...td, fontWeight: 700,
+                                            color: k.roas >= 4 ? '#00c878' : k.roas > 0 ? 'var(--text)' : 'var(--muted)' }}>
+                                            {k.roas.toFixed(1)}x
+                                        </td>
+                                    </tr>
+                                ))}
+                                {!kws.length && (
+                                    <tr><td style={td} colSpan={10}>No keywords in this bucket for the selected line.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style={{ fontSize: '.72rem', color: 'var(--muted)', marginTop: 8 }}>
+                        Faded rows are keywords whose campaign is no longer live.
+                        Keyword data covers Top/Bottom of Search only &mdash; other placements appear in the Placements tab.
+                    </div>
+                </div>
+            );
+        }
+
+
         function KeywordsTab({ data }) {
             const [filter, setFilter] = useState('all');
 
