@@ -5285,36 +5285,97 @@ def listing_gen_template_status():
 
 @app.route('/api/listing-gen/upload-images', methods=['POST'])
 def listing_gen_upload_images():
-    """Upload images to ImgBB anonymously and return public URLs."""
-    import requests as _req, base64 as _b64
+    """Upload images to ImgBB and return public URLs.
+
+    ImgBB is an external service and occasionally slow. A single attempt with
+    a 30s timeout meant one slow response failed an entire listing run (the
+    frontend rightly refuses to build listings with missing images). So each
+    image is retried on timeouts, connection errors and 5xx/429, with backoff,
+    inside an overall deadline so retries can never outlast the proxy.
+    Client errors (4xx) are not retried — a bad image or key won't succeed on
+    a second try.
+    """
+    import requests as _req, base64 as _b64, time as _time
     IMGBB_API = 'https://api.imgbb.com/1/upload'
-    IMGBB_KEY = os.environ.get('IMGBB_API_KEY', '')  # optional key, anonymous works too
+    IMGBB_KEY = os.environ.get('IMGBB_API_KEY', '')
+
+    MAX_ATTEMPTS    = 3
+    CONNECT_TIMEOUT = 10     # seconds to establish the connection
+    READ_TIMEOUT    = 45     # per attempt; was a single 30s try
+    BACKOFF         = (2, 5) # wait before attempt 2, then attempt 3
+    DEADLINE_S      = 180    # hard ceiling for the whole request — no attempt
+                             # starts unless it can finish inside this
 
     files = request.files.getlist('images')
     if not files:
         return jsonify({'error': 'No images uploaded'}), 400
 
-    urls = []
-    errors = []
+    params   = {'key': IMGBB_KEY} if IMGBB_KEY else {}
+    deadline = _time.monotonic() + DEADLINE_S
+    RETRYABLE_EXC = (_req.exceptions.Timeout, _req.exceptions.ConnectionError)
+    state = {'host_down': False}
+
+    def _upload_one(name, b64):
+        # Circuit breaker: once one image has exhausted its retries against an
+        # unresponsive host, the rest of this batch would just time out one by
+        # one — so fail them immediately with the same actionable message.
+        if state['host_down']:
+            return None, ('skipped — ImgBB stopped responding earlier in this batch. '
+                          'Try again in a minute.')
+        last_err = None
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            wait = BACKOFF[attempt - 2] if attempt > 1 else 0
+            # Never start an attempt that could run past the deadline; a late
+            # response would be cut off by the proxy as a bare 502 anyway.
+            if _time.monotonic() + wait + READ_TIMEOUT > deadline:
+                if last_err is None:
+                    return None, ('skipped — upload time budget used up. '
+                                  'Try again with fewer images at once.')
+                break
+            if wait:
+                _time.sleep(wait)
+            try:
+                resp = _req.post(IMGBB_API, data={'image': b64}, params=params,
+                                 timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
+            except RETRYABLE_EXC as e:
+                last_err = f'{type(e).__name__}'
+                print(f'[ImgBB] {name}: attempt {attempt}/{MAX_ATTEMPTS} failed ({last_err})')
+                continue
+            except Exception as e:             # unexpected — don't loop on it
+                return None, f'{type(e).__name__}: {e}'
+
+            if resp.status_code == 200:
+                try:
+                    j = resp.json()['data']
+                    if attempt > 1:
+                        print(f'[ImgBB] {name}: succeeded on attempt {attempt}')
+                    return {'name': name, 'url': j['url'],
+                            'display_url': j.get('display_url', j['url'])}, None
+                except Exception:
+                    return None, 'ImgBB returned an unreadable response'
+            if resp.status_code == 429 or resp.status_code >= 500:
+                last_err = f'ImgBB {resp.status_code}'
+                print(f'[ImgBB] {name}: attempt {attempt}/{MAX_ATTEMPTS} got {resp.status_code}')
+                continue
+            # 4xx: bad image, bad key, too large — retrying won't help
+            return None, f'ImgBB {resp.status_code}: {resp.text[:120]}'
+
+        state['host_down'] = True
+        return None, (f'image host did not respond after retrying ({last_err}). '
+                      f'ImgBB is slow right now — try again in a minute.')
+
+    urls, errors = [], []
     for f in files:
         try:
-            img_data = f.read()
-            b64 = _b64.b64encode(img_data).decode()
-            params = {'key': IMGBB_KEY} if IMGBB_KEY else {}
-            # ImgBB anonymous upload (no key needed for basic use)
-            resp = _req.post(
-                IMGBB_API,
-                data={'image': b64},
-                params=params,
-                timeout=30
-            )
-            if resp.status_code == 200:
-                j = resp.json()
-                urls.append({'name': f.filename, 'url': j['data']['url'], 'display_url': j['data']['display_url']})
-            else:
-                errors.append({'name': f.filename, 'error': f'ImgBB {resp.status_code}: {resp.text[:100]}'})
+            b64 = _b64.b64encode(f.read()).decode()
         except Exception as e:
-            errors.append({'name': f.filename, 'error': str(e)})
+            errors.append({'name': f.filename, 'error': f'could not read file: {e}'})
+            continue
+        ok, err = _upload_one(f.filename, b64)
+        if ok:
+            urls.append(ok)
+        else:
+            errors.append({'name': f.filename, 'error': err})
 
     return jsonify({'urls': urls, 'errors': errors})
 
