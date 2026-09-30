@@ -252,7 +252,8 @@ def extract_label_keys(text):
 # ─────────────────────────────────────────────
 import urllib.request as _urllib_req
 
-TELEGRAM_TOKEN     = '8734907502:AAF2qgG1eILANUS-VxZrUrM6GfudQi71qCc'
+TELEGRAM_TOKEN     = os.environ.get(
+    'TELEGRAM_TOKEN', '8734907502:AAF2qgG1eILANUS-VxZrUrM6GfudQi71qCc')
 TELEGRAM_OWNER     = 530170157   # Only this chat_id can use commands
 TELEGRAM_API       = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}'
 # To broadcast to a team group later, add the group chat_id here:
@@ -2787,6 +2788,55 @@ def _build_ads_response(store):
 def index():
     with open(os.path.join(os.path.dirname(__file__), 'templates', 'index.html'), 'r') as f:
         return Response(f.read(), mimetype='text/html')
+
+
+# ─────────────────────────────────────────────
+# TELEGRAM RELAY (for Zenaura Ops on HuggingFace)
+#
+# HF Spaces cannot reach api.telegram.org — the connection is accepted then
+# dropped at the connect timeout. Railway can, so Zenaura Ops posts here and
+# this forwards. Guarded by a shared secret: without it this endpoint would be
+# an open Telegram proxy for anyone who found the URL.
+# ─────────────────────────────────────────────
+
+TG_RELAY_SECRET = os.environ.get('TG_RELAY_SECRET', '').strip()
+
+# Only methods the dispatch reporter needs. An open method list would let a
+# caller read updates or change the bot's settings.
+TG_RELAY_ALLOWED = {'sendMessage', 'sendDocument', 'getMe'}
+
+
+@app.route('/api/tg-relay/<method>', methods=['POST'])
+def tg_relay(method):
+    if not TG_RELAY_SECRET:
+        return jsonify({'ok': False,
+                        'error': 'TG_RELAY_SECRET is not set on this server'}), 503
+    if request.headers.get('X-Relay-Secret', '') != TG_RELAY_SECRET:
+        return jsonify({'ok': False, 'error': 'bad relay secret'}), 403
+    if method not in TG_RELAY_ALLOWED:
+        return jsonify({'ok': False, 'error': f'method not allowed: {method}'}), 403
+
+    url = f'{TELEGRAM_API}/{method}'
+    try:
+        import requests as _req
+        if request.files:
+            files = {k: (f.filename, f.stream, f.mimetype)
+                     for k, f in request.files.items()}
+            r = _req.post(url, data=request.form.to_dict(), files=files, timeout=300)
+        elif request.is_json:
+            r = _req.post(url, json=request.get_json(silent=True) or {}, timeout=90)
+        else:
+            r = _req.post(url, data=request.form.to_dict(), timeout=90)
+    except Exception as e:
+        print(f'[TG Relay] {method} failed: {e}')
+        return jsonify({'ok': False, 'error': f'{type(e).__name__}: {e}'}), 502
+
+    print(f'[TG Relay] {method} -> {r.status_code}')
+    # Pass Telegram's own status through so the caller can tell a bad chat id
+    # (400, no point retrying) from a transient failure (5xx, worth retrying).
+    return Response(r.content, status=r.status_code,
+                    mimetype=r.headers.get('Content-Type', 'application/json'))
+
 
 @app.route('/api/master-sku-map', methods=['GET'])
 def master_sku_map():
