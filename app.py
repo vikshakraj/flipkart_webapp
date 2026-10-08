@@ -2838,6 +2838,98 @@ def tg_relay(method):
                     mimetype=r.headers.get('Content-Type', 'application/json'))
 
 
+
+# ─────────────────────────────────────────────
+# ZENAURA SPACE KEEP-ALIVE
+#
+# The Zenaura Ops Space on HuggingFace sleeps when idle. cron-job.org's pings
+# were not enough to prevent it: a ping on a cold Space only *starts* the wake,
+# and the caller gives up at 30s while HF is still booting, so the dispatch
+# never fires. Railway is always on, so it pings with a timeout long enough to
+# let a cold start finish, and does so often enough that the Space stays warm.
+# ─────────────────────────────────────────────
+
+ZENAURA_KEEPALIVE_URL = os.environ.get('ZENAURA_KEEPALIVE_URL', '').strip().rstrip('/')
+KEEPALIVE_EVERY_MIN   = int(os.environ.get('KEEPALIVE_EVERY_MIN', 10))
+# Generous on purpose: a cold HF Space can take well over a minute to serve its
+# first request, and giving up early is exactly the failure we are fixing.
+KEEPALIVE_TIMEOUT_S   = int(os.environ.get('KEEPALIVE_TIMEOUT_S', 180))
+
+_KEEPALIVE_STATE = {'last_ok': None, 'last_error': None, 'last_ms': None,
+                    'woke_count': 0, 'checks': 0}
+
+
+def _keepalive_ping():
+    """Ping the Space once. Returns (ok, detail, seconds)."""
+    import requests as _req
+    url = f'{ZENAURA_KEEPALIVE_URL}/api/auto-dispatch/last-run'
+    t0 = _ad_time.monotonic()
+    try:
+        r = _req.get(url, timeout=(10, KEEPALIVE_TIMEOUT_S))
+        took = _ad_time.monotonic() - t0
+        return (r.status_code < 500), f'HTTP {r.status_code}', took
+    except Exception as e:
+        return False, f'{type(e).__name__}: {e}', _ad_time.monotonic() - t0
+
+
+def _keepalive_loop():
+    print(f'[KeepAlive] watching {ZENAURA_KEEPALIVE_URL} '
+          f'every {KEEPALIVE_EVERY_MIN} min')
+    while True:
+        ok, detail, took = _keepalive_ping()
+        _KEEPALIVE_STATE['checks'] += 1
+        _KEEPALIVE_STATE['last_ms'] = int(took * 1000)
+        if ok:
+            _KEEPALIVE_STATE['last_ok'] = _ad_time.time()
+            _KEEPALIVE_STATE['last_error'] = None
+            # A slow response means the Space had gone to sleep and this ping
+            # woke it. Worth counting: if it keeps climbing, the ping interval
+            # is too long for HF's idle timeout.
+            if took > 15:
+                _KEEPALIVE_STATE['woke_count'] += 1
+                print(f'[KeepAlive] woke the Space ({took:.0f}s)')
+        else:
+            _KEEPALIVE_STATE['last_error'] = detail
+            print(f'[KeepAlive] FAILED after {took:.0f}s: {detail}')
+            # One immediate retry: the first request to a sleeping Space often
+            # errors while the second, moments later, succeeds.
+            _ad_time.sleep(20)
+            ok2, detail2, took2 = _keepalive_ping()
+            if ok2:
+                _KEEPALIVE_STATE['last_ok'] = _ad_time.time()
+                _KEEPALIVE_STATE['last_error'] = None
+                _KEEPALIVE_STATE['woke_count'] += 1
+                print(f'[KeepAlive] recovered on retry ({took2:.0f}s)')
+            else:
+                _KEEPALIVE_STATE['last_error'] = detail2
+        _ad_time.sleep(max(KEEPALIVE_EVERY_MIN, 1) * 60)
+
+
+def _start_keepalive():
+    """Start the keep-alive thread, if a target URL is configured."""
+    if not ZENAURA_KEEPALIVE_URL:
+        print('[KeepAlive] ZENAURA_KEEPALIVE_URL not set — keep-alive disabled')
+        return
+    t = _ad_threading.Thread(target=_keepalive_loop, daemon=True,
+                             name='zenaura-keepalive')
+    t.start()
+
+
+@app.route('/api/keepalive-status', methods=['GET'])
+def keepalive_status():
+    """Is the Space being kept awake, and when was it last confirmed up?"""
+    st = dict(_KEEPALIVE_STATE)
+    if st.get('last_ok'):
+        st['last_ok_ago_s'] = int(_ad_time.time() - st['last_ok'])
+        st['last_ok'] = datetime.datetime.fromtimestamp(
+            st['last_ok']).strftime('%d %b %Y, %H:%M')
+    st['target'] = ZENAURA_KEEPALIVE_URL or None
+    st['every_min'] = KEEPALIVE_EVERY_MIN
+    st['enabled'] = bool(ZENAURA_KEEPALIVE_URL)
+    return jsonify(st)
+
+
+
 @app.route('/api/master-sku-map', methods=['GET'])
 def master_sku_map():
     """Return SKU -> ProductName mapping from master SKU file."""
@@ -6684,6 +6776,7 @@ def listing_download(filename):
 if __name__ == '__main__':
     import os
     _register_telegram_webhook()
+    _start_keepalive()
     port = int(os.environ.get('PORT', 5050))
     print(f"\U0001f3f7\ufe0f  Flipkart Ops Hub running at http://localhost:{port}")
     app.run(host='0.0.0.0', port=port, debug=False)
